@@ -4,7 +4,7 @@
 
 完整阶段路线见 `docs/product/roadmap.md`。
 
-当前阶段细节见 `docs/product/phases/phase-0-foundation.md`。
+当前阶段状态见 `.specflow/workflows/phase-1-local-loop.md`。
 
 后续阶段说明见 `docs/product/phases/`。
 

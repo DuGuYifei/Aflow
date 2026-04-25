@@ -24,6 +24,10 @@
 
 本地 workflow engine、状态机、调度和执行收敛层。
 
+## Agent CLI
+
+执行某个 workflow node 的本地 agent 命令选择。当前默认值是 `codex`，Phase 1 只建模选择边界，不调用真实 agent。
+
 ## Node
 
 workflow graph 中可观察的步骤。
