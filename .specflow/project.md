@@ -12,7 +12,7 @@
 
 当前核心包：`packages/core`、`packages/runtime`、`packages/specflow`、`packages/agent`。
 
-当前本地产品表面：`packages/local-api`、`packages/ui`。
+当前本地产品表面：`packages/server`、`packages/ui`。
 
 产品愿景见 `docs/product/vision.md`。
 

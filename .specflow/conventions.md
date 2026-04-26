@@ -22,7 +22,7 @@ workflow engine、状态机和 runtime 契约放在 `packages/runtime`。
 
 agent runner、工具调用和执行策略放在 `packages/agent`。
 
-本地 API / IPC 适配层放在 `packages/local-api`。
+本地 server / IPC 适配层放在 `packages/server`。
 
 React 节点式 workflow 面板组件放在 `packages/ui`。
 
@@ -34,7 +34,7 @@ React 节点式 workflow 面板组件放在 `packages/ui`。
 
 CLI 命令输出必须可预测。
 
-Local API 只表达本地适配边界，不应被设计成独立后端产品。
+Server 只表达本地适配边界，不应被设计成独立后端产品。
 
 UI 应该让 workflow graph 概念可见，不应被设计成独立 Web 产品。
 

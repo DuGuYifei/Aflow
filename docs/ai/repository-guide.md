@@ -21,7 +21,7 @@
 - workflow runtime：`packages/runtime/src`
 - `.specflow` 读写工具：`packages/specflow/src`
 - agent 抽象：`packages/agent/src`
-- 本地 API / IPC 适配层：`packages/local-api/src`
+- 本地 server / IPC 适配层：`packages/server/src`
 - React workflow 面板：`packages/ui/src`
 
 ## `docs` 与 `.specflow` 的边界
@@ -56,7 +56,7 @@ shell 激活 mise 后，直接运行 `pnpm ...`。不要在普通文档中要求
 - 不添加 CI workflow。
 - 不创建桌面壳。
 - UI 保持本地组件包，不作为独立 Web 产品。
-- Local API 保持本地适配层，不作为独立后端产品。
+- Server 保持本地适配层，不作为独立后端产品。
 
 ## 修改规则
 
@@ -64,6 +64,6 @@ shell 激活 mise 后，直接运行 `pnpm ...`。不要在普通文档中要求
 
 共享领域语言放在 `packages/core`。workflow engine 和 runtime 契约放在 `packages/runtime`。读取 `.specflow` 的逻辑放在 `packages/specflow`。
 
-CLI 输出应该可预测。Local API 只表达本地适配边界。UI 应该让 workflow graph 概念可见，避免过早引入复杂状态。
+CLI 输出应该可预测。Server 只表达本地适配边界。UI 应该让 workflow graph 概念可见，避免过早引入复杂状态。
 
 文档修改时，避免把同一段长解释复制到多个文件。`.specflow` 记录事实，`docs` 解释原因。

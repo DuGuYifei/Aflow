@@ -12,7 +12,7 @@ workflow engine、状态机、调度和执行占位位于 `packages/runtime`。
 
 agent runner、工具调用和执行策略占位位于 `packages/agent`。
 
-本地 API / IPC 适配层占位位于 `packages/local-api`。
+本地 server / IPC 适配层占位位于 `packages/server`。
 
 React 节点式 workflow 面板组件位于 `packages/ui`。
 

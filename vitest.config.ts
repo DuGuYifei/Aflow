@@ -10,8 +10,8 @@ export default defineConfig({
       "@specflow/core": fileURLToPath(
         new URL("./packages/core/src/index.ts", import.meta.url)
       ),
-      "@specflow/local-api": fileURLToPath(
-        new URL("./packages/local-api/src/index.ts", import.meta.url)
+      "@specflow/server": fileURLToPath(
+        new URL("./packages/server/src/index.ts", import.meta.url)
       ),
       "@specflow/shared": fileURLToPath(
         new URL("./packages/shared/src/index.ts", import.meta.url)

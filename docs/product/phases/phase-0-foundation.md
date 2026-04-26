@@ -12,7 +12,7 @@
 - 使用 Turbo 编排本地任务
 - 使用 TypeScript
 - 建立 CLI 应用
-- 建立 core、runtime、specflow、agent、local-api、ui、shared、config package
+- 建立 core、runtime、specflow、agent、server、ui、shared、config package
 - 建立 `.specflow` 目录
 - 建立 `docs` 目录
 - 建立基础领域类型

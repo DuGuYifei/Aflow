@@ -5,17 +5,17 @@ import {
   formatDefaultWorkflowFlow
 } from "@specflow/shared";
 
-export function buildLocalApi() {
-  const localApi = Fastify({
+export function buildServer() {
+  const server = Fastify({
     logger: true
   });
 
-  localApi.get("/health", async () => ({
+  server.get("/health", async () => ({
     status: "ok",
-    service: "specflow-local-api"
+    service: "specflow-server"
   }));
 
-  localApi.get("/api/project", async () => ({
+  server.get("/api/project", async () => ({
     name: "Specflow",
     category: CONTINUOUS_CODING_CATEGORY,
     status: LOCAL_FOUNDATION_STATUS,
@@ -23,15 +23,15 @@ export function buildLocalApi() {
     runtime: "placeholder"
   }));
 
-  return localApi;
+  return server;
 }
 
 async function start(): Promise<void> {
   const port = Number(process.env.PORT ?? 3000);
   const host = process.env.HOST ?? "127.0.0.1";
-  const localApi = buildLocalApi();
+  const server = buildServer();
 
-  await localApi.listen({ port, host });
+  await server.listen({ port, host });
 }
 
 if (process.argv[1]?.endsWith("index.ts") || process.argv[1]?.endsWith("index.js")) {

@@ -76,9 +76,9 @@ workflow graph 中节点之间的关系。
 
 未来用于执行 lint、typecheck、test、build 等本地验证命令的 verifier。
 
-## Local API
+## Server
 
-本地 API / IPC 适配层，用于连接 CLI、UI、未来桌面壳和 runtime。
+本地 server / IPC 适配层，用于连接 CLI、UI、未来桌面壳和 runtime。
 
 ## UI Panel
 

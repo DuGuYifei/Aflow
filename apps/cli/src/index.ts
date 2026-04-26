@@ -14,7 +14,7 @@ const requiredProjectPaths = [
   "tsconfig.base.json",
   ".specflow",
   "apps/cli",
-  "packages/local-api",
+  "packages/server",
   "packages/ui",
   "packages/core",
   "packages/runtime",
