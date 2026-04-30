@@ -71,4 +71,6 @@ Session、director、manager、reviewer 和 verifier 属于领域模型。新增
 
 `.specflow/workflows/*.workflow.json` 是程序读取的结构化事实，`.specflow/workflows/*.md` 是状态说明。不要只改 Markdown 而遗漏 JSON definition。
 
+UI draft graph 通过 server 的 `/api/workflows` 获取 workflow definition。调整 workflow definition 展示时，优先保持这个 API 边界稳定。
+
 文档修改时，避免把同一段长解释复制到多个文件。`.specflow` 记录事实，`docs` 解释原因。

@@ -4,14 +4,17 @@ import { fileURLToPath } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   FileWorkflowRunStore,
+  createPhase1LocalLoopGraph,
   createLocalWorkflowRun,
-  executeLocalWorkflowRun
+  executeLocalWorkflowRun,
+  validateGraph
 } from "@specflow/runtime";
 import {
   CONTINUOUS_CODING_CATEGORY,
   LOCAL_FOUNDATION_STATUS,
   formatDefaultWorkflowFlow
 } from "@specflow/shared";
+import { readSpecflowWorkflowDefinitions } from "@specflow/specflow";
 import type { TicketInput } from "@specflow/runtime";
 
 export interface BuildServerOptions {
@@ -47,6 +50,31 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     flow: formatDefaultWorkflowFlow(),
     runtime: "placeholder"
   }));
+
+  server.get("/api/workflows", async () => {
+    const root = await resolveRoot(options.root);
+    const workflowDefinitions = await readSpecflowWorkflowDefinitions(root);
+    const workflows =
+      workflowDefinitions.length > 0
+        ? workflowDefinitions.map((workflow) => ({
+            source: "repository" as const,
+            path: workflow.path,
+            definition: workflow.definition,
+            validation: validateGraph(workflow.definition)
+          }))
+        : [
+            {
+              source: "builtin" as const,
+              path: undefined,
+              definition: createPhase1LocalLoopGraph(),
+              validation: validateGraph(createPhase1LocalLoopGraph())
+            }
+          ];
+
+    return {
+      workflows
+    };
+  });
 
   server.get("/api/runs", async () => {
     const root = await resolveRoot(options.root);
@@ -134,12 +162,14 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   return server;
 }
 
-export async function startServer(options: {
-  root?: string;
-  host?: string;
-  port?: number;
-  stepDelayMs?: number;
-} = {}): Promise<FastifyInstance> {
+export async function startServer(
+  options: {
+    root?: string;
+    host?: string;
+    port?: number;
+    stepDelayMs?: number;
+  } = {}
+): Promise<FastifyInstance> {
   const server = buildServer({
     root: options.root,
     stepDelayMs: options.stepDelayMs
@@ -193,7 +223,14 @@ async function findRepositoryRoot(start = process.cwd()): Promise<string> {
 }
 
 function defaultUiDistPath(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "ui", "dist", "panel");
+  return join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "ui",
+    "dist",
+    "panel"
+  );
 }
 
 function contentTypeFor(path: string): string {

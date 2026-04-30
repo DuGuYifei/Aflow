@@ -116,6 +116,33 @@ h2 {
   margin-top: 10px;
 }
 
+.definition-item {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(130, 150, 157, 0.18);
+  background: rgba(9, 14, 18, 0.48);
+}
+
+.definition-item span,
+.definition-item strong,
+.definition-item small {
+  overflow-wrap: anywhere;
+}
+
+.definition-item span {
+  color: #e7edf0;
+  font-weight: 850;
+}
+
+.definition-item strong,
+.definition-item small {
+  color: #91a1a8;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
 .run-item,
 .artifact-item {
   width: 100%;

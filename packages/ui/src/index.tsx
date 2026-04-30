@@ -54,6 +54,34 @@ interface WorkflowEdge {
   label?: string;
 }
 
+interface WorkflowDefinition {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  entryNodeId?: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+interface WorkflowValidationIssue {
+  message: string;
+  nodeId?: string;
+  edgeId?: string;
+}
+
+interface WorkflowValidationResult {
+  valid: boolean;
+  issues: WorkflowValidationIssue[];
+}
+
+interface WorkflowDefinitionSummary {
+  source: "repository" | "builtin";
+  path?: string;
+  definition: WorkflowDefinition;
+  validation: WorkflowValidationResult;
+}
+
 interface NodeExecutionState {
   nodeId: string;
   nodeType: string;
@@ -145,6 +173,10 @@ interface CreateRunResponse {
   runId: string;
 }
 
+interface WorkflowsResponse {
+  workflows: WorkflowDefinitionSummary[];
+}
+
 const nodePositions: Record<string, { x: number; y: number }> = {
   "ticket-input": { x: 0, y: 150 },
   "spec-context": { x: 230, y: 150 },
@@ -157,6 +189,9 @@ const nodePositions: Record<string, { x: number; y: number }> = {
 };
 
 export function WorkflowPanel() {
+  const [workflowDefinitions, setWorkflowDefinitions] = useState<
+    WorkflowDefinitionSummary[]
+  >([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const [selectedRun, setSelectedRun] = useState<WorkflowRun>();
@@ -167,7 +202,12 @@ export function WorkflowPanel() {
   const [isCreatingRun, setIsCreatingRun] = useState(false);
   const [error, setError] = useState<string>();
 
-  const visibleRun = selectedRun ?? createDraftRun();
+  const selectedWorkflowDefinition = workflowDefinitions[0];
+  const draftRun = useMemo(
+    () => createDraftRun(selectedWorkflowDefinition?.definition),
+    [selectedWorkflowDefinition]
+  );
+  const visibleRun = selectedRun ?? draftRun;
   const selectedExecution = visibleRun.nodeExecutions.find(
     (execution) => execution.nodeId === selectedNodeId
   );
@@ -193,6 +233,17 @@ export function WorkflowPanel() {
     setSelectedRunId((current) => current ?? payload.runs[0]?.id);
   }, []);
 
+  const refreshWorkflowDefinitions = useCallback(async () => {
+    const response = await fetch("/api/workflows");
+
+    if (!response.ok) {
+      throw new Error(`Workflow request failed: ${response.status}`);
+    }
+
+    const payload = (await response.json()) as WorkflowsResponse;
+    setWorkflowDefinitions(payload.workflows);
+  }, []);
+
   const refreshSelectedRun = useCallback(async () => {
     if (!selectedRunId) {
       setSelectedRun(undefined);
@@ -211,10 +262,13 @@ export function WorkflowPanel() {
   }, [selectedRunId]);
 
   useEffect(() => {
+    void refreshWorkflowDefinitions().catch((caughtError: unknown) => {
+      setError(formatError(caughtError));
+    });
     void refreshRuns().catch((caughtError: unknown) => {
       setError(formatError(caughtError));
     });
-  }, [refreshRuns]);
+  }, [refreshRuns, refreshWorkflowDefinitions]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -335,6 +389,26 @@ export function WorkflowPanel() {
             <p className="eyebrow">Specflow</p>
             <h1>Local Loop</h1>
           </div>
+        </div>
+        <div className="rail-section">
+          <p className="section-label">Workflow</p>
+          {selectedWorkflowDefinition ? (
+            <div className="definition-item">
+              <span>{selectedWorkflowDefinition.definition.name}</span>
+              <strong>
+                {selectedWorkflowDefinition.source}
+                {selectedWorkflowDefinition.validation.valid
+                  ? " / valid"
+                  : " / invalid"}
+              </strong>
+              <small>
+                {selectedWorkflowDefinition.path ??
+                  selectedWorkflowDefinition.definition.id}
+              </small>
+            </div>
+          ) : (
+            <p className="muted-line">Loading definition</p>
+          )}
         </div>
         <div className="rail-section">
           <p className="section-label">Runs</p>
@@ -546,7 +620,7 @@ export function WorkflowPanel() {
 }
 
 function mapRunNodes(run: WorkflowRun, selectedNodeId: string): Node[] {
-  return run.nodes.map((node) => {
+  return run.nodes.map((node, index) => {
     const execution = run.nodeExecutions.find(
       (candidate) => candidate.nodeId === node.id
     );
@@ -558,7 +632,7 @@ function mapRunNodes(run: WorkflowRun, selectedNodeId: string): Node[] {
 
     return {
       id: node.id,
-      position: nodePositions[node.id] ?? { x: 0, y: 0 },
+      position: nodePositions[node.id] ?? { x: index * 230, y: 150 },
       className: `workflow-node node-role-${role} state-${status} ${
         selectedNodeId === node.id ? "is-selected" : ""
       }`,
@@ -615,7 +689,7 @@ function mapRunEdges(edges: WorkflowEdge[]): Edge[] {
   });
 }
 
-function createDraftRun(): WorkflowRun {
+function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
   const now = new Date().toISOString();
   const managedNodeIds = [
     "plan",
@@ -624,7 +698,7 @@ function createDraftRun(): WorkflowRun {
     "repair-loop",
     "final-patch"
   ];
-  const nodes: WorkflowRun["nodes"] = [
+  const nodes: WorkflowRun["nodes"] = definition?.nodes ?? [
     {
       id: "ticket-input",
       type: "ticket",
@@ -736,7 +810,7 @@ function createDraftRun(): WorkflowRun {
     },
     status: "created",
     nodes,
-    edges: [
+    edges: definition?.edges ?? [
       {
         id: "ticket-spec-context",
         source: "ticket-input",
@@ -798,12 +872,11 @@ function createDraftRun(): WorkflowRun {
       nodeType: node.type,
       label: node.label,
       status: "pending",
-      executionMode:
-        node.id === "ticket-input" || node.id === "spec-context" ? "system" : "agent",
+      executionMode: draftNodeExecutionMode(node),
       agentCli:
-        node.id === "ticket-input" || node.id === "spec-context"
-          ? undefined
-          : { cli: "codex", args: [] },
+        draftNodeExecutionMode(node) === "agent"
+          ? { cli: "codex", args: [] }
+          : undefined,
       inputArtifactIds: [],
       outputArtifactIds: [],
       attempts: 0,
@@ -827,6 +900,10 @@ function executionModeLabel(execution?: NodeExecutionState): string {
   return execution.executionMode === "agent"
     ? `agent:${execution.agentCli?.cli ?? "unknown"}`
     : "system";
+}
+
+function draftNodeExecutionMode(node: WorkflowNode): "system" | "agent" {
+  return node.type === "ticket" || node.type === "spec_context" ? "system" : "agent";
 }
 
 function sessionPolicyLabel(node?: WorkflowNode): string {

@@ -7,7 +7,9 @@ import { buildServer } from "./index.js";
 const tempRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    tempRoots.map((root) => rm(root, { recursive: true, force: true }))
+  );
   tempRoots.length = 0;
 });
 
@@ -65,6 +67,57 @@ describe("server routes", () => {
     expect(run.status).toBe("completed");
     expect(artifactResponse.statusCode).toBe(200);
     expect(artifactResponse.json().artifact.id).toBe(artifact.id);
+  });
+
+  it("serves repository workflow definitions with validation", async () => {
+    const root = await createRepositoryRoot();
+    const server = buildServer({
+      root,
+      uiDistPath: await createUiDist()
+    });
+
+    await mkdir(join(root, ".specflow", "workflows"), { recursive: true });
+    await writeFile(
+      join(root, ".specflow", "workflows", "demo.workflow.json"),
+      JSON.stringify(
+        {
+          id: "demo",
+          name: "Demo Workflow",
+          entryNodeId: "ticket-input",
+          nodes: [
+            {
+              id: "ticket-input",
+              type: "ticket",
+              label: "Ticket Input",
+              status: "pending"
+            }
+          ],
+          edges: []
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const response = await server.inject({ method: "GET", url: "/api/workflows" });
+    const body = response.json() as {
+      workflows: Array<{
+        source: string;
+        path: string;
+        definition: { id: string };
+        validation: { valid: boolean };
+      }>;
+    };
+
+    expect(response.statusCode).toBe(200);
+    expect(body.workflows).toHaveLength(1);
+    expect(body.workflows[0]).toMatchObject({
+      source: "repository",
+      path: "workflows/demo.workflow.json",
+      definition: { id: "demo" },
+      validation: { valid: true }
+    });
   });
 
   it("serves the UI shell", async () => {

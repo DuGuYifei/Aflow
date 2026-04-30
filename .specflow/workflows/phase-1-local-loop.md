@@ -15,6 +15,8 @@ Phase 1 当前状态：已开始实现。
 - `packages/runtime` 负责将节点 session policy、Session Director control decision 和 workflow session 写入 run state。
 - `packages/specflow` 只负责通用 `.specflow` 读写和仓库知识层能力。
 - `packages/specflow` 可以读取 `.specflow/workflows/*.workflow.json`，但不负责执行 workflow。
+- 本地 server 通过 `/api/workflows` 暴露 workflow definition 和 validation result。
+- UI draft graph 优先使用 `/api/workflows` 返回的结构化 definition。
 - `packages/agent` 只保留 agent runner、执行策略和 agent CLI 选择的边界。
 - 不集成真实 Codex 调用。
 - 不实现生产级 orchestration。
@@ -163,6 +165,25 @@ Phase 1 当前状态：已开始实现。
 
 - 当前不让 runtime 完全由 JSON definition 驱动执行。
 - 当前不实现 UI 图编辑器。
+
+### P1.11 Workflow Definition API / UI Draft Graph
+
+完成状态：已完成。
+
+完成条件：
+
+- Server 提供 `/api/workflows`。
+- API 返回 repository workflow definition、来源路径和 validation result。
+- 如果仓库没有结构化 definition，API 返回内置 Phase 1 workflow fallback。
+- UI 启动时读取 `/api/workflows`。
+- UI draft graph 优先由 workflow definition 构建。
+- UI 显示当前 workflow definition 的来源和校验状态。
+
+非目标：
+
+- 当前不实现 workflow definition 写入。
+- 当前不实现图编辑器。
+- 当前不让 create run 请求选择多个 workflow definition。
 
 ### P1.6 Final Patch 候选输出
 
