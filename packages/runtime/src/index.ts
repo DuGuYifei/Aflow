@@ -11,7 +11,7 @@ import type {
   WorkflowControlDecision,
   WorkflowArtifact,
   WorkflowArtifactKind,
-  WorkflowEdge,
+  WorkflowDefinition,
   WorkflowNode,
   WorkflowRun,
   WorkflowSession
@@ -20,12 +20,7 @@ import { readSpecflowKnowledge } from "@specflow/specflow";
 
 export const DEFAULT_AGENT_CLI = "codex";
 
-export interface GraphDefinition {
-  id: string;
-  name: string;
-  nodes: WorkflowNode[];
-  edges: WorkflowEdge[];
-}
+export type GraphDefinition = WorkflowDefinition;
 
 export interface GraphValidationIssue {
   message: string;
@@ -113,6 +108,13 @@ export function validateGraph(graph: GraphDefinition): GraphValidationResult {
     nodeIds.add(node.id);
   }
 
+  if (graph.entryNodeId && !nodeIds.has(graph.entryNodeId)) {
+    issues.push({
+      message: `Entry node does not exist: ${graph.entryNodeId}`,
+      nodeId: graph.entryNodeId
+    });
+  }
+
   for (const edge of graph.edges) {
     if (!nodeIds.has(edge.source)) {
       issues.push({
@@ -125,6 +127,92 @@ export function validateGraph(graph: GraphDefinition): GraphValidationResult {
       issues.push({
         message: `Edge target does not exist: ${edge.target}`,
         edgeId: edge.id
+      });
+    }
+
+    if (edge.type === "control_scope") {
+      const sourceNode = graph.nodes.find((node) => node.id === edge.source);
+
+      if (!sourceNode?.control) {
+        issues.push({
+          message: `Control scope edge source has no control scope: ${edge.source}`,
+          nodeId: edge.source,
+          edgeId: edge.id
+        });
+      } else if (!sourceNode.control.managedNodeIds.includes(edge.target)) {
+        issues.push({
+          message: `Control scope edge target is not managed by source: ${edge.target}`,
+          nodeId: edge.source,
+          edgeId: edge.id
+        });
+      }
+    }
+  }
+
+  for (const node of graph.nodes) {
+    const policy = node.session;
+
+    if (
+      policy &&
+      policy.mode !== "none" &&
+      policy.mode !== "ai_decides" &&
+      !policy.groupId
+    ) {
+      issues.push({
+        message: `Session policy requires a group id: ${node.id}`,
+        nodeId: node.id
+      });
+    }
+
+    if (policy?.mode === "ai_decides") {
+      if (!policy.groupId) {
+        issues.push({
+          message: `AI-decided session policy requires a group id: ${node.id}`,
+          nodeId: node.id
+        });
+      }
+
+      if (!policy.controllerNodeId || !nodeIds.has(policy.controllerNodeId)) {
+        issues.push({
+          message: `AI-decided session policy has missing controller: ${node.id}`,
+          nodeId: node.id
+        });
+      } else {
+        const controller = graph.nodes.find(
+          (candidate) => candidate.id === policy.controllerNodeId
+        );
+
+        if (!controller?.control?.decisionKinds.includes("session")) {
+          issues.push({
+            message: `Session controller cannot make session decisions: ${policy.controllerNodeId}`,
+            nodeId: policy.controllerNodeId
+          });
+        }
+
+        if (!controller?.control?.managedNodeIds.includes(node.id)) {
+          issues.push({
+            message: `Session controller does not manage node: ${node.id}`,
+            nodeId: node.id
+          });
+        }
+      }
+    }
+
+    if (node.control) {
+      for (const managedNodeId of node.control.managedNodeIds) {
+        if (!nodeIds.has(managedNodeId)) {
+          issues.push({
+            message: `Managed node does not exist: ${managedNodeId}`,
+            nodeId: node.id
+          });
+        }
+      }
+    }
+
+    if (node.role === "director" && !node.control) {
+      issues.push({
+        message: `Director node requires a control scope: ${node.id}`,
+        nodeId: node.id
       });
     }
   }

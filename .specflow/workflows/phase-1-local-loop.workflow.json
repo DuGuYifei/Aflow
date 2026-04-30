@@ -1,0 +1,203 @@
+{
+  "id": "phase-1-local-loop",
+  "name": "Phase 1 Local Loop",
+  "version": "0.1.0",
+  "description": "Structured workflow definition for the current local placeholder loop.",
+  "entryNodeId": "ticket-input",
+  "nodes": [
+    {
+      "id": "ticket-input",
+      "type": "ticket",
+      "label": "Ticket Input",
+      "status": "pending",
+      "role": "input",
+      "session": {
+        "mode": "none"
+      }
+    },
+    {
+      "id": "spec-context",
+      "type": "spec_context",
+      "label": "Spec Context",
+      "status": "pending",
+      "role": "context",
+      "session": {
+        "mode": "none"
+      }
+    },
+    {
+      "id": "session-director",
+      "type": "workflow_director",
+      "label": "Session Director",
+      "status": "pending",
+      "role": "director",
+      "session": {
+        "mode": "fresh",
+        "groupId": "direction",
+        "label": "Direction"
+      },
+      "control": {
+        "managedNodeIds": [
+          "plan",
+          "code-draft",
+          "implementation-review",
+          "repair-loop",
+          "final-patch"
+        ],
+        "decisionKinds": ["session"]
+      }
+    },
+    {
+      "id": "plan",
+      "type": "plan",
+      "label": "Plan",
+      "status": "pending",
+      "role": "worker",
+      "session": {
+        "mode": "ai_decides",
+        "groupId": "implementation",
+        "label": "Implementation",
+        "controllerNodeId": "session-director"
+      }
+    },
+    {
+      "id": "code-draft",
+      "type": "code_draft",
+      "label": "Code Draft",
+      "status": "pending",
+      "role": "worker",
+      "session": {
+        "mode": "ai_decides",
+        "groupId": "implementation",
+        "label": "Implementation",
+        "controllerNodeId": "session-director"
+      }
+    },
+    {
+      "id": "implementation-review",
+      "type": "implementation_reviewer",
+      "label": "Implementation Review",
+      "status": "pending",
+      "role": "reviewer",
+      "session": {
+        "mode": "ai_decides",
+        "groupId": "review",
+        "label": "Review",
+        "controllerNodeId": "session-director",
+        "newSessionOnLoop": true
+      }
+    },
+    {
+      "id": "repair-loop",
+      "type": "repair",
+      "label": "Repair Loop",
+      "status": "pending",
+      "role": "worker",
+      "session": {
+        "mode": "ai_decides",
+        "groupId": "implementation",
+        "label": "Implementation",
+        "controllerNodeId": "session-director",
+        "newSessionOnLoop": true
+      }
+    },
+    {
+      "id": "final-patch",
+      "type": "final_patch",
+      "label": "Final Patch",
+      "status": "pending",
+      "role": "output",
+      "session": {
+        "mode": "ai_decides",
+        "groupId": "implementation",
+        "label": "Implementation",
+        "controllerNodeId": "session-director"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "ticket-spec-context",
+      "source": "ticket-input",
+      "target": "spec-context",
+      "type": "control_flow"
+    },
+    {
+      "id": "spec-context-session-director",
+      "source": "spec-context",
+      "target": "session-director",
+      "type": "control_flow"
+    },
+    {
+      "id": "session-director-plan",
+      "source": "session-director",
+      "target": "plan",
+      "type": "control_flow"
+    },
+    {
+      "id": "plan-code-draft",
+      "source": "plan",
+      "target": "code-draft",
+      "type": "control_flow"
+    },
+    {
+      "id": "code-draft-review",
+      "source": "code-draft",
+      "target": "implementation-review",
+      "type": "control_flow"
+    },
+    {
+      "id": "review-repair",
+      "source": "implementation-review",
+      "target": "repair-loop",
+      "type": "review_loop"
+    },
+    {
+      "id": "repair-review",
+      "source": "repair-loop",
+      "target": "implementation-review",
+      "type": "review_loop"
+    },
+    {
+      "id": "review-final-patch",
+      "source": "implementation-review",
+      "target": "final-patch",
+      "type": "control_flow"
+    },
+    {
+      "id": "session-director-manages-plan",
+      "source": "session-director",
+      "target": "plan",
+      "type": "control_scope",
+      "label": "manages session"
+    },
+    {
+      "id": "session-director-manages-code-draft",
+      "source": "session-director",
+      "target": "code-draft",
+      "type": "control_scope",
+      "label": "manages session"
+    },
+    {
+      "id": "session-director-manages-implementation-review",
+      "source": "session-director",
+      "target": "implementation-review",
+      "type": "control_scope",
+      "label": "manages session"
+    },
+    {
+      "id": "session-director-manages-repair-loop",
+      "source": "session-director",
+      "target": "repair-loop",
+      "type": "control_scope",
+      "label": "manages session"
+    },
+    {
+      "id": "session-director-manages-final-patch",
+      "source": "session-director",
+      "target": "final-patch",
+      "type": "control_scope",
+      "label": "manages session"
+    }
+  ]
+}

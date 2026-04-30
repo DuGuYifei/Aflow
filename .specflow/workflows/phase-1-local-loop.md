@@ -6,12 +6,15 @@ Phase 1 当前状态：已开始实现。
 
 当前已实现切片：最小 workflow run、artifact、execution state、session module、mock Session Director 的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run；`specflow ui` 可以启动本地可视化面板观察运行过程。
 
+当前结构化 workflow definition：`.specflow/workflows/phase-1-local-loop.workflow.json`。
+
 ## 当前边界
 
 - CLI 是当前唯一真实应用入口。
 - `packages/runtime` 负责 workflow graph、状态机、执行占位、run state 和 artifact 边界。
 - `packages/runtime` 负责将节点 session policy、Session Director control decision 和 workflow session 写入 run state。
 - `packages/specflow` 只负责通用 `.specflow` 读写和仓库知识层能力。
+- `packages/specflow` 可以读取 `.specflow/workflows/*.workflow.json`，但不负责执行 workflow。
 - `packages/agent` 只保留 agent runner、执行策略和 agent CLI 选择的边界。
 - 不集成真实 Codex 调用。
 - 不实现生产级 orchestration。
@@ -143,6 +146,23 @@ Phase 1 当前状态：已开始实现。
 - 不调用真实 AI 决定 session。
 - 不实现多 agent 并发。
 - 不实现复杂图编辑器。
+
+### P1.10 Structured Workflow Definition
+
+完成状态：已完成。
+
+完成条件：
+
+- `packages/core` 定义 `WorkflowDefinition`。
+- `.specflow/workflows/phase-1-local-loop.workflow.json` 记录当前 Phase 1 节点、边、session policy 和 control scope。
+- `packages/specflow` 可以读取 `.specflow/workflows/*.workflow.json`。
+- `specflow workflow validate` 可以校验仓库中的结构化 workflow definition。
+- graph validation 能检查 entry node、session controller、managed node 和 control scope edge。
+
+非目标：
+
+- 当前不让 runtime 完全由 JSON definition 驱动执行。
+- 当前不实现 UI 图编辑器。
 
 ### P1.6 Final Patch 候选输出
 

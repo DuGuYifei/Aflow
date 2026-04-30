@@ -16,6 +16,9 @@
     "test": "vitest run --passWithNoTests --config ../../vitest.config.ts",
     "clean": "rimraf dist"
   },
+  "dependencies": {
+    "@specflow/core": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "24.10.1",
     "typescript": "5.9.3",

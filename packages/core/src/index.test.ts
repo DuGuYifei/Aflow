@@ -6,6 +6,7 @@ import type {
   NodeExecutionStatus,
   NodeType,
   WorkflowControlDecision,
+  WorkflowDefinition,
   WorkflowArtifactKind,
   WorkflowRunStatus
 } from "./index.js";
@@ -58,5 +59,25 @@ describe("core domain types", () => {
 
     expect(session.mode).toBe("ai_decides");
     expect(decision.kind).toBe("session");
+  });
+
+  it("allows structured workflow definitions", () => {
+    const definition: WorkflowDefinition = {
+      id: "phase-1-local-loop",
+      name: "Phase 1 Local Loop",
+      version: "0.1.0",
+      entryNodeId: "ticket-input",
+      nodes: [
+        {
+          id: "ticket-input",
+          type: "ticket",
+          label: "Ticket Input",
+          status: "pending"
+        }
+      ],
+      edges: []
+    };
+
+    expect(definition.entryNodeId).toBe("ticket-input");
   });
 });

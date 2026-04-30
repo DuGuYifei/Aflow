@@ -46,6 +46,7 @@ shell 激活 mise 后，直接运行 `pnpm ...`。不要在普通文档中要求
 
 - Phase 0 仓库基础已经收尾，后续工作从 Phase 1 本地最小闭环开始。
 - 当前代码已经具备 Phase 1 的本地 placeholder workflow run 能力：`packages/runtime` 包含 graph contract、validation helper、文件存储、artifact 记录、session module、mock Session Director 和占位执行。
+- 当前仓库已有结构化 workflow definition：`.specflow/workflows/phase-1-local-loop.workflow.json`。修改 workflow 节点、边、session policy 或 control scope 时，应同步更新它。
 - CLI 目前支持静态 graph validation，可以创建、列出和查看本地 Phase 1 placeholder workflow run，也可以通过 `specflow ui` 启动本地可视化面板。
 - Phase 1 已开始实现 artifact 记录、agent CLI 选择建模、session 归属、director control decision 和 placeholder repair loop；当前仍不调用真实 agent。
 - 不实现真实 agent。
@@ -67,5 +68,7 @@ shell 激活 mise 后，直接运行 `pnpm ...`。不要在普通文档中要求
 CLI 输出应该可预测。Server 只表达本地适配边界。UI 应该让 workflow graph 概念可见，避免过早引入复杂状态。
 
 Session、director、manager、reviewer 和 verifier 属于领域模型。新增这类能力时，应同时更新 `packages/core`、runtime run state、UI 展示，以及 `.specflow` 当前事实。
+
+`.specflow/workflows/*.workflow.json` 是程序读取的结构化事实，`.specflow/workflows/*.md` 是状态说明。不要只改 Markdown 而遗漏 JSON definition。
 
 文档修改时，避免把同一段长解释复制到多个文件。`.specflow` 记录事实，`docs` 解释原因。

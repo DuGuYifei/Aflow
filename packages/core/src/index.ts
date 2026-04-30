@@ -128,6 +128,16 @@ export interface WorkflowEdge {
   label?: string;
 }
 
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  entryNodeId?: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
 export type WorkflowRunStatus =
   | "created"
   | "running"

@@ -28,6 +28,35 @@ describe("validateGraph", () => {
       issues: []
     });
   });
+
+  it("rejects broken session controllers and control scopes", () => {
+    const graph = createDefaultWorkflowGraph();
+    const plan = graph.nodes.find((node) => node.id === "plan");
+    const director = graph.nodes.find((node) => node.id === "session-director");
+
+    if (!plan || !director?.control) {
+      throw new Error("Expected default graph nodes.");
+    }
+
+    plan.session = {
+      mode: "ai_decides",
+      groupId: "implementation",
+      controllerNodeId: "missing-director"
+    };
+    director.control.managedNodeIds = director.control.managedNodeIds.filter(
+      (nodeId) => nodeId !== "code-draft"
+    );
+
+    const result = validateGraph(graph);
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.message)).toContain(
+      "AI-decided session policy has missing controller: plan"
+    );
+    expect(result.issues.map((issue) => issue.message)).toContain(
+      "Control scope edge target is not managed by source: code-draft"
+    );
+  });
 });
 
 describe("runLocalWorkflow", () => {

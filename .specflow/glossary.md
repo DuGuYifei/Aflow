@@ -20,6 +20,10 @@
 
 把 ticket 转化为实现结果的结构化流程。Specflow 中 workflow 是图。
 
+## Workflow Definition
+
+可被程序读取和校验的 workflow 结构化定义。当前文件形式是 `.specflow/workflows/*.workflow.json`。
+
 ## Runtime
 
 本地 workflow engine、状态机、调度和执行收敛层。

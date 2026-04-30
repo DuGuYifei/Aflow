@@ -44,6 +44,8 @@ Session、director、manager、reviewer 和 verifier 必须进入领域模型和
 
 节点是否复用 session、开启新 session 或交给 AI 决定，必须由节点自身的 session policy 表达。repair loop 重新进入某节点时是否开启新 session，也必须在该节点 session policy 中可见。
 
+结构化 workflow definition 放在 `.specflow/workflows/*.workflow.json`。Markdown 记录状态和说明，JSON 记录可被 CLI/runtime/UI 校验和消费的结构化事实。
+
 ## 当前产品边界
 
 不要实现真实 agent。

@@ -9,7 +9,9 @@ const tempRoots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   process.exitCode = undefined;
-  await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    tempRoots.map((root) => rm(root, { recursive: true, force: true }))
+  );
   tempRoots.length = 0;
 });
 
@@ -70,6 +72,41 @@ describe("workflow commands", () => {
 
     expect(process.exitCode).toBe(1);
     expect(errors).toContain("error: use either --ticket or --ticket-file, not both.");
+  });
+
+  it("validates repository workflow definitions", async () => {
+    const root = await createRepositoryRoot();
+    const { logs, runCommand } = captureCli(root);
+
+    await mkdir(join(root, ".specflow", "workflows"), { recursive: true });
+    await writeFile(
+      join(root, ".specflow", "workflows", "demo.workflow.json"),
+      JSON.stringify(
+        {
+          id: "demo",
+          name: "Demo Workflow",
+          nodes: [
+            {
+              id: "ticket-input",
+              type: "ticket",
+              label: "Ticket Input",
+              status: "pending"
+            }
+          ],
+          edges: []
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await runCommand("workflow", "validate");
+
+    expect(logs).toContain(
+      "repository definition: workflows/demo.workflow.json Demo Workflow"
+    );
+    expect(logs).toContain("valid: true");
   });
 });
 

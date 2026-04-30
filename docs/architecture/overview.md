@@ -22,6 +22,8 @@ Server 是本地 runtime API 和 UI 静态托管适配层，不是 hosted backen
 
 `packages/specflow` 存放 `.specflow` 读写、schema 和仓库知识层工具。
 
+结构化 workflow definition 使用 `.specflow/workflows/*.workflow.json`。它和 Markdown 状态文件分工不同：JSON 是程序可读取和校验的当前事实，Markdown 是人和 AI 阅读的状态说明。
+
 `packages/agent` 存放 agent runner、工具调用和执行策略占位。当前不集成真实 Codex。
 
 `packages/server` 存放本地 runtime API 和 UI 静态托管适配层。
@@ -49,6 +51,8 @@ Server 是本地 runtime API 和 UI 静态托管适配层，不是 hosted backen
 - `shared`：复用同一 session group 的最近 session
 - `fresh`：每次执行创建新 session
 - `ai_decides`：由控制节点产出的 decision 决定是否创建新 session
+
+`specflow workflow validate` 必须同时校验内置 workflow graph 和仓库中的结构化 workflow definition。校验范围至少包括 entry node、edge endpoint、session controller、managed node 和 `control_scope` edge。
 
 当前已定义的 node 语义包括 ticket、interview、session director、plan、code draft、implementation reviewer、repair、final patch，以及面向未来的 visual decomposer、visual verifier。Session Director 是 director/manager/verifier 族节点的第一个实例：它不直接产出代码，而是产出可观察的控制决策，管理其他节点的 session 边界。
 

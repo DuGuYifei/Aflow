@@ -16,6 +16,7 @@ ticket -> spec context -> session director -> plan -> code draft -> implementati
 - 读取 ticket
 - 读取 `.specflow` 仓库级上下文
 - session module 和 mock Session Director
+- 结构化 workflow definition
 - interview 节点
 - plan 节点
 - code draft 节点
@@ -47,3 +48,7 @@ ticket -> spec context -> session director -> plan -> code draft -> implementati
 Phase 1 已把 session 作为 workflow run 的状态之一。节点可以声明不进入 session、复用同组 session、每次开启新 session，或由 Session Director 产出的 control decision 决定。
 
 当前 Session Director 是 deterministic mock：它通过 `control_scope` 管理 plan、code draft、implementation reviewer、repair loop 和 final patch，并产出 `control-decision` artifact。未来真实 AI 可以替换这一步，但 run state 和 UI 展示不需要改变。
+
+## Workflow Definition
+
+Phase 1 的当前结构化定义位于 `.specflow/workflows/phase-1-local-loop.workflow.json`。它记录节点、边、session policy 和 control scope，供 CLI 校验，并作为后续 UI 配置编辑和 runtime 配置驱动执行的边界。

@@ -6,6 +6,8 @@
 
 当前阶段状态见 `.specflow/workflows/phase-1-local-loop.md`。
 
+结构化 workflow definition 使用 `*.workflow.json`。这类文件记录当前可验证的节点、边、session policy 和 control scope，是未来 UI 编辑 workflow 的输入边界。
+
 后续阶段说明见 `docs/product/phases/`。
 
-不要在这里重复产品路线、阶段解释或长篇设计背景。
+不要在这里重复产品路线、阶段解释或长篇设计背景。长解释放 `docs`，这里保留当前生效事实。

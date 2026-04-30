@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { startServer } from "@specflow/server";
 import { formatDefaultWorkflowFlow } from "@specflow/shared";
-import { readSpecflowKnowledge } from "@specflow/specflow";
+import {
+  readSpecflowKnowledge,
+  readSpecflowWorkflowDefinitions
+} from "@specflow/specflow";
 import {
   FileWorkflowRunStore,
   createDefaultWorkflowGraph,
@@ -107,8 +110,14 @@ async function readSpec(): Promise<void> {
 }
 
 async function validateWorkflow(): Promise<void> {
+  const root = await findRepositoryRoot();
   const graph = createDefaultWorkflowGraph();
   const result = validateGraph(graph);
+  const workflowDefinitions = await readSpecflowWorkflowDefinitions(root);
+  const workflowResults = workflowDefinitions.map((workflow) => ({
+    workflow,
+    result: validateGraph(workflow.definition)
+  }));
 
   console.log("Specflow workflow validation");
   console.log(`graph: ${graph.name}`);
@@ -119,7 +128,22 @@ async function validateWorkflow(): Promise<void> {
     console.log(`issue: ${issue.message}`);
   }
 
-  if (!result.valid) {
+  if (workflowDefinitions.length === 0) {
+    console.log("repository definitions: none");
+  }
+
+  for (const item of workflowResults) {
+    console.log(
+      `repository definition: ${item.workflow.path} ${item.workflow.definition.name}`
+    );
+    console.log(`valid: ${String(item.result.valid)}`);
+
+    for (const issue of item.result.issues) {
+      console.log(`issue: ${item.workflow.path}: ${issue.message}`);
+    }
+  }
+
+  if (!result.valid || workflowResults.some((item) => !item.result.valid)) {
     process.exitCode = 1;
   }
 }
