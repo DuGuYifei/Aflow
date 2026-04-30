@@ -67,6 +67,7 @@ export interface WorkflowNodeExecutionPreview {
   agentCli?: AgentCliConfig;
   session: WorkflowNodeSessionPreview;
   controls?: WorkflowNodeControlPreview;
+  controlledBy: WorkflowNodeControllerPreview[];
   incomingEdgeIds: string[];
   outgoingEdgeIds: string[];
 }
@@ -83,6 +84,12 @@ export interface WorkflowNodeSessionPreview {
 export interface WorkflowNodeControlPreview {
   managedNodeIds: string[];
   managedNodeLabels: string[];
+  decisionKinds: string[];
+}
+
+export interface WorkflowNodeControllerPreview {
+  controllerNodeId: string;
+  controllerLabel: string;
   decisionKinds: string[];
 }
 
@@ -391,6 +398,13 @@ export function createWorkflowExecutionPreview(
             decisionKinds: [...node.control.decisionKinds]
           }
         : undefined;
+      const controlledBy = graph.nodes
+        .filter((candidate) => candidate.control?.managedNodeIds.includes(node.id))
+        .map((controllerNode) => ({
+          controllerNodeId: controllerNode.id,
+          controllerLabel: controllerNode.label,
+          decisionKinds: [...(controllerNode.control?.decisionKinds ?? [])]
+        }));
 
       return {
         nodeId: node.id,
@@ -408,6 +422,7 @@ export function createWorkflowExecutionPreview(
           newSessionOnLoop: policy.newSessionOnLoop === true
         },
         controls,
+        controlledBy,
         incomingEdgeIds: graph.edges
           .filter((edge) => edge.target === node.id)
           .map((edge) => edge.id),

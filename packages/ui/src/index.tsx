@@ -136,6 +136,11 @@ interface WorkflowNodeExecutionPreview {
     managedNodeLabels: string[];
     decisionKinds: string[];
   };
+  controlledBy: Array<{
+    controllerNodeId: string;
+    controllerLabel: string;
+    decisionKinds: string[];
+  }>;
   incomingEdgeIds: string[];
   outgoingEdgeIds: string[];
 }
@@ -705,6 +710,14 @@ export function WorkflowPanel() {
                 {selectedNodePreview.controls ? (
                   <small>
                     manages {selectedNodePreview.controls.managedNodeLabels.join(", ")}
+                  </small>
+                ) : null}
+                {selectedNodePreview.controlledBy.length > 0 ? (
+                  <small>
+                    controlled by{" "}
+                    {selectedNodePreview.controlledBy
+                      .map((controller) => controller.controllerLabel)
+                      .join(", ")}
                   </small>
                 ) : null}
               </div>

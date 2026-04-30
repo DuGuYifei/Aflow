@@ -104,6 +104,7 @@ describe("createWorkflowExecutionPreview", () => {
     const reviewer = preview.nodes.find(
       (node) => node.nodeId === "implementation-review"
     );
+    const repair = preview.nodes.find((node) => node.nodeId === "repair-loop");
 
     expect(preview.workflowId).toBe("phase-1-local-loop");
     expect(preview.sessionGroups.map((group) => group.id)).toEqual([
@@ -147,6 +148,18 @@ describe("createWorkflowExecutionPreview", () => {
         managedNodeLabels: ["Repair Loop", "Final Patch"]
       }
     });
+    expect(repair?.controlledBy).toEqual([
+      {
+        controllerNodeId: "session-director",
+        controllerLabel: "Session Director",
+        decisionKinds: ["session"]
+      },
+      {
+        controllerNodeId: "implementation-review",
+        controllerLabel: "Implementation Review",
+        decisionKinds: ["review"]
+      }
+    ]);
   });
 });
 

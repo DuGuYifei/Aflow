@@ -343,6 +343,7 @@ Phase 1 当前状态：已开始实现。
 
 - Runtime 可以从 workflow definition 派生 execution preview。
 - Preview 包含节点执行模式、agent CLI、session policy、controller、control scope 和入出边摘要。
+- Preview 包含反向 managed-by 关系，让被管理节点也能展示 controller。
 - `/api/workflows` 为每个 definition 返回 execution preview。
 - UI Inspector 展示选中节点的 execution preview。
 - Server 和 UI 不复制 runtime 的节点执行模式、agent CLI 和 session 推导规则。
@@ -369,6 +370,23 @@ Phase 1 当前状态：已开始实现。
 - 当前不调用真实 AI 做 session decision。
 - 当前不实现 UI 编辑 session policy。
 - 当前不实现多 director 之间的冲突解决。
+
+### P1.22 Reverse Control Scope Preview
+
+完成状态：已完成。
+
+完成条件：
+
+- Runtime execution preview 为每个节点派生 `controlledBy`。
+- `controlledBy` 列出管理该节点的 controller、label 和 decision kinds。
+- UI Inspector 在选中被管理节点时展示 controlled-by 摘要。
+- 该关系从 `control_scope` / `WorkflowNode.control.managedNodeIds` 派生，不在 UI 中重新计算。
+
+非目标：
+
+- 当前不实现 control scope 编辑器。
+- 当前不实现多 controller 冲突解决。
+- 当前不改变实际 placeholder executor 的执行顺序。
 
 ### P1.6 Final Patch 候选输出
 
