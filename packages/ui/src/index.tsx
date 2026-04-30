@@ -199,6 +199,11 @@ interface WorkflowsResponse {
   workflows: WorkflowDefinitionSummary[];
 }
 
+interface ApiErrorResponse {
+  error?: string;
+  issues?: WorkflowValidationIssue[];
+}
+
 const nodePositions: Record<string, { x: number; y: number }> = {
   "ticket-input": { x: 0, y: 150 },
   "spec-context": { x: 230, y: 150 },
@@ -419,7 +424,7 @@ export function WorkflowPanel() {
       });
 
       if (!response.ok) {
-        throw new Error(`Run request failed: ${response.status}`);
+        throw new Error(await responseErrorMessage(response, "Run request failed"));
       }
 
       const payload = (await response.json()) as CreateRunResponse;
@@ -1190,4 +1195,19 @@ function formatArtifactContent(artifact: WorkflowArtifact): string {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function responseErrorMessage(
+  response: Response,
+  fallback: string
+): Promise<string> {
+  try {
+    const payload = (await response.json()) as ApiErrorResponse;
+    const error = payload.error ?? `${fallback}: ${response.status}`;
+    const issues = payload.issues?.map((issue) => issue.message).join("; ");
+
+    return issues ? `${error} ${issues}` : error;
+  } catch {
+    return `${fallback}: ${response.status}`;
+  }
 }
