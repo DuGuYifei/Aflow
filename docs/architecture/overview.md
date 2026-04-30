@@ -18,6 +18,8 @@ Server 是本地 runtime API 和 UI 静态托管适配层，不是 hosted backen
 
 Server 也提供 `/api/workflows`，把 `.specflow/workflows/*.workflow.json` 读取为 UI 可消费的 definition 列表，并附带 validation result、当前 runtime compatibility result 和 execution preview。UI 的 draft graph 应优先来自这个 API，而不是复制 runtime 的硬编码图。创建 run 的 API 可以接收 `workflowDefinitionId`，并把实际绑定的 definition reference 写入 run state。
 
+创建 run 时的 `reviewerMode` 和 `maxRepairAttempts` 是本地 mock 调试选项，用来观察 review/repair loop，不属于 workflow definition。
+
 ## Package 边界
 
 `packages/core` 存放领域模型、规则和基础类型，例如 Ticket、WorkflowNode、WorkflowEdge、WorkflowRun、WorkflowArtifact、ReviewResult。

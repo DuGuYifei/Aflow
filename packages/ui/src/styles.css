@@ -24,6 +24,8 @@ body {
 }
 
 button,
+input,
+select,
 textarea {
   font: inherit;
 }
@@ -378,6 +380,42 @@ h2 {
   background: rgba(75, 85, 91, 0.16);
   color: #6f7d83;
   cursor: not-allowed;
+}
+
+.run-option-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.run-option-grid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.run-option-grid span {
+  color: #9caab0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.run-option-grid input,
+.run-option-grid select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid rgba(130, 150, 157, 0.24);
+  background: #080d11;
+  color: #edf6f8;
+  outline: none;
+  padding: 8px 10px;
+}
+
+.run-option-grid input:focus,
+.run-option-grid select:focus {
+  border-color: rgba(93, 175, 207, 0.72);
 }
 
 .workflow-warning {

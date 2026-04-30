@@ -14,6 +14,7 @@ import {
 type RunStatus = "created" | "running" | "completed" | "failed" | "cancelled";
 type NodeStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 type EdgeType = "control_flow" | "data_flow" | "review_loop" | "control_scope";
+type ReviewerMode = "pass" | "fail-once" | "always-fail";
 
 interface WorkflowRun {
   id: string;
@@ -275,6 +276,8 @@ export function WorkflowPanel() {
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>();
   const [selectedArtifact, setSelectedArtifact] = useState<WorkflowArtifact>();
   const [ticket, setTicket] = useState("");
+  const [reviewerMode, setReviewerMode] = useState<ReviewerMode>("fail-once");
+  const [maxRepairAttempts, setMaxRepairAttempts] = useState(1);
   const [isCreatingRun, setIsCreatingRun] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -483,7 +486,9 @@ export function WorkflowPanel() {
         },
         body: JSON.stringify({
           ticket: body,
-          workflowDefinitionId: selectedWorkflowDefinition?.definition.id
+          workflowDefinitionId: selectedWorkflowDefinition?.definition.id,
+          reviewerMode,
+          maxRepairAttempts
         })
       });
 
@@ -637,6 +642,33 @@ export function WorkflowPanel() {
               spellCheck={false}
               value={ticket}
             />
+            <div className="run-option-grid">
+              <label>
+                <span>Review mode</span>
+                <select
+                  onChange={(event) => {
+                    setReviewerMode(event.target.value as ReviewerMode);
+                  }}
+                  value={reviewerMode}
+                >
+                  <option value="fail-once">fail once</option>
+                  <option value="pass">pass</option>
+                  <option value="always-fail">always fail</option>
+                </select>
+              </label>
+              <label>
+                <span>Repair attempts</span>
+                <input
+                  min={0}
+                  onChange={(event) => {
+                    setMaxRepairAttempts(Math.max(0, Number(event.target.value) || 0));
+                  }}
+                  step={1}
+                  type="number"
+                  value={maxRepairAttempts}
+                />
+              </label>
+            </div>
             <button
               className="primary-action"
               disabled={

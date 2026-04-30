@@ -13,6 +13,7 @@ import {
   type GraphDefinition,
   type GraphValidationIssue,
   type GraphValidationResult,
+  type ReviewerMode,
   type TicketInput,
   type WorkflowExecutionPreview
 } from "@specflow/runtime";
@@ -33,6 +34,7 @@ interface CreateRunBody {
   ticket?: string;
   workflowDefinitionId?: string;
   maxRepairAttempts?: number;
+  reviewerMode?: string;
 }
 
 interface WorkflowDefinitionSummary {
@@ -119,6 +121,14 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 
     const root = await resolveRoot(options.root);
     const store = new FileWorkflowRunStore(root);
+    const reviewerMode = resolveReviewerMode(request.body?.reviewerMode);
+
+    if (!reviewerMode.ok) {
+      return reply.code(400).send({
+        error: reviewerMode.error
+      });
+    }
+
     const selectedWorkflow = await resolveWorkflowDefinition(
       root,
       request.body?.workflowDefinitionId
@@ -148,6 +158,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     void executeLocalWorkflowRun({
       root,
       runId: run.id,
+      reviewerMode: reviewerMode.value,
       stepDelayMs,
       store
     }).catch((error: unknown) => {
@@ -174,6 +185,27 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   });
 
   return server;
+}
+
+function resolveReviewerMode(
+  reviewerMode?: string
+): { ok: true; value: ReviewerMode } | { ok: false; error: string } {
+  if (!reviewerMode) {
+    return { ok: true, value: "fail-once" };
+  }
+
+  if (
+    reviewerMode === "pass" ||
+    reviewerMode === "fail-once" ||
+    reviewerMode === "always-fail"
+  ) {
+    return { ok: true, value: reviewerMode };
+  }
+
+  return {
+    ok: false,
+    error: `Unsupported reviewer mode: ${reviewerMode}`
+  };
 }
 
 export async function startServer(

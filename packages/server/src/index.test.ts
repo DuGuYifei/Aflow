@@ -50,7 +50,9 @@ describe("server routes", () => {
       method: "POST",
       url: "/api/runs",
       payload: {
-        ticket: "Observe the local workflow."
+        ticket: "Observe the local workflow.",
+        reviewerMode: "pass",
+        maxRepairAttempts: 0
       }
     });
     const createdBody = created.json() as { runId: string };
@@ -66,6 +68,7 @@ describe("server routes", () => {
     });
 
     expect(run.status).toBe("completed");
+    expect(run.maxRepairAttempts).toBe(0);
     expect(run.workflowDefinition).toMatchObject({
       id: "phase-1-local-loop",
       source: "builtin"
@@ -131,6 +134,27 @@ describe("server routes", () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({
       error: "Workflow definition not found: missing"
+    });
+  });
+
+  it("rejects unsupported reviewer modes", async () => {
+    const root = await createRepositoryRoot();
+    const server = buildServer({
+      root,
+      uiDistPath: await createUiDist()
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        ticket: "Use an unsupported reviewer mode.",
+        reviewerMode: "maybe"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "Unsupported reviewer mode: maybe"
     });
   });
 
@@ -276,6 +300,7 @@ async function waitForRun(
     version?: string;
     path?: string;
   };
+  maxRepairAttempts: number;
 }> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const response = await server.inject({
@@ -300,6 +325,7 @@ async function waitForRun(
           version?: string;
           path?: string;
         };
+        maxRepairAttempts: number;
       };
     };
 

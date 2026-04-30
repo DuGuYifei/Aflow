@@ -388,6 +388,24 @@ Phase 1 当前状态：已开始实现。
 - 当前不实现多 controller 冲突解决。
 - 当前不改变实际 placeholder executor 的执行顺序。
 
+### P1.23 Mock Run Options UI
+
+完成状态：已完成。
+
+完成条件：
+
+- Server 创建 run API 接收并校验 `reviewerMode`。
+- Server 将 `reviewerMode` 传给 placeholder executor。
+- UI Ticket 面板可以设置 mock review mode。
+- UI Ticket 面板可以设置 `maxRepairAttempts`。
+- 这些选项保持为单次 run 的 mock 调试参数，不进入 workflow definition。
+
+非目标：
+
+- 当前不把 reviewer mode 持久化为项目配置。
+- 当前不实现真实 AI reviewer 开关。
+- 当前不实现复杂 retry policy 编辑器。
+
 ### P1.6 Final Patch 候选输出
 
 完成状态：已完成。

@@ -34,6 +34,8 @@ Execution preview 由 `packages/runtime` 从 workflow definition 派生，包含
 
 本地 server 创建 run 时可以接收 `workflowDefinitionId`。`WorkflowRun` 必须记录实际绑定的 workflow definition id、name、source、version 和 path，便于之后复现、审计和 UI 展示。
 
+本地 server 创建 run 时也可以接收 mock-only run options，例如 `reviewerMode` 和 `maxRepairAttempts`。这些选项用于调试 placeholder review/repair loop，不属于 workflow definition。
+
 `.specflow` 是仓库级知识层，记录当前项目目的、架构事实、工程约定、术语和 workflow 意图。
 
 `.specflow/workflows/*.workflow.json` 是结构化 workflow definition。当前 runtime 创建 run 时可以绑定仓库或内置 definition；placeholder executor 仍只保证当前 Phase 1 节点形状可执行，后续配置驱动执行应沿用这个边界继续扩展。
