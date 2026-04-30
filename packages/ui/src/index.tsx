@@ -17,6 +17,7 @@ type EdgeType = "control_flow" | "data_flow" | "review_loop" | "control_scope";
 
 interface WorkflowRun {
   id: string;
+  workflowDefinition: WorkflowDefinitionRef;
   status: RunStatus;
   ticket: {
     id: string;
@@ -34,6 +35,14 @@ interface WorkflowRun {
   createdAt: string;
   updatedAt: string;
   maxRepairAttempts: number;
+}
+
+interface WorkflowDefinitionRef {
+  id: string;
+  name: string;
+  source: "repository" | "builtin";
+  version?: string;
+  path?: string;
 }
 
 interface WorkflowNode {
@@ -195,6 +204,8 @@ export function WorkflowPanel() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const [selectedRun, setSelectedRun] = useState<WorkflowRun>();
+  const [selectedWorkflowDefinitionId, setSelectedWorkflowDefinitionId] =
+    useState<string>();
   const [selectedNodeId, setSelectedNodeId] = useState("ticket-input");
   const [selectedArtifactId, setSelectedArtifactId] = useState<string>();
   const [selectedArtifact, setSelectedArtifact] = useState<WorkflowArtifact>();
@@ -202,12 +213,23 @@ export function WorkflowPanel() {
   const [isCreatingRun, setIsCreatingRun] = useState(false);
   const [error, setError] = useState<string>();
 
-  const selectedWorkflowDefinition = workflowDefinitions[0];
+  const selectedWorkflowDefinition = useMemo(
+    () =>
+      workflowDefinitions.find(
+        (workflow) => workflow.definition.id === selectedWorkflowDefinitionId
+      ) ?? workflowDefinitions[0],
+    [selectedWorkflowDefinitionId, workflowDefinitions]
+  );
   const draftRun = useMemo(
     () => createDraftRun(selectedWorkflowDefinition?.definition),
     [selectedWorkflowDefinition]
   );
   const visibleRun = selectedRun ?? draftRun;
+  const visibleWorkflowDefinition =
+    selectedRun?.workflowDefinition ??
+    (selectedWorkflowDefinition
+      ? toWorkflowDefinitionRef(selectedWorkflowDefinition)
+      : undefined);
   const selectedExecution = visibleRun.nodeExecutions.find(
     (execution) => execution.nodeId === selectedNodeId
   );
@@ -269,6 +291,22 @@ export function WorkflowPanel() {
       setError(formatError(caughtError));
     });
   }, [refreshRuns, refreshWorkflowDefinitions]);
+
+  useEffect(() => {
+    if (workflowDefinitions.length === 0) {
+      setSelectedWorkflowDefinitionId(undefined);
+      return;
+    }
+
+    if (
+      !selectedWorkflowDefinitionId ||
+      !workflowDefinitions.some(
+        (workflow) => workflow.definition.id === selectedWorkflowDefinitionId
+      )
+    ) {
+      setSelectedWorkflowDefinitionId(workflowDefinitions[0]?.definition.id);
+    }
+  }, [selectedWorkflowDefinitionId, workflowDefinitions]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -360,7 +398,10 @@ export function WorkflowPanel() {
         headers: {
           "content-type": "application/json"
         },
-        body: JSON.stringify({ ticket: body })
+        body: JSON.stringify({
+          ticket: body,
+          workflowDefinitionId: selectedWorkflowDefinition?.definition.id
+        })
       });
 
       if (!response.ok) {
@@ -392,19 +433,33 @@ export function WorkflowPanel() {
         </div>
         <div className="rail-section">
           <p className="section-label">Workflow</p>
-          {selectedWorkflowDefinition ? (
-            <div className="definition-item">
-              <span>{selectedWorkflowDefinition.definition.name}</span>
-              <strong>
-                {selectedWorkflowDefinition.source}
-                {selectedWorkflowDefinition.validation.valid
-                  ? " / valid"
-                  : " / invalid"}
-              </strong>
-              <small>
-                {selectedWorkflowDefinition.path ??
-                  selectedWorkflowDefinition.definition.id}
-              </small>
+          {workflowDefinitions.length > 0 ? (
+            <div className="definition-list">
+              {workflowDefinitions.map((workflow) => (
+                <button
+                  className={`definition-item ${
+                    workflow.definition.id === selectedWorkflowDefinition?.definition.id
+                      ? "is-selected"
+                      : ""
+                  }`}
+                  key={`${workflow.source}:${workflow.definition.id}`}
+                  onClick={() => {
+                    setSelectedWorkflowDefinitionId(workflow.definition.id);
+                    setSelectedRunId(undefined);
+                    setSelectedRun(undefined);
+                    setSelectedNodeId("ticket-input");
+                    setSelectedArtifactId(undefined);
+                  }}
+                  type="button"
+                >
+                  <span>{workflow.definition.name}</span>
+                  <strong>
+                    {workflow.source}
+                    {workflow.validation.valid ? " / valid" : " / invalid"}
+                  </strong>
+                  <small>{workflow.path ?? workflow.definition.id}</small>
+                </button>
+              ))}
             </div>
           ) : (
             <p className="muted-line">Loading definition</p>
@@ -509,6 +564,14 @@ export function WorkflowPanel() {
 
         <section className="inspector-section">
           <div className="detail-grid">
+            <span>workflow</span>
+            <strong>{visibleWorkflowDefinition?.name ?? "unknown"}</strong>
+            <span>source</span>
+            <strong>
+              {visibleWorkflowDefinition
+                ? workflowDefinitionSourceLabel(visibleWorkflowDefinition)
+                : "unknown"}
+            </strong>
             <span>node</span>
             <strong>{selectedNodeId}</strong>
             <span>status</span>
@@ -802,6 +865,12 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
 
   return {
     id: "draft",
+    workflowDefinition: {
+      id: definition?.id ?? "phase-1-local-loop",
+      name: definition?.name ?? "Phase 1 Local Loop",
+      source: "builtin",
+      version: definition?.version
+    },
     ticket: {
       id: "draft-ticket",
       body: "",
@@ -917,6 +986,24 @@ function sessionPolicyLabel(node?: WorkflowNode): string {
   const loop = policy.newSessionOnLoop ? " / new on loop" : "";
 
   return `${group}:${policy.mode}${loop}`;
+}
+
+function toWorkflowDefinitionRef(
+  workflow: WorkflowDefinitionSummary
+): WorkflowDefinitionRef {
+  return {
+    id: workflow.definition.id,
+    name: workflow.definition.name,
+    source: workflow.source,
+    version: workflow.definition.version,
+    path: workflow.path
+  };
+}
+
+function workflowDefinitionSourceLabel(definition: WorkflowDefinitionRef): string {
+  return definition.path
+    ? `${definition.source}:${definition.path}`
+    : definition.source;
 }
 
 function isTerminalRun(run?: WorkflowRun): boolean {

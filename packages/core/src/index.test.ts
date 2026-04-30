@@ -7,6 +7,7 @@ import type {
   NodeType,
   WorkflowControlDecision,
   WorkflowDefinition,
+  WorkflowDefinitionRef,
   WorkflowArtifactKind,
   WorkflowRunStatus
 } from "./index.js";
@@ -79,5 +80,17 @@ describe("core domain types", () => {
     };
 
     expect(definition.entryNodeId).toBe("ticket-input");
+  });
+
+  it("allows workflow runs to reference their source definition", () => {
+    const reference: WorkflowDefinitionRef = {
+      id: "phase-1-local-loop",
+      name: "Phase 1 Local Loop",
+      source: "repository",
+      version: "0.1.0",
+      path: "workflows/phase-1-local-loop.workflow.json"
+    };
+
+    expect(reference.source).toBe("repository");
   });
 });

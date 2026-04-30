@@ -7,6 +7,7 @@ import {
   FileWorkflowRunStore,
   createLocalWorkflowRun,
   createDefaultWorkflowGraph,
+  createPhase1LocalLoopGraph,
   executeLocalWorkflowRun,
   runLocalWorkflow,
   validateGraph
@@ -113,6 +114,49 @@ describe("runLocalWorkflow", () => {
     expect(specExecution?.agentCli).toBeUndefined();
     expect(planExecution?.executionMode).toBe("agent");
     expect(planExecution?.agentCli?.cli).toBe(DEFAULT_AGENT_CLI);
+  });
+
+  it("creates runs from an explicit workflow definition reference", async () => {
+    const root = await createRepositoryRoot();
+    const definition = createPhase1LocalLoopGraph();
+    definition.id = "custom-local-loop";
+    definition.name = "Custom Local Loop";
+    definition.version = "0.2.0";
+
+    const run = await createLocalWorkflowRun({
+      root,
+      ticket: { body: "Bind the selected definition.", source: "inline" },
+      workflowDefinition: definition,
+      workflowDefinitionPath: "workflows/custom.workflow.json",
+      workflowDefinitionSource: "repository"
+    });
+
+    expect(run.workflowDefinition).toEqual({
+      id: "custom-local-loop",
+      name: "Custom Local Loop",
+      source: "repository",
+      version: "0.2.0",
+      path: "workflows/custom.workflow.json"
+    });
+    expect(run.nodes.map((node) => node.id)).toEqual(
+      definition.nodes.map((node) => node.id)
+    );
+  });
+
+  it("rejects invalid workflow definitions before persisting a run", async () => {
+    const root = await createRepositoryRoot();
+    const definition = createPhase1LocalLoopGraph();
+    definition.entryNodeId = "missing-entry";
+
+    await expect(
+      createLocalWorkflowRun({
+        root,
+        ticket: { body: "Reject invalid definitions.", source: "inline" },
+        workflowDefinition: definition
+      })
+    ).rejects.toThrow(
+      "Workflow definition is invalid: Entry node does not exist: missing-entry"
+    );
   });
 
   it("records session director decisions and session reuse boundaries", async () => {

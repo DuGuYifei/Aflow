@@ -227,7 +227,9 @@ async function listWorkflowRuns(): Promise<void> {
   }
 
   for (const run of runs) {
-    console.log(`${run.id} ${run.status} ${run.createdAt} ${run.updatedAt}`);
+    console.log(
+      `${run.id} ${run.status} ${run.workflowDefinition.id} ${run.createdAt} ${run.updatedAt}`
+    );
   }
 }
 
@@ -242,6 +244,9 @@ async function showWorkflowRun(runId: string): Promise<void> {
 function printRunSummary(title: string, run: WorkflowRun): void {
   console.log(title);
   console.log(`run: ${run.id}`);
+  console.log(
+    `workflow: ${run.workflowDefinition.name} (${workflowDefinitionSourceLabel(run)})`
+  );
   console.log(`status: ${run.status}`);
   console.log(`ticket source: ${run.ticket.source}`);
   console.log(`created: ${run.createdAt}`);
@@ -281,6 +286,14 @@ function printRunSummary(title: string, run: WorkflowRun): void {
   for (const artifact of run.artifacts) {
     console.log(`- ${artifact.id} ${artifact.kind} ${artifact.nodeId}`);
   }
+}
+
+function workflowDefinitionSourceLabel(run: WorkflowRun): string {
+  const definition = run.workflowDefinition;
+
+  return definition.path
+    ? `${definition.source}:${definition.path}`
+    : definition.source;
 }
 
 export function createCli(): Command {

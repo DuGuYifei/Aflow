@@ -22,8 +22,10 @@ React 节点式 workflow 面板组件位于 `packages/ui`。
 
 本地 server 暴露 `/api/workflows`，用于给 UI 提供结构化 workflow definition 和 validation result。UI draft graph 应优先使用该 API 返回的 definition。
 
+本地 server 创建 run 时可以接收 `workflowDefinitionId`。`WorkflowRun` 必须记录实际绑定的 workflow definition id、name、source、version 和 path，便于之后复现、审计和 UI 展示。
+
 `.specflow` 是仓库级知识层，记录当前项目目的、架构事实、工程约定、术语和 workflow 意图。
 
-`.specflow/workflows/*.workflow.json` 是结构化 workflow definition。当前 runtime 仍使用内置 placeholder 执行器，但 CLI 已能读取并校验这些定义，后续 UI 编辑和配置驱动执行应沿用这个边界。
+`.specflow/workflows/*.workflow.json` 是结构化 workflow definition。当前 runtime 创建 run 时可以绑定仓库或内置 definition；placeholder executor 仍只保证当前 Phase 1 节点形状可执行，后续配置驱动执行应沿用这个边界继续扩展。
 
 当前不包含数据库、认证、CI workflow、真实 Codex 集成、生产级 workflow 编排、桌面壳或传统前后端分离架构。

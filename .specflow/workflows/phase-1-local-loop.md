@@ -4,7 +4,7 @@ Phase 1 当前状态：已开始实现。
 
 当前目标：实现本地持续编码最小闭环，但按可交付切片逐步推进。
 
-当前已实现切片：最小 workflow run、artifact、execution state、session module、mock Session Director 的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run；`specflow ui` 可以启动本地可视化面板观察运行过程。
+当前已实现切片：最小 workflow run、artifact、execution state、session module、mock Session Director、workflow-bound run 创建的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run；`specflow ui` 可以启动本地可视化面板观察运行过程。
 
 当前结构化 workflow definition：`.specflow/workflows/phase-1-local-loop.workflow.json`。
 
@@ -17,6 +17,8 @@ Phase 1 当前状态：已开始实现。
 - `packages/specflow` 可以读取 `.specflow/workflows/*.workflow.json`，但不负责执行 workflow。
 - 本地 server 通过 `/api/workflows` 暴露 workflow definition 和 validation result。
 - UI draft graph 优先使用 `/api/workflows` 返回的结构化 definition。
+- 本地 server 创建 run 时可以接收 `workflowDefinitionId`，并把绑定的 definition reference 写入 run state。
+- 当前 placeholder executor 只保证包含 Phase 1 固定节点 id 的 workflow definition 可执行。
 - `packages/agent` 只保留 agent runner、执行策略和 agent CLI 选择的边界。
 - 不集成真实 Codex 调用。
 - 不实现生产级 orchestration。
@@ -183,7 +185,26 @@ Phase 1 当前状态：已开始实现。
 
 - 当前不实现 workflow definition 写入。
 - 当前不实现图编辑器。
-- 当前不让 create run 请求选择多个 workflow definition。
+- 当前不实现多 definition 的编辑、排序或启停管理。
+
+### P1.12 Workflow-bound Run Creation
+
+完成状态：已完成。
+
+完成条件：
+
+- `WorkflowRun` 记录绑定的 workflow definition reference。
+- `createLocalWorkflowRun` 可以接收显式 workflow definition，并用该 definition 初始化 nodes、edges 和 node execution。
+- Server 创建 run API 可以接收 `workflowDefinitionId`。
+- Server 会校验选中 definition 是否有效，并拒绝当前 placeholder executor 无法执行的节点形状。
+- UI 可以在左侧选择 workflow definition，并用选中 definition 创建 run。
+- Inspector 显示当前 run 或 draft 绑定的 workflow definition 来源。
+
+非目标：
+
+- 当前不实现 workflow definition 编辑或保存。
+- 当前不把 executor 完全改为任意 graph 调度。
+- 当前不调用真实 agent。
 
 ### P1.6 Final Patch 候选输出
 

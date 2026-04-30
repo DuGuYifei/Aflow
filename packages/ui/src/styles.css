@@ -109,6 +109,7 @@ h2 {
   margin-top: 18px;
 }
 
+.definition-list,
 .run-list,
 .artifact-list {
   display: grid;
@@ -117,12 +118,15 @@ h2 {
 }
 
 .definition-item {
+  width: 100%;
   display: grid;
   gap: 6px;
-  margin-top: 10px;
   padding: 11px;
   border: 1px solid rgba(130, 150, 157, 0.18);
   background: rgba(9, 14, 18, 0.48);
+  color: #e7edf0;
+  cursor: pointer;
+  text-align: left;
 }
 
 .definition-item span,
@@ -141,6 +145,11 @@ h2 {
   color: #91a1a8;
   font-size: 0.72rem;
   text-transform: uppercase;
+}
+
+.definition-item.is-selected {
+  border-color: rgba(127, 184, 106, 0.64);
+  box-shadow: 0 0 0 1px rgba(127, 184, 106, 0.16);
 }
 
 .run-item,

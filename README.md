@@ -109,7 +109,7 @@ pnpm --filter @specflow/cli specflow workflow show <runId>
 pnpm --filter @specflow/cli specflow ui
 ```
 
-`specflow ui` 会启动本地 server，托管 Studio Console 风格的 workflow 面板，并尝试打开浏览器。UI 通过本地 API 创建和观察 `.specflow/runs/` 中的 placeholder workflow run，并通过 `/api/workflows` 读取结构化 workflow definition。面板会显示节点角色、agent CLI、session 归属、Session Director 的管理边和控制决策。
+`specflow ui` 会启动本地 server，托管 Studio Console 风格的 workflow 面板，并尝试打开浏览器。UI 通过本地 API 创建和观察 `.specflow/runs/` 中的 placeholder workflow run，并通过 `/api/workflows` 读取和选择结构化 workflow definition。创建 run 时会记录绑定的 definition 来源；面板会显示节点角色、agent CLI、session 归属、Session Director 的管理边和控制决策。
 
 构建本地能力包：
 

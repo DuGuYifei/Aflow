@@ -12,6 +12,8 @@ import type {
   WorkflowArtifact,
   WorkflowArtifactKind,
   WorkflowDefinition,
+  WorkflowDefinitionRef,
+  WorkflowDefinitionSource,
   WorkflowNode,
   WorkflowRun,
   WorkflowSession
@@ -64,6 +66,9 @@ export type ReviewerMode = "pass" | "fail-once" | "always-fail";
 export interface RunLocalWorkflowOptions {
   root: string;
   ticket: TicketInput;
+  workflowDefinition?: WorkflowDefinition;
+  workflowDefinitionPath?: string;
+  workflowDefinitionSource?: WorkflowDefinitionSource;
   maxRepairAttempts?: number;
   reviewerMode?: ReviewerMode;
   stepDelayMs?: number;
@@ -74,6 +79,9 @@ export interface RunLocalWorkflowOptions {
 export interface CreateLocalWorkflowRunOptions {
   root: string;
   ticket: TicketInput;
+  workflowDefinition?: WorkflowDefinition;
+  workflowDefinitionPath?: string;
+  workflowDefinitionSource?: WorkflowDefinitionSource;
   maxRepairAttempts?: number;
   store?: WorkflowRunStore;
   now?: () => string;
@@ -651,19 +659,35 @@ export async function createLocalWorkflowRun(
   options: CreateLocalWorkflowRunOptions
 ): Promise<WorkflowRun> {
   const now = options.now ?? (() => new Date().toISOString());
-  const graph = createPhase1LocalLoopGraph();
+  const graph = options.workflowDefinition ?? createPhase1LocalLoopGraph();
+  const validation = validateGraph(graph);
+
+  if (!validation.valid) {
+    throw new Error(
+      `Workflow definition is invalid: ${formatValidationIssues(validation.issues)}`
+    );
+  }
+
+  const workflowDefinitionSource =
+    options.workflowDefinitionSource ??
+    (options.workflowDefinition ? "repository" : "builtin");
   const store = options.store ?? new FileWorkflowRunStore(options.root);
   const maxRepairAttempts = options.maxRepairAttempts ?? 1;
   const createdAt = now();
   const ticket = createTicket(options.ticket, createdAt);
   const run: WorkflowRun = {
     id: createId("run"),
+    workflowDefinition: createWorkflowDefinitionRef(
+      graph,
+      workflowDefinitionSource,
+      options.workflowDefinitionPath
+    ),
     ticket,
     status: "created",
     nodes: graph.nodes,
     edges: graph.edges,
     nodeExecutions: graph.nodes.map((node) =>
-      createNodeExecutionState(node, nodeExecutionMode(node.id))
+      createNodeExecutionState(node, nodeExecutionMode(node))
     ),
     sessions: [],
     controlDecisions: [],
@@ -899,6 +923,7 @@ export async function executeInMemoryStub(
 
   return {
     id: `stub-${ticket.id}`,
+    workflowDefinition: createWorkflowDefinitionRef(graph, "builtin"),
     ticket,
     status: "completed",
     nodes: graph.nodes.map((node) => ({ ...node, status: "completed" })),
@@ -1266,8 +1291,8 @@ function createNodeExecutionState(
   };
 }
 
-function nodeExecutionMode(nodeId: string): NodeExecutionMode {
-  return nodeId === "ticket-input" || nodeId === "spec-context" ? "system" : "agent";
+function nodeExecutionMode(node: WorkflowNode): NodeExecutionMode {
+  return node.type === "ticket" || node.type === "spec_context" ? "system" : "agent";
 }
 
 function findNode(run: WorkflowRun, nodeId: string): WorkflowNode {
@@ -1291,6 +1316,15 @@ function findExecution(run: WorkflowRun, nodeId: string): NodeExecutionState {
 }
 
 function normalizeWorkflowRun(run: WorkflowRun): WorkflowRun {
+  run.workflowDefinition ??= createWorkflowDefinitionRef(
+    {
+      id: "legacy-run-snapshot",
+      name: "Legacy Run Snapshot",
+      nodes: run.nodes,
+      edges: run.edges
+    },
+    "builtin"
+  );
   run.sessions ??= [];
   run.controlDecisions ??= [];
 
@@ -1299,6 +1333,24 @@ function normalizeWorkflowRun(run: WorkflowRun): WorkflowRun {
   }
 
   return run;
+}
+
+function createWorkflowDefinitionRef(
+  definition: WorkflowDefinition,
+  source: WorkflowDefinitionSource,
+  path?: string
+): WorkflowDefinitionRef {
+  return {
+    id: definition.id,
+    name: definition.name,
+    source,
+    version: definition.version,
+    path
+  };
+}
+
+function formatValidationIssues(issues: GraphValidationIssue[]): string {
+  return issues.map((issue) => issue.message).join("; ");
 }
 
 function skipNode(run: WorkflowRun, nodeId: string, now: () => string): void {
@@ -1333,9 +1385,30 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 
 async function readJson<T>(path: string): Promise<T> {
-  const content = await readFile(path, "utf8");
+  let lastError: unknown;
 
-  return JSON.parse(content) as T;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const content = await readFile(path, "utf8");
+
+      return JSON.parse(content) as T;
+    } catch (error) {
+      if (!isRetriableReadJsonError(error)) {
+        throw error;
+      }
+
+      lastError = error;
+      await sleep(5);
+    }
+  }
+
+  throw lastError;
+}
+
+function isRetriableReadJsonError(error: unknown): boolean {
+  return (
+    (isNodeError(error) && error.code === "ENOENT") || error instanceof SyntaxError
+  );
 }
 
 function createId(prefix: string): string {

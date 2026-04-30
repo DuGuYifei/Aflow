@@ -138,6 +138,16 @@ export interface WorkflowDefinition {
   edges: WorkflowEdge[];
 }
 
+export type WorkflowDefinitionSource = "repository" | "builtin";
+
+export interface WorkflowDefinitionRef {
+  id: string;
+  name: string;
+  source: WorkflowDefinitionSource;
+  version?: string;
+  path?: string;
+}
+
 export type WorkflowRunStatus =
   | "created"
   | "running"
@@ -212,6 +222,7 @@ export interface NodeExecutionState {
 
 export interface WorkflowRun {
   id: string;
+  workflowDefinition: WorkflowDefinitionRef;
   ticket: Ticket;
   status: WorkflowRunStatus;
   nodes: WorkflowNode[];

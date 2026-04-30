@@ -7,7 +7,11 @@ import {
   createPhase1LocalLoopGraph,
   createLocalWorkflowRun,
   executeLocalWorkflowRun,
-  validateGraph
+  validateGraph,
+  type GraphDefinition,
+  type GraphValidationIssue,
+  type GraphValidationResult,
+  type TicketInput
 } from "@specflow/runtime";
 import {
   CONTINUOUS_CODING_CATEGORY,
@@ -15,7 +19,6 @@ import {
   formatDefaultWorkflowFlow
 } from "@specflow/shared";
 import { readSpecflowWorkflowDefinitions } from "@specflow/specflow";
-import type { TicketInput } from "@specflow/runtime";
 
 export interface BuildServerOptions {
   root?: string;
@@ -25,7 +28,15 @@ export interface BuildServerOptions {
 
 interface CreateRunBody {
   ticket?: string;
+  workflowDefinitionId?: string;
   maxRepairAttempts?: number;
+}
+
+interface WorkflowDefinitionSummary {
+  source: "repository" | "builtin";
+  path?: string;
+  definition: GraphDefinition;
+  validation: GraphValidationResult;
 }
 
 const defaultHost = "127.0.0.1";
@@ -53,26 +64,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 
   server.get("/api/workflows", async () => {
     const root = await resolveRoot(options.root);
-    const workflowDefinitions = await readSpecflowWorkflowDefinitions(root);
-    const workflows =
-      workflowDefinitions.length > 0
-        ? workflowDefinitions.map((workflow) => ({
-            source: "repository" as const,
-            path: workflow.path,
-            definition: workflow.definition,
-            validation: validateGraph(workflow.definition)
-          }))
-        : [
-            {
-              source: "builtin" as const,
-              path: undefined,
-              definition: createPhase1LocalLoopGraph(),
-              validation: validateGraph(createPhase1LocalLoopGraph())
-            }
-          ];
 
     return {
-      workflows
+      workflows: await listWorkflowDefinitions(root)
     };
   });
 
@@ -120,6 +114,18 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 
     const root = await resolveRoot(options.root);
     const store = new FileWorkflowRunStore(root);
+    const selectedWorkflow = await resolveWorkflowDefinition(
+      root,
+      request.body?.workflowDefinitionId
+    );
+
+    if (!selectedWorkflow.ok) {
+      return reply.code(400).send({
+        error: selectedWorkflow.error,
+        issues: selectedWorkflow.issues
+      });
+    }
+
     const ticket: TicketInput = {
       body: ticketBody,
       source: "inline"
@@ -127,6 +133,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     const run = await createLocalWorkflowRun({
       root,
       ticket,
+      workflowDefinition: selectedWorkflow.workflow.definition,
+      workflowDefinitionPath: selectedWorkflow.workflow.path,
+      workflowDefinitionSource: selectedWorkflow.workflow.source,
       maxRepairAttempts: request.body?.maxRepairAttempts,
       store
     });
@@ -192,6 +201,105 @@ async function start(): Promise<void> {
 
 async function resolveRoot(root?: string): Promise<string> {
   return root ?? findRepositoryRoot();
+}
+
+async function listWorkflowDefinitions(
+  root: string
+): Promise<WorkflowDefinitionSummary[]> {
+  const workflowDefinitions = await readSpecflowWorkflowDefinitions(root);
+
+  if (workflowDefinitions.length > 0) {
+    return workflowDefinitions.map((workflow) => ({
+      source: "repository" as const,
+      path: workflow.path,
+      definition: workflow.definition,
+      validation: validateGraph(workflow.definition)
+    }));
+  }
+
+  const definition = createPhase1LocalLoopGraph();
+
+  return [
+    {
+      source: "builtin",
+      path: undefined,
+      definition,
+      validation: validateGraph(definition)
+    }
+  ];
+}
+
+async function resolveWorkflowDefinition(
+  root: string,
+  workflowDefinitionId?: string
+): Promise<
+  | { ok: true; workflow: WorkflowDefinitionSummary }
+  | { ok: false; error: string; issues?: GraphValidationIssue[] }
+> {
+  const workflows = await listWorkflowDefinitions(root);
+  const workflow = workflowDefinitionId
+    ? workflows.find((candidate) => candidate.definition.id === workflowDefinitionId)
+    : workflows[0];
+
+  if (!workflow) {
+    return {
+      ok: false,
+      error: workflowDefinitionId
+        ? `Workflow definition not found: ${workflowDefinitionId}`
+        : "No workflow definition is available."
+    };
+  }
+
+  if (!workflow.validation.valid) {
+    return {
+      ok: false,
+      error: `Workflow definition is invalid: ${formatValidationIssues(
+        workflow.validation.issues
+      )}`,
+      issues: workflow.validation.issues
+    };
+  }
+
+  const runtimeCompatibilityError = currentRuntimeCompatibilityError(
+    workflow.definition
+  );
+
+  if (runtimeCompatibilityError) {
+    return {
+      ok: false,
+      error: runtimeCompatibilityError
+    };
+  }
+
+  return { ok: true, workflow };
+}
+
+function currentRuntimeCompatibilityError(
+  definition: GraphDefinition
+): string | undefined {
+  const nodeIds = new Set(definition.nodes.map((node) => node.id));
+  const missingNodeIds = [
+    "ticket-input",
+    "spec-context",
+    "session-director",
+    "plan",
+    "code-draft",
+    "implementation-review",
+    "repair-loop",
+    "final-patch"
+  ].filter((nodeId) => !nodeIds.has(nodeId));
+
+  if (missingNodeIds.length === 0) {
+    return undefined;
+  }
+
+  return `Workflow definition is valid but not executable by the current placeholder runtime. Missing nodes: ${missingNodeIds.join(
+    ", "
+  )}`;
+}
+
+function formatValidationIssues(issues: GraphValidationIssue[]): string {
+  return issues.map((issue) => issue.message).join("; ");
 }
 
 async function pathExists(path: string): Promise<boolean> {

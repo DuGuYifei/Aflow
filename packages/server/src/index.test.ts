@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createPhase1LocalLoopGraph } from "@specflow/runtime";
 import { buildServer } from "./index.js";
 
 const tempRoots: string[] = [];
@@ -65,8 +66,72 @@ describe("server routes", () => {
     });
 
     expect(run.status).toBe("completed");
+    expect(run.workflowDefinition).toMatchObject({
+      id: "phase-1-local-loop",
+      source: "builtin"
+    });
     expect(artifactResponse.statusCode).toBe(200);
     expect(artifactResponse.json().artifact.id).toBe(artifact.id);
+  });
+
+  it("creates runs against a selected repository workflow definition", async () => {
+    const root = await createRepositoryRoot();
+    const server = buildServer({
+      root,
+      uiDistPath: await createUiDist(),
+      stepDelayMs: 1
+    });
+    const definition = createPhase1LocalLoopGraph();
+    definition.id = "repository-local-loop";
+    definition.name = "Repository Local Loop";
+    definition.version = "0.2.0";
+
+    await writeWorkflowDefinition(root, "selected.workflow.json", definition);
+
+    const created = await server.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        ticket: "Use the selected repository definition.",
+        workflowDefinitionId: "repository-local-loop"
+      }
+    });
+    const createdBody = created.json() as { runId: string; run: unknown };
+
+    expect(created.statusCode).toBe(202);
+    expect(createdBody.runId).toMatch(/^run_/);
+
+    const run = await waitForRun(server, createdBody.runId);
+
+    expect(run.status).toBe("completed");
+    expect(run.workflowDefinition).toEqual({
+      id: "repository-local-loop",
+      name: "Repository Local Loop",
+      source: "repository",
+      version: "0.2.0",
+      path: "workflows/selected.workflow.json"
+    });
+  });
+
+  it("rejects unknown workflow definition ids", async () => {
+    const root = await createRepositoryRoot();
+    const server = buildServer({
+      root,
+      uiDistPath: await createUiDist()
+    });
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/runs",
+      payload: {
+        ticket: "Use a missing definition.",
+        workflowDefinitionId: "missing"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "Workflow definition not found: missing"
+    });
   });
 
   it("serves repository workflow definitions with validation", async () => {
@@ -141,17 +206,37 @@ async function waitForRun(
   id: string;
   status: string;
   artifacts: Array<{ id: string }>;
+  workflowDefinition: {
+    id: string;
+    name: string;
+    source: string;
+    version?: string;
+    path?: string;
+  };
 }> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const response = await server.inject({
       method: "GET",
       url: `/api/runs/${runId}`
     });
+
+    if (response.statusCode !== 200) {
+      await wait(10);
+      continue;
+    }
+
     const body = response.json() as {
       run: {
         id: string;
         status: string;
         artifacts: Array<{ id: string }>;
+        workflowDefinition: {
+          id: string;
+          name: string;
+          source: string;
+          version?: string;
+          path?: string;
+        };
       };
     };
 
@@ -163,6 +248,19 @@ async function waitForRun(
   }
 
   throw new Error("Timed out waiting for workflow run.");
+}
+
+async function writeWorkflowDefinition(
+  root: string,
+  fileName: string,
+  definition: ReturnType<typeof createPhase1LocalLoopGraph>
+): Promise<void> {
+  await mkdir(join(root, ".specflow", "workflows"), { recursive: true });
+  await writeFile(
+    join(root, ".specflow", "workflows", fileName),
+    JSON.stringify(definition, null, 2),
+    "utf8"
+  );
 }
 
 async function createRepositoryRoot(): Promise<string> {
