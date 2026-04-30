@@ -353,6 +353,23 @@ Phase 1 当前状态：已开始实现。
 - 当前不实现 graph 编辑器。
 - 当前不生成跨节点时间线或并发调度计划。
 
+### P1.21 Definition-driven Mock Session Director
+
+完成状态：已完成。
+
+完成条件：
+
+- Mock Session Director 生成 session decision 时不硬编码 Phase 1 节点 id。
+- Session decision 读取 managed node 顺序、session group、session mode 和 `newSessionOnLoop`。
+- Phase 1 当前顺序仍表现为 plan 新开、code draft 复用、review 新开、repair 新开、final patch 复用。
+- Runtime 测试覆盖 session decision 的新开/复用布尔值和原因。
+
+非目标：
+
+- 当前不调用真实 AI 做 session decision。
+- 当前不实现 UI 编辑 session policy。
+- 当前不实现多 director 之间的冲突解决。
+
 ### P1.6 Final Patch 候选输出
 
 完成状态：已完成。

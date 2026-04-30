@@ -10,6 +10,8 @@ Runtime 是核心。它负责 workflow graph、状态机、调度、中断恢复
 
 Session module 是 runtime 的一等概念。它把多个节点放入同一个 agent CLI 会话组，或在循环边界强制开启新 session。节点可以声明固定 session 策略，也可以声明由某个 director 节点通过 mock AI 决策控制 session 边界。
 
+当前 mock Session Director 的 session decision 由 workflow definition 派生：它读取 managed node 顺序、session group、固定 session mode 和 `newSessionOnLoop`，不把 Phase 1 节点 id 写进决策规则。
+
 UI 是本地 runtime 的可视化面板，不是独立 Web 产品。它使用 React 和 `@xyflow/react` 表达节点式 workflow，由 `specflow ui` 启动的本地 server 托管。
 
 Server 是本地 runtime API 和 UI 静态托管适配层，不是 hosted backend，也不是传统前后端分离架构里的远程后端服务。当前它提供本地 run 查询、创建和 artifact 读取 API，并托管 `packages/ui` 的构建输出。

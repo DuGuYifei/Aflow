@@ -55,6 +55,8 @@ Implementation reviewer 也进入同一 control model：它通过 `control_scope
 
 UI Inspector 会展开 control decision 细节。Session Director 的 decision 会显示每个目标节点是新开 session 还是复用 session；reviewer 的 decision 会显示它路由到 repair loop 还是 final patch。
 
+Session Director 的 mock session decision 来自 workflow definition，而不是来自 Phase 1 节点 id 硬编码。它根据 managed node 顺序、session group、session mode 和 `newSessionOnLoop` 判断新开或复用 session。
+
 创建 run 失败时，UI 会读取本地 server 的 `error` 和 validation `issues`，避免只显示 HTTP 状态码。这个边界对后续 workflow definition 编辑器很重要。
 
 ## Workflow Definition

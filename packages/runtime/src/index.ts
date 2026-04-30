@@ -1403,21 +1403,25 @@ function createSessionControlDecision(
 ): WorkflowControlDecision {
   const controller = findNode(run, "session-director");
   const managedNodeIds = controller.control?.managedNodeIds ?? [];
+  const plannedSessionGroups = new Set<string>();
   const sessionDecisions: NodeSessionDecision[] = managedNodeIds.map((nodeId) => {
     const target = findNode(run, nodeId);
     const sessionGroupId = target.session?.groupId ?? nodeId;
-    const openNewSession =
-      nodeId === "plan" ||
-      nodeId === "implementation-review" ||
-      nodeId === "repair-loop";
+    const groupAlreadyPlanned = plannedSessionGroups.has(sessionGroupId);
+    const openNewSession = shouldOpenNewSessionForMockDirector(
+      target,
+      groupAlreadyPlanned
+    );
+
+    if (openNewSession && target.session?.groupId) {
+      plannedSessionGroups.add(target.session.groupId);
+    }
 
     return {
       targetNodeId: nodeId,
       sessionGroupId,
       openNewSession,
-      reason: openNewSession
-        ? "Mock director starts a focused session for this work boundary."
-        : "Mock director keeps this node in the active session group."
+      reason: mockSessionDecisionReason(target, openNewSession, groupAlreadyPlanned)
     };
   });
 
@@ -1432,6 +1436,49 @@ function createSessionControlDecision(
     sessionDecisions,
     createdAt: now()
   };
+}
+
+function shouldOpenNewSessionForMockDirector(
+  node: WorkflowNode,
+  groupAlreadyPlanned: boolean
+): boolean {
+  const policy = node.session;
+
+  if (!policy || policy.mode === "none" || !policy.groupId) {
+    return false;
+  }
+
+  if (policy.mode === "fresh" || policy.newSessionOnLoop) {
+    return true;
+  }
+
+  return !groupAlreadyPlanned;
+}
+
+function mockSessionDecisionReason(
+  node: WorkflowNode,
+  openNewSession: boolean,
+  groupAlreadyPlanned: boolean
+): string {
+  const policy = node.session;
+
+  if (!policy || policy.mode === "none" || !policy.groupId) {
+    return "Mock director leaves this node outside an agent session.";
+  }
+
+  if (policy.mode === "fresh") {
+    return "Node policy requires a fresh session.";
+  }
+
+  if (policy.newSessionOnLoop) {
+    return "Node policy allows a fresh loop boundary.";
+  }
+
+  if (openNewSession && !groupAlreadyPlanned) {
+    return "Mock director starts the first session for this group.";
+  }
+
+  return "Mock director reuses the active session group.";
 }
 
 function createReviewControlDecision(

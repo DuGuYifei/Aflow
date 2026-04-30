@@ -309,6 +309,18 @@ describe("runLocalWorkflow", () => {
       "repair-loop",
       "final-patch"
     ]);
+    expect(
+      sessionDecision?.sessionDecisions?.map((decision) => decision.openNewSession)
+    ).toEqual([true, false, true, true, false]);
+    expect(
+      sessionDecision?.sessionDecisions?.map((decision) => decision.reason)
+    ).toEqual([
+      "Mock director starts the first session for this group.",
+      "Mock director reuses the active session group.",
+      "Node policy allows a fresh loop boundary.",
+      "Node policy allows a fresh loop boundary.",
+      "Mock director reuses the active session group."
+    ]);
     expect(reviewDecisions.map((decision) => decision.targetNodeIds)).toEqual([
       ["repair-loop"],
       ["final-patch"]

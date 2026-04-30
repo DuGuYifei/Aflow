@@ -14,6 +14,8 @@ workflow session、节点 session 策略、director control decision 和 `contro
 
 定义级 `sessionGroups` 是 session module 的目录。节点仍通过 `session.groupId` 加入某个 group；runtime 创建 run 时会保存 session group plan，缺省时从节点 policy 推导。
 
+Mock Session Director 的 session decision 必须从 definition 派生，读取 managed node 顺序、session group、session mode 和 `newSessionOnLoop`。不要在 director 决策中硬编码 Phase 1 节点 id。
+
 Reviewer、director、manager 和 verifier 都可以通过 `control_scope` 管理其他节点，并通过 `WorkflowControlDecision` 写入可观察决策。当前 `implementation-review` 已作为 reviewer/control 节点管理 `repair-loop` 和 `final-patch`。
 
 `.specflow` 读写、schema 和仓库知识层工具位于 `packages/specflow`。
