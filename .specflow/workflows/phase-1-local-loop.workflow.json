@@ -31,6 +31,10 @@
       "label": "Session Director",
       "status": "pending",
       "role": "director",
+      "agentCli": {
+        "cli": "codex",
+        "args": []
+      },
       "session": {
         "mode": "fresh",
         "groupId": "direction",
@@ -53,6 +57,10 @@
       "label": "Plan",
       "status": "pending",
       "role": "worker",
+      "agentCli": {
+        "cli": "codex",
+        "args": []
+      },
       "session": {
         "mode": "ai_decides",
         "groupId": "implementation",
@@ -66,6 +74,10 @@
       "label": "Code Draft",
       "status": "pending",
       "role": "worker",
+      "agentCli": {
+        "cli": "codex",
+        "args": []
+      },
       "session": {
         "mode": "ai_decides",
         "groupId": "implementation",
@@ -79,6 +91,10 @@
       "label": "Implementation Review",
       "status": "pending",
       "role": "reviewer",
+      "agentCli": {
+        "cli": "codex",
+        "args": []
+      },
       "session": {
         "mode": "ai_decides",
         "groupId": "review",
@@ -93,6 +109,10 @@
       "label": "Repair Loop",
       "status": "pending",
       "role": "worker",
+      "agentCli": {
+        "cli": "codex",
+        "args": []
+      },
       "session": {
         "mode": "ai_decides",
         "groupId": "implementation",
@@ -107,6 +127,10 @@
       "label": "Final Patch",
       "status": "pending",
       "role": "output",
+      "agentCli": {
+        "cli": "codex",
+        "args": []
+      },
       "session": {
         "mode": "ai_decides",
         "groupId": "implementation",

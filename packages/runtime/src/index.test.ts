@@ -44,6 +44,10 @@ describe("validateGraph", () => {
       groupId: "implementation",
       controllerNodeId: "missing-director"
     };
+    plan.agentCli = {
+      cli: "",
+      args: []
+    };
     director.control.managedNodeIds = director.control.managedNodeIds.filter(
       (nodeId) => nodeId !== "code-draft"
     );
@@ -56,6 +60,9 @@ describe("validateGraph", () => {
     );
     expect(result.issues.map((issue) => issue.message)).toContain(
       "Control scope edge target is not managed by source: code-draft"
+    );
+    expect(result.issues.map((issue) => issue.message)).toContain(
+      "Agent CLI requires a command: plan"
     );
   });
 });
@@ -122,6 +129,16 @@ describe("runLocalWorkflow", () => {
     definition.id = "custom-local-loop";
     definition.name = "Custom Local Loop";
     definition.version = "0.2.0";
+    const planNode = definition.nodes.find((node) => node.id === "plan");
+
+    if (!planNode) {
+      throw new Error("Expected plan node.");
+    }
+
+    planNode.agentCli = {
+      cli: "claude",
+      args: ["--headless"]
+    };
 
     const run = await createLocalWorkflowRun({
       root,
@@ -141,6 +158,12 @@ describe("runLocalWorkflow", () => {
     expect(run.nodes.map((node) => node.id)).toEqual(
       definition.nodes.map((node) => node.id)
     );
+    expect(
+      run.nodeExecutions.find((execution) => execution.nodeId === "plan")?.agentCli
+    ).toEqual({
+      cli: "claude",
+      args: ["--headless"]
+    });
   });
 
   it("rejects invalid workflow definitions before persisting a run", async () => {

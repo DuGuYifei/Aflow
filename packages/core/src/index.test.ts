@@ -16,9 +16,17 @@ describe("core domain types", () => {
   it("allows default workflow node and edge concepts", () => {
     const nodeType: NodeType = "workflow_director";
     const edgeType: EdgeType = "control_scope";
+    const node = {
+      id: "plan",
+      type: "plan" as const,
+      label: "Plan",
+      status: "pending" as const,
+      agentCli: { cli: "claude", args: ["--headless"] }
+    };
 
     expect(nodeType).toBe("workflow_director");
     expect(edgeType).toBe("control_scope");
+    expect(node.agentCli.cli).toBe("claude");
   });
 
   it("allows Phase 1 run, artifact, execution, and agent concepts", () => {

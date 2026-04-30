@@ -51,6 +51,10 @@ interface WorkflowNode {
   label: string;
   status: string;
   role?: string;
+  agentCli?: {
+    cli: string;
+    args: string[];
+  };
   session?: NodeSessionPolicy;
   control?: NodeControlScope;
 }
@@ -580,6 +584,12 @@ export function WorkflowPanel() {
             <strong>{selectedNode?.role ?? selectedNode?.type ?? "unknown"}</strong>
             <span>mode</span>
             <strong>{executionModeLabel(selectedExecution)}</strong>
+            {selectedExecution?.agentCli ? (
+              <>
+                <span>agent args</span>
+                <strong>{agentArgsLabel(selectedExecution.agentCli.args)}</strong>
+              </>
+            ) : null}
             <span>session</span>
             <strong>{sessionPolicyLabel(selectedNode)}</strong>
             <span>active</span>
@@ -784,6 +794,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       label: "Session Director",
       status: "pending",
       role: "director",
+      agentCli: { cli: "codex", args: [] },
       session: {
         mode: "fresh",
         groupId: "direction",
@@ -800,6 +811,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       label: "Plan",
       status: "pending",
       role: "worker",
+      agentCli: { cli: "codex", args: [] },
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -813,6 +825,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       label: "Code Draft",
       status: "pending",
       role: "worker",
+      agentCli: { cli: "codex", args: [] },
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -826,6 +839,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       label: "Implementation Review",
       status: "pending",
       role: "reviewer",
+      agentCli: { cli: "codex", args: [] },
       session: {
         mode: "ai_decides",
         groupId: "review",
@@ -840,6 +854,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       label: "Repair Loop",
       status: "pending",
       role: "worker",
+      agentCli: { cli: "codex", args: [] },
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -854,6 +869,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       label: "Final Patch",
       status: "pending",
       role: "output",
+      agentCli: { cli: "codex", args: [] },
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -944,7 +960,7 @@ function createDraftRun(definition?: WorkflowDefinition): WorkflowRun {
       executionMode: draftNodeExecutionMode(node),
       agentCli:
         draftNodeExecutionMode(node) === "agent"
-          ? { cli: "codex", args: [] }
+          ? draftAgentCliForNode(node)
           : undefined,
       inputArtifactIds: [],
       outputArtifactIds: [],
@@ -971,8 +987,21 @@ function executionModeLabel(execution?: NodeExecutionState): string {
     : "system";
 }
 
+function agentArgsLabel(args: string[]): string {
+  return args.length > 0 ? args.join(" ") : "none";
+}
+
 function draftNodeExecutionMode(node: WorkflowNode): "system" | "agent" {
   return node.type === "ticket" || node.type === "spec_context" ? "system" : "agent";
+}
+
+function draftAgentCliForNode(node: WorkflowNode): { cli: string; args: string[] } {
+  const agentCli = node.agentCli ?? { cli: "codex", args: [] };
+
+  return {
+    cli: agentCli.cli,
+    args: [...agentCli.args]
+  };
 }
 
 function sessionPolicyLabel(node?: WorkflowNode): string {

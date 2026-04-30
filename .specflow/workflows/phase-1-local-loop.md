@@ -4,7 +4,7 @@ Phase 1 当前状态：已开始实现。
 
 当前目标：实现本地持续编码最小闭环，但按可交付切片逐步推进。
 
-当前已实现切片：最小 workflow run、artifact、execution state、session module、mock Session Director、workflow-bound run 创建的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run；`specflow ui` 可以启动本地可视化面板观察运行过程。
+当前已实现切片：最小 workflow run、artifact、execution state、节点级 agent CLI 选择、session module、mock Session Director、workflow-bound run 创建的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run；`specflow ui` 可以启动本地可视化面板观察运行过程。
 
 当前结构化 workflow definition：`.specflow/workflows/phase-1-local-loop.workflow.json`。
 
@@ -19,6 +19,7 @@ Phase 1 当前状态：已开始实现。
 - UI draft graph 优先使用 `/api/workflows` 返回的结构化 definition。
 - 本地 server 创建 run 时可以接收 `workflowDefinitionId`，并把绑定的 definition reference 写入 run state。
 - 当前 placeholder executor 只保证包含 Phase 1 固定节点 id 的 workflow definition 可执行。
+- Workflow definition 中的 agent-mode 节点可以声明 `agentCli`；未声明时 runtime 使用默认 mock `codex`。
 - `packages/agent` 只保留 agent runner、执行策略和 agent CLI 选择的边界。
 - 不集成真实 Codex 调用。
 - 不实现生产级 orchestration。
@@ -205,6 +206,24 @@ Phase 1 当前状态：已开始实现。
 - 当前不实现 workflow definition 编辑或保存。
 - 当前不把 executor 完全改为任意 graph 调度。
 - 当前不调用真实 agent。
+
+### P1.13 Node Agent CLI Definition
+
+完成状态：已完成。
+
+完成条件：
+
+- `WorkflowNode` 可以声明 `agentCli`。
+- `.specflow/workflows/phase-1-local-loop.workflow.json` 在 agent-mode 节点上记录默认 `codex` CLI。
+- Runtime 创建 node execution 时优先使用节点声明的 agent CLI。
+- 没有声明 agent CLI 的 agent-mode 节点继续使用默认 mock `codex`。
+- Graph validation 会拒绝空 agent CLI 命令。
+
+非目标：
+
+- 当前不启动真实 Codex、Claude 或其他 agent。
+- 当前不实现 UI 图编辑器中的 agent CLI 下拉选择。
+- 当前不实现按节点保存用户编辑后的 workflow definition。
 
 ### P1.6 Final Patch 候选输出
 

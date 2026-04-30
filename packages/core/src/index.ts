@@ -109,6 +109,11 @@ export interface ReviewResult {
   requiredChanges: string[];
 }
 
+export interface AgentCliConfig {
+  cli: string;
+  args: string[];
+}
+
 export interface WorkflowNode {
   id: string;
   type: NodeType;
@@ -116,6 +121,7 @@ export interface WorkflowNode {
   status: NodeStatus;
   description?: string;
   role?: WorkflowNodeRole;
+  agentCli?: AgentCliConfig;
   session?: NodeSessionPolicy;
   control?: NodeControlScope;
 }
@@ -163,11 +169,6 @@ export type NodeExecutionStatus =
   | "skipped";
 
 export type NodeExecutionMode = "system" | "agent";
-
-export interface AgentCliConfig {
-  cli: string;
-  args: string[];
-}
 
 export type WorkflowSessionStatus = "open" | "closed";
 

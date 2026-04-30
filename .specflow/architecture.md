@@ -10,6 +10,8 @@ workflow engine、状态机、调度和执行占位位于 `packages/runtime`。
 
 workflow session、节点 session 策略、director control decision 和 `control_scope` 管理边属于核心领域模型，由 `packages/core` 定义，由 `packages/runtime` 写入 run state。
 
+节点级 agent CLI 选择属于 workflow definition。`WorkflowNode.agentCli` 记录节点偏好的 CLI 命令和参数；runtime 只在 agent-mode 节点执行时使用它，未声明时使用当前默认 mock `codex`。
+
 `.specflow` 读写、schema 和仓库知识层工具位于 `packages/specflow`。
 
 agent runner、工具调用和执行策略占位位于 `packages/agent`。

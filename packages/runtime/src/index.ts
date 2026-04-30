@@ -160,6 +160,28 @@ export function validateGraph(graph: GraphDefinition): GraphValidationResult {
   for (const node of graph.nodes) {
     const policy = node.session;
 
+    if (node.agentCli) {
+      if (
+        typeof node.agentCli.cli !== "string" ||
+        node.agentCli.cli.trim().length === 0
+      ) {
+        issues.push({
+          message: `Agent CLI requires a command: ${node.id}`,
+          nodeId: node.id
+        });
+      }
+
+      if (
+        !Array.isArray(node.agentCli.args) ||
+        node.agentCli.args.some((argument) => typeof argument !== "string")
+      ) {
+        issues.push({
+          message: `Agent CLI args must be strings: ${node.id}`,
+          nodeId: node.id
+        });
+      }
+    }
+
     if (
       policy &&
       policy.mode !== "none" &&
@@ -254,6 +276,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Interview",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "fresh",
         groupId: "discovery",
@@ -266,6 +289,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Session Director",
       status: "pending",
       role: "director",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "fresh",
         groupId: "direction",
@@ -282,6 +306,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Plan",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -295,6 +320,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Code Draft",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -308,6 +334,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Implementation Review",
       status: "pending",
       role: "reviewer",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "review",
@@ -322,6 +349,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Repair Loop",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -336,6 +364,7 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
       label: "Final Patch",
       status: "pending",
       role: "output",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -440,6 +469,7 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
       label: "Session Director",
       status: "pending",
       role: "director",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "fresh",
         groupId: "direction",
@@ -456,6 +486,7 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
       label: "Plan",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -469,6 +500,7 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
       label: "Code Draft",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -482,6 +514,7 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
       label: "Implementation Review",
       status: "pending",
       role: "reviewer",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "review",
@@ -496,6 +529,7 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
       label: "Repair Loop",
       status: "pending",
       role: "worker",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -510,6 +544,7 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
       label: "Final Patch",
       status: "pending",
       role: "output",
+      agentCli: createDefaultAgentCliConfig(),
       session: {
         mode: "ai_decides",
         groupId: "implementation",
@@ -1269,13 +1304,7 @@ function createNodeExecutionState(
   node: WorkflowNode,
   executionMode: NodeExecutionMode
 ): NodeExecutionState {
-  const agentCli =
-    executionMode === "agent"
-      ? ({
-          cli: DEFAULT_AGENT_CLI,
-          args: []
-        } satisfies AgentCliConfig)
-      : undefined;
+  const agentCli = executionMode === "agent" ? agentCliForNode(node) : undefined;
 
   return {
     nodeId: node.id,
@@ -1293,6 +1322,22 @@ function createNodeExecutionState(
 
 function nodeExecutionMode(node: WorkflowNode): NodeExecutionMode {
   return node.type === "ticket" || node.type === "spec_context" ? "system" : "agent";
+}
+
+function agentCliForNode(node: WorkflowNode): AgentCliConfig {
+  const agentCli = node.agentCli ?? createDefaultAgentCliConfig();
+
+  return {
+    cli: agentCli.cli,
+    args: [...agentCli.args]
+  };
+}
+
+function createDefaultAgentCliConfig(): AgentCliConfig {
+  return {
+    cli: DEFAULT_AGENT_CLI,
+    args: []
+  };
 }
 
 function findNode(run: WorkflowRun, nodeId: string): WorkflowNode {

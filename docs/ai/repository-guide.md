@@ -71,6 +71,8 @@ Session、director、manager、reviewer 和 verifier 属于领域模型。新增
 
 `.specflow/workflows/*.workflow.json` 是程序读取的结构化事实，`.specflow/workflows/*.md` 是状态说明。不要只改 Markdown 而遗漏 JSON definition。
 
+节点 agent CLI 配置也属于结构化事实。新增或修改节点级 CLI 选择时，要同步 `WorkflowNode.agentCli` 类型、runtime node execution 初始化、UI 展示和 `.workflow.json`。
+
 UI draft graph 通过 server 的 `/api/workflows` 获取 workflow definition。调整 workflow definition 展示时，优先保持这个 API 边界稳定。
 
 创建 run 时，UI/server 应传递并记录 `workflowDefinitionId`。修改 run state 时，不要丢失 `workflowDefinition` reference；它是复现某次 workflow 的最小来源信息。
