@@ -136,6 +136,7 @@ pnpm --filter @specflow/server build
 - 阶段路线：`docs/product/roadmap.md`
 - 架构说明：`docs/architecture/overview.md`
 - AI 阅读指南：`docs/ai/repository-guide.md`
+- Workflow definition 参考：`docs/reference/workflow-definition.md`
 - 当前项目知识：`.specflow/project.md`
 - 当前工程约定：`.specflow/conventions.md`
 - 当前结构化 workflow：`.specflow/workflows/phase-1-local-loop.workflow.json`

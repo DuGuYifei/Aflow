@@ -441,6 +441,23 @@ Phase 1 当前状态：已开始实现。
 - 当前不加入截图。
 - 当前不加入部署或 hosted backend 说明。
 
+### P1.26 Workflow Definition Schema
+
+完成状态：已完成。
+
+完成条件：
+
+- `.specflow/workflows/workflow-definition.schema.json` 描述当前 workflow definition 文件形状。
+- 当前 Phase 1 workflow definition 通过 `$schema` 指向该 schema。
+- `docs/reference/workflow-definition.md` 说明 schema 与 runtime validation 的边界。
+- README 和 AI 阅读指南指向 reference/schema。
+
+非目标：
+
+- 当前不在 runtime 中引入 JSON Schema validator。
+- 当前不生成 workflow definition 脚手架命令。
+- 当前不替代 runtime graph semantic validation。
+
 ### P1.6 Final Patch 候选输出
 
 完成状态：已完成。

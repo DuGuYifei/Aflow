@@ -1,4 +1,5 @@
 {
+  "$schema": "./workflow-definition.schema.json",
   "id": "phase-1-local-loop",
   "name": "Phase 1 Local Loop",
   "version": "0.1.0",
