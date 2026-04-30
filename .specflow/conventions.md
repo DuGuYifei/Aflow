@@ -38,6 +38,12 @@ Server 只表达本地适配边界，不应被设计成独立后端产品。
 
 UI 应该让 workflow graph 概念可见，不应被设计成独立 Web 产品。
 
+Session、director、manager、reviewer 和 verifier 必须进入领域模型和 run state，不应只作为 UI 装饰存在。
+
+控制型节点必须通过明确的 `control_scope` 或等价字段声明它能管理哪些节点。不要实现隐式全局管理员节点。
+
+节点是否复用 session、开启新 session 或交给 AI 决定，必须由节点自身的 session policy 表达。repair loop 重新进入某节点时是否开启新 session，也必须在该节点 session policy 中可见。
+
 ## 当前产品边界
 
 不要实现真实 agent。

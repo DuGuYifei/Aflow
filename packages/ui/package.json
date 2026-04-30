@@ -11,7 +11,7 @@
     "./styles.css": "./dist/index.css"
   },
   "scripts": {
-    "build": "vite build && tsc -p tsconfig.build.json",
+    "build": "vite build && vite build --config vite.panel.config.ts && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests --config ../../vitest.config.ts",
@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@xyflow/react": "12.9.2",
-    "react": "19.2.0"
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   },
   "devDependencies": {
     "@types/react": "19.2.7",

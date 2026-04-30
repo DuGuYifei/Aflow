@@ -44,7 +44,9 @@ Workflow 是把 ticket 转化为实现结果的结构化流程。它不是简单
 
 Node 是 workflow 中的一个可观察步骤，例如 Ticket Input、Spec Context、Interview、Plan、Code Draft、Implementation Reviewer、Repair、Final Patch、Visual Decomposer、Visual Verifier。
 
-Edge 表示节点之间的关系。Specflow 至少有三类边：`control_flow` 表示执行顺序，`data_flow` 表示数据、上下文或 artifact 的流向，`review_loop` 表示审查失败后的修复循环。
+Edge 表示节点之间的关系。Specflow 至少有四类边：`control_flow` 表示执行顺序，`data_flow` 表示数据、上下文或 artifact 的流向，`review_loop` 表示审查失败后的修复循环，`control_scope` 表示 director、manager 或 verifier 节点能管理哪些其他节点。
+
+Session 是一组节点共享的 agent CLI 上下文。多个节点可以进入同一个 session module，以保持计划、实现和修复之间的上下文连续性；节点也可以声明当 repair loop 再次进入时开启新 session，避免旧上下文污染新的审查或修复。
 
 ## 基础 workflow
 
@@ -54,6 +56,7 @@ Edge 表示节点之间的关系。Specflow 至少有三类边：`control_flow` 
 ticket input
   -> spec context
   -> interview
+  -> session director
   -> plan
   -> code draft
   -> implementation reviewer
@@ -64,9 +67,13 @@ ticket input
 
 这个流程表达了 Specflow 的核心判断：不是拿到 ticket 就直接写代码，而是先读取仓库知识，再澄清需求、制定计划、生成代码草稿、审查草稿、修复问题，最后输出 final patch。
 
+Session Director 是基础流程中的第一个 director 节点。它用可观察 artifact 记录哪些节点共享 session、哪些节点应该开启新 session。当前实现是 deterministic mock，未来可以替换为真实 AI 决策。
+
 ## Reviewer 和 Verifier
 
 Reviewer 和 Verifier 是 Specflow 的核心节点类型。它们检查某个 artifact 是否足够好，是否可以进入下一步。
+
+Director 和 Manager 是同一类可复用控制节点。它们不一定生成代码，而是管理 workflow 的某个范围，例如 session 边界、review 结果路由、验证策略、修复次数或节点是否需要重新执行。设计上它们通过 `control_scope` 明确自己能管理的节点，避免变成不可观察的全局黑盒。
 
 Implementation Reviewer 审查代码实现草稿。它不是传统 PR code review，而是检查 AI 生成的第一版实现是否满足 ticket、符合 plan、遵守 `.specflow` 约定、遗漏关键边界条件，以及是否需要进入 repair loop。
 

@@ -8,6 +8,8 @@ CLI 位于 `apps/cli`，是当前唯一真实应用入口。
 
 workflow engine、状态机、调度和执行占位位于 `packages/runtime`。
 
+workflow session、节点 session 策略、director control decision 和 `control_scope` 管理边属于核心领域模型，由 `packages/core` 定义，由 `packages/runtime` 写入 run state。
+
 `.specflow` 读写、schema 和仓库知识层工具位于 `packages/specflow`。
 
 agent runner、工具调用和执行策略占位位于 `packages/agent`。
@@ -15,6 +17,8 @@ agent runner、工具调用和执行策略占位位于 `packages/agent`。
 本地 server / IPC 适配层占位位于 `packages/server`。
 
 React 节点式 workflow 面板组件位于 `packages/ui`。
+
+当前 UI 必须能显示节点角色、agent CLI、session 归属、Session Director 的管理范围和控制决策。
 
 `.specflow` 是仓库级知识层，记录当前项目目的、架构事实、工程约定、术语和 workflow 意图。
 

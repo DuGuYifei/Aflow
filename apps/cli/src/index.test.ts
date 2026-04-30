@@ -14,6 +14,10 @@ afterEach(async () => {
 });
 
 describe("workflow commands", () => {
+  it("includes the local UI command", () => {
+    expect(createCli().helpInformation()).toContain("ui");
+  });
+
   it("runs, lists, and shows a workflow from inline ticket input", async () => {
     const root = await createRepositoryRoot();
     const { logs, runCommand } = captureCli(root);

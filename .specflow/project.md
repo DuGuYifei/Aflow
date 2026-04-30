@@ -6,9 +6,9 @@
 
 当前阶段：Phase 1 本地最小闭环已开始。
 
-当前目标：在已实现的本地 placeholder workflow run、artifact、execution state 和 `.specflow/runs/` 存储边界上，逐步接近第一个可真实生成和审查 final patch 的本地持续编码闭环。
+当前目标：在已实现的本地 placeholder workflow run、artifact、execution state、session module、mock Session Director、`.specflow/runs/` 存储边界和 `specflow ui` 可视化工作台上，逐步接近第一个可真实生成和审查 final patch 的本地持续编码闭环。
 
-当前工程入口：`apps/cli`。
+当前工程入口：`apps/cli`，包括 `specflow workflow ...` 和 `specflow ui`。
 
 当前核心包：`packages/core`、`packages/runtime`、`packages/specflow`、`packages/agent`。
 

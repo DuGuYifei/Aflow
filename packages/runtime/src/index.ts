@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   AgentCliConfig,
+  NodeSessionDecision,
   NodeExecutionMode,
   NodeExecutionState,
   Ticket,
   TicketSource,
+  WorkflowControlDecision,
   WorkflowArtifact,
   WorkflowArtifactKind,
   WorkflowEdge,
   WorkflowNode,
-  WorkflowRun
+  WorkflowRun,
+  WorkflowSession
 } from "@specflow/core";
 import { readSpecflowKnowledge } from "@specflow/specflow";
 
@@ -68,6 +71,25 @@ export interface RunLocalWorkflowOptions {
   ticket: TicketInput;
   maxRepairAttempts?: number;
   reviewerMode?: ReviewerMode;
+  stepDelayMs?: number;
+  store?: WorkflowRunStore;
+  now?: () => string;
+}
+
+export interface CreateLocalWorkflowRunOptions {
+  root: string;
+  ticket: TicketInput;
+  maxRepairAttempts?: number;
+  store?: WorkflowRunStore;
+  now?: () => string;
+}
+
+export interface ExecuteLocalWorkflowRunOptions {
+  root: string;
+  runId: string;
+  reviewerMode?: ReviewerMode;
+  stepDelayMs?: number;
+  maxRepairAttempts?: number;
   store?: WorkflowRunStore;
   now?: () => string;
 }
@@ -114,19 +136,117 @@ export function validateGraph(graph: GraphDefinition): GraphValidationResult {
 }
 
 export function createDefaultWorkflowGraph(): GraphDefinition {
+  const managedNodeIds = [
+    "plan",
+    "code-draft",
+    "implementation-review",
+    "repair-loop",
+    "final-patch"
+  ];
   const nodes: WorkflowNode[] = [
-    { id: "ticket", type: "ticket", label: "Ticket", status: "pending" },
-    { id: "interview", type: "interview", label: "Interview", status: "pending" },
-    { id: "plan", type: "plan", label: "Plan", status: "pending" },
-    { id: "code-draft", type: "code_draft", label: "Code Draft", status: "pending" },
+    {
+      id: "ticket",
+      type: "ticket",
+      label: "Ticket",
+      status: "pending",
+      role: "input",
+      session: { mode: "none" }
+    },
+    {
+      id: "interview",
+      type: "interview",
+      label: "Interview",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "fresh",
+        groupId: "discovery",
+        label: "Discovery"
+      }
+    },
+    {
+      id: "session-director",
+      type: "workflow_director",
+      label: "Session Director",
+      status: "pending",
+      role: "director",
+      session: {
+        mode: "fresh",
+        groupId: "direction",
+        label: "Direction"
+      },
+      control: {
+        managedNodeIds,
+        decisionKinds: ["session"]
+      }
+    },
+    {
+      id: "plan",
+      type: "plan",
+      label: "Plan",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director"
+      }
+    },
+    {
+      id: "code-draft",
+      type: "code_draft",
+      label: "Code Draft",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director"
+      }
+    },
     {
       id: "implementation-review",
       type: "implementation_reviewer",
       label: "Implementation Review",
-      status: "pending"
+      status: "pending",
+      role: "reviewer",
+      session: {
+        mode: "ai_decides",
+        groupId: "review",
+        label: "Review",
+        controllerNodeId: "session-director",
+        newSessionOnLoop: true
+      }
     },
-    { id: "repair-loop", type: "repair", label: "Repair Loop", status: "pending" },
-    { id: "final-patch", type: "final_patch", label: "Final Patch", status: "pending" }
+    {
+      id: "repair-loop",
+      type: "repair",
+      label: "Repair Loop",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director",
+        newSessionOnLoop: true
+      }
+    },
+    {
+      id: "final-patch",
+      type: "final_patch",
+      label: "Final Patch",
+      status: "pending",
+      role: "output",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director"
+      }
+    }
   ];
 
   return {
@@ -141,8 +261,14 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
         type: "control_flow"
       },
       {
-        id: "interview-plan",
+        id: "interview-session-director",
         source: "interview",
+        target: "session-director",
+        type: "control_flow"
+      },
+      {
+        id: "session-director-plan",
+        source: "session-director",
         target: "plan",
         type: "control_flow"
       },
@@ -175,30 +301,126 @@ export function createDefaultWorkflowGraph(): GraphDefinition {
         source: "implementation-review",
         target: "final-patch",
         type: "control_flow"
-      }
+      },
+      ...managedNodeIds.map((nodeId) => ({
+        id: `session-director-manages-${nodeId}`,
+        source: "session-director",
+        target: nodeId,
+        type: "control_scope" as const,
+        label: "manages session"
+      }))
     ]
   };
 }
 
 export function createPhase1LocalLoopGraph(): GraphDefinition {
+  const managedNodeIds = [
+    "plan",
+    "code-draft",
+    "implementation-review",
+    "repair-loop",
+    "final-patch"
+  ];
   const nodes: WorkflowNode[] = [
-    { id: "ticket-input", type: "ticket", label: "Ticket Input", status: "pending" },
+    {
+      id: "ticket-input",
+      type: "ticket",
+      label: "Ticket Input",
+      status: "pending",
+      role: "input",
+      session: { mode: "none" }
+    },
     {
       id: "spec-context",
       type: "spec_context",
       label: "Spec Context",
-      status: "pending"
+      status: "pending",
+      role: "context",
+      session: { mode: "none" }
     },
-    { id: "plan", type: "plan", label: "Plan", status: "pending" },
-    { id: "code-draft", type: "code_draft", label: "Code Draft", status: "pending" },
+    {
+      id: "session-director",
+      type: "workflow_director",
+      label: "Session Director",
+      status: "pending",
+      role: "director",
+      session: {
+        mode: "fresh",
+        groupId: "direction",
+        label: "Direction"
+      },
+      control: {
+        managedNodeIds,
+        decisionKinds: ["session"]
+      }
+    },
+    {
+      id: "plan",
+      type: "plan",
+      label: "Plan",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director"
+      }
+    },
+    {
+      id: "code-draft",
+      type: "code_draft",
+      label: "Code Draft",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director"
+      }
+    },
     {
       id: "implementation-review",
       type: "implementation_reviewer",
       label: "Implementation Review",
-      status: "pending"
+      status: "pending",
+      role: "reviewer",
+      session: {
+        mode: "ai_decides",
+        groupId: "review",
+        label: "Review",
+        controllerNodeId: "session-director",
+        newSessionOnLoop: true
+      }
     },
-    { id: "repair-loop", type: "repair", label: "Repair Loop", status: "pending" },
-    { id: "final-patch", type: "final_patch", label: "Final Patch", status: "pending" }
+    {
+      id: "repair-loop",
+      type: "repair",
+      label: "Repair Loop",
+      status: "pending",
+      role: "worker",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director",
+        newSessionOnLoop: true
+      }
+    },
+    {
+      id: "final-patch",
+      type: "final_patch",
+      label: "Final Patch",
+      status: "pending",
+      role: "output",
+      session: {
+        mode: "ai_decides",
+        groupId: "implementation",
+        label: "Implementation",
+        controllerNodeId: "session-director"
+      }
+    }
   ];
 
   return {
@@ -213,8 +435,14 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
         type: "control_flow"
       },
       {
-        id: "spec-context-plan",
+        id: "spec-context-session-director",
         source: "spec-context",
+        target: "session-director",
+        type: "control_flow"
+      },
+      {
+        id: "session-director-plan",
+        source: "session-director",
         target: "plan",
         type: "control_flow"
       },
@@ -247,7 +475,14 @@ export function createPhase1LocalLoopGraph(): GraphDefinition {
         source: "implementation-review",
         target: "final-patch",
         type: "control_flow"
-      }
+      },
+      ...managedNodeIds.map((nodeId) => ({
+        id: `session-director-manages-${nodeId}`,
+        source: "session-director",
+        target: nodeId,
+        type: "control_scope" as const,
+        label: "manages session"
+      }))
     ]
   };
 }
@@ -267,7 +502,9 @@ export class FileWorkflowRunStore implements WorkflowRunStore {
   }
 
   async readRun(runId: string): Promise<WorkflowRun> {
-    return readJson<WorkflowRun>(join(this.runDirectory(runId), "run.json"));
+    return normalizeWorkflowRun(
+      await readJson<WorkflowRun>(join(this.runDirectory(runId), "run.json"))
+    );
   }
 
   async listRuns(): Promise<WorkflowRun[]> {
@@ -296,10 +533,7 @@ export class FileWorkflowRunStore implements WorkflowRunStore {
     await writeJson(join(directory, `${artifact.id}.json`), artifact);
   }
 
-  async readArtifact(
-    runId: string,
-    artifactId: string
-  ): Promise<WorkflowArtifact> {
+  async readArtifact(runId: string, artifactId: string): Promise<WorkflowArtifact> {
     return readJson<WorkflowArtifact>(
       join(this.runDirectory(runId), "artifacts", `${artifactId}.json`)
     );
@@ -310,7 +544,10 @@ export class FileWorkflowRunStore implements WorkflowRunStore {
   }
 }
 
-export function createTicket(input: TicketInput, now = new Date().toISOString()): Ticket {
+export function createTicket(
+  input: TicketInput,
+  now = new Date().toISOString()
+): Ticket {
   return {
     id: createId("ticket"),
     body: input.body,
@@ -322,14 +559,13 @@ export function createTicket(input: TicketInput, now = new Date().toISOString())
   };
 }
 
-export async function runLocalWorkflow(
-  options: RunLocalWorkflowOptions
+export async function createLocalWorkflowRun(
+  options: CreateLocalWorkflowRunOptions
 ): Promise<WorkflowRun> {
   const now = options.now ?? (() => new Date().toISOString());
   const graph = createPhase1LocalLoopGraph();
   const store = options.store ?? new FileWorkflowRunStore(options.root);
   const maxRepairAttempts = options.maxRepairAttempts ?? 1;
-  const reviewerMode = options.reviewerMode ?? "fail-once";
   const createdAt = now();
   const ticket = createTicket(options.ticket, createdAt);
   const run: WorkflowRun = {
@@ -341,6 +577,8 @@ export async function runLocalWorkflow(
     nodeExecutions: graph.nodes.map((node) =>
       createNodeExecutionState(node, nodeExecutionMode(node.id))
     ),
+    sessions: [],
+    controlDecisions: [],
     artifacts: [],
     reviews: [],
     createdAt,
@@ -349,6 +587,21 @@ export async function runLocalWorkflow(
   };
 
   await store.saveRun(run);
+  return run;
+}
+
+export async function executeLocalWorkflowRun(
+  options: ExecuteLocalWorkflowRunOptions
+): Promise<WorkflowRun> {
+  const now = options.now ?? (() => new Date().toISOString());
+  const store = options.store ?? new FileWorkflowRunStore(options.root);
+  const reviewerMode = options.reviewerMode ?? "fail-once";
+  const stepDelayMs = options.stepDelayMs ?? 0;
+  const run = await store.readRun(options.runId);
+  const ticket = run.ticket;
+  const maxRepairAttempts = options.maxRepairAttempts ?? run.maxRepairAttempts;
+  run.maxRepairAttempts = maxRepairAttempts;
+
   run.status = "running";
   await saveRun(store, run, now);
 
@@ -359,6 +612,7 @@ export async function runLocalWorkflow(
       "ticket-input",
       [],
       now,
+      stepDelayMs,
       () =>
         createArtifact(run, "ticket-input", "ticket", "Ticket", {
           content: JSON.stringify(ticket, null, 2),
@@ -373,6 +627,7 @@ export async function runLocalWorkflow(
       "spec-context",
       [ticketArtifact.id],
       now,
+      stepDelayMs,
       async () => {
         const knowledge = await readSpecflowKnowledge(options.root);
         return createArtifact(run, "spec-context", "spec-context", "Spec Context", {
@@ -386,24 +641,35 @@ export async function runLocalWorkflow(
       }
     );
 
+    const sessionDecisionArtifact = await completeSessionDirectorNode(
+      run,
+      store,
+      [ticketArtifact.id, specContextArtifact.id],
+      now,
+      stepDelayMs
+    );
+
     const planArtifact = await completeNode(
       run,
       store,
       "plan",
-      [ticketArtifact.id, specContextArtifact.id],
+      [ticketArtifact.id, specContextArtifact.id, sessionDecisionArtifact.id],
       now,
-      () =>
+      stepDelayMs,
+      (session) =>
         createArtifact(run, "plan", "plan", "Plan", {
           content: [
             "# Placeholder Plan",
             "",
             `Ticket source: ${ticket.source}`,
             `Ticket body: ${ticket.body}`,
+            `Session: ${session?.label ?? "none"}`,
             "",
             "This deterministic plan is produced without calling a real agent."
           ].join("\n"),
           contentType: "text/markdown",
-          now
+          now,
+          metadata: sessionMetadata(session)
         })
     );
 
@@ -413,15 +679,18 @@ export async function runLocalWorkflow(
       "code-draft",
       [planArtifact.id],
       now,
-      () =>
+      stepDelayMs,
+      (session) =>
         createArtifact(run, "code-draft", "code-draft", "Code Draft", {
           content: [
             "# Placeholder Code Draft",
             "",
+            `Session: ${session?.label ?? "none"}`,
             "No repository files are modified in Phase 1 placeholder execution."
           ].join("\n"),
           contentType: "text/markdown",
-          now
+          now,
+          metadata: sessionMetadata(session)
         })
     );
 
@@ -430,7 +699,8 @@ export async function runLocalWorkflow(
       store,
       [draftArtifact.id],
       reviewerMode,
-      now
+      now,
+      stepDelayMs
     );
     let latestReview = readReviewResult(latestReviewArtifact);
     let repairAttempts = 0;
@@ -452,18 +722,21 @@ export async function runLocalWorkflow(
         "repair-loop",
         [latestReviewArtifact.id],
         now,
-        () =>
+        stepDelayMs,
+        (session) =>
           createArtifact(run, "repair-loop", "repair", "Repair", {
             content: [
               "# Placeholder Repair",
               "",
               `Repair attempt: ${repairAttempts}`,
+              `Session: ${session?.label ?? "none"}`,
               "The repair loop is modeled without modifying repository files."
             ].join("\n"),
             contentType: "text/markdown",
             now,
             metadata: {
-              repairAttempt: repairAttempts
+              repairAttempt: repairAttempts,
+              ...sessionMetadata(session)
             }
           })
       );
@@ -473,7 +746,8 @@ export async function runLocalWorkflow(
         store,
         [draftArtifact.id, repairArtifact.id],
         reviewerMode,
-        now
+        now,
+        stepDelayMs
       );
       latestReview = readReviewResult(latestReviewArtifact);
     }
@@ -484,15 +758,18 @@ export async function runLocalWorkflow(
       "final-patch",
       [latestReviewArtifact.id],
       now,
-      () =>
+      stepDelayMs,
+      (session) =>
         createArtifact(run, "final-patch", "final-patch", "Final Patch", {
           content: [
             "# Placeholder Final Patch",
             "",
+            `Session: ${session?.label ?? "none"}`,
             "The review loop completed. No real patch was applied."
           ].join("\n"),
           contentType: "text/markdown",
-          now
+          now,
+          metadata: sessionMetadata(session)
         })
     );
 
@@ -508,6 +785,22 @@ export async function runLocalWorkflow(
     await store.saveRun(run);
     throw error;
   }
+}
+
+export async function runLocalWorkflow(
+  options: RunLocalWorkflowOptions
+): Promise<WorkflowRun> {
+  const run = await createLocalWorkflowRun(options);
+
+  return executeLocalWorkflowRun({
+    root: options.root,
+    runId: run.id,
+    reviewerMode: options.reviewerMode,
+    stepDelayMs: options.stepDelayMs,
+    maxRepairAttempts: options.maxRepairAttempts,
+    store: options.store,
+    now: options.now
+  });
 }
 
 export async function executeInMemoryStub(
@@ -531,9 +824,12 @@ export async function executeInMemoryStub(
       inputArtifactIds: [],
       outputArtifactIds: ["stub-artifact"],
       attempts: 1,
+      sessionIds: [],
       startedAt: now,
       completedAt: now
     })),
+    sessions: [],
+    controlDecisions: [],
     artifacts: [
       {
         id: "stub-artifact",
@@ -555,38 +851,93 @@ export async function executeInMemoryStub(
   };
 }
 
+async function completeSessionDirectorNode(
+  run: WorkflowRun,
+  store: WorkflowRunStore,
+  inputArtifactIds: string[],
+  now: () => string,
+  stepDelayMs: number
+): Promise<WorkflowArtifact> {
+  return completeNode(
+    run,
+    store,
+    "session-director",
+    inputArtifactIds,
+    now,
+    stepDelayMs,
+    (session) => {
+      const decision = createSessionControlDecision(run, now);
+      run.controlDecisions.push(decision);
+
+      return createArtifact(
+        run,
+        "session-director",
+        "control-decision",
+        "Session Decision",
+        {
+          content: JSON.stringify(decision, null, 2),
+          contentType: "application/json",
+          now,
+          metadata: {
+            managedNodes: decision.targetNodeIds.length,
+            ...sessionMetadata(session)
+          }
+        }
+      );
+    }
+  );
+}
+
 async function completeReviewNode(
   run: WorkflowRun,
   store: WorkflowRunStore,
   inputArtifactIds: string[],
   reviewerMode: ReviewerMode,
-  now: () => string
+  now: () => string,
+  stepDelayMs: number
 ): Promise<WorkflowArtifact> {
-  return completeNode(run, store, "implementation-review", inputArtifactIds, now, () => {
-    const repairArtifacts = run.artifacts.filter((artifact) => artifact.kind === "repair");
-    const approved =
-      reviewerMode === "pass" ||
-      (reviewerMode === "fail-once" && repairArtifacts.length > 0);
-    const review = {
-      reviewerNodeId: "implementation-review",
-      approved,
-      summary: approved
-        ? "Placeholder review approved the current draft."
-        : "Placeholder review requires a repair attempt.",
-      requiredChanges: approved ? [] : ["Run the placeholder repair node."]
-    };
+  return completeNode(
+    run,
+    store,
+    "implementation-review",
+    inputArtifactIds,
+    now,
+    stepDelayMs,
+    (session) => {
+      const repairArtifacts = run.artifacts.filter(
+        (artifact) => artifact.kind === "repair"
+      );
+      const approved =
+        reviewerMode === "pass" ||
+        (reviewerMode === "fail-once" && repairArtifacts.length > 0);
+      const review = {
+        reviewerNodeId: "implementation-review",
+        approved,
+        summary: approved
+          ? "Placeholder review approved the current draft."
+          : "Placeholder review requires a repair attempt.",
+        requiredChanges: approved ? [] : ["Run the placeholder repair node."]
+      };
 
-    run.reviews.push(review);
+      run.reviews.push(review);
 
-    return createArtifact(run, "implementation-review", "review-result", "Review Result", {
-      content: JSON.stringify(review, null, 2),
-      contentType: "application/json",
-      now,
-      metadata: {
-        approved
-      }
-    });
-  });
+      return createArtifact(
+        run,
+        "implementation-review",
+        "review-result",
+        "Review Result",
+        {
+          content: JSON.stringify(review, null, 2),
+          contentType: "application/json",
+          now,
+          metadata: {
+            approved,
+            ...sessionMetadata(session)
+          }
+        }
+      );
+    }
+  );
 }
 
 async function completeNode(
@@ -595,9 +946,13 @@ async function completeNode(
   nodeId: string,
   inputArtifactIds: string[],
   now: () => string,
-  createOutput: () => WorkflowArtifact | Promise<WorkflowArtifact>
+  stepDelayMs: number,
+  createOutput: (
+    session: WorkflowSession | undefined
+  ) => WorkflowArtifact | Promise<WorkflowArtifact>
 ): Promise<WorkflowArtifact> {
   const execution = findExecution(run, nodeId);
+  const session = resolveNodeSession(run, nodeId, execution, now);
 
   execution.status = "running";
   execution.attempts += 1;
@@ -605,14 +960,22 @@ async function completeNode(
   execution.completedAt = undefined;
   execution.error = undefined;
   execution.inputArtifactIds = inputArtifactIds;
+  if (session) {
+    attachSessionToExecution(session, execution, nodeId, now);
+  }
   await saveRun(store, run, now);
+  await sleep(stepDelayMs);
 
   try {
-    const artifact = await createOutput();
+    const artifact = await createOutput(session);
     run.artifacts.push(artifact);
     execution.status = "completed";
     execution.completedAt = now();
     execution.outputArtifactIds.push(artifact.id);
+    if (session && !session.artifactIds.includes(artifact.id)) {
+      session.artifactIds.push(artifact.id);
+      session.updatedAt = now();
+    }
     await store.writeArtifact(artifact);
     await saveRun(store, run, now);
 
@@ -651,6 +1014,144 @@ function createArtifact(
   };
 }
 
+function createSessionControlDecision(
+  run: WorkflowRun,
+  now: () => string
+): WorkflowControlDecision {
+  const controller = findNode(run, "session-director");
+  const managedNodeIds = controller.control?.managedNodeIds ?? [];
+  const sessionDecisions: NodeSessionDecision[] = managedNodeIds.map((nodeId) => {
+    const target = findNode(run, nodeId);
+    const sessionGroupId = target.session?.groupId ?? nodeId;
+    const openNewSession =
+      nodeId === "plan" ||
+      nodeId === "implementation-review" ||
+      nodeId === "repair-loop";
+
+    return {
+      targetNodeId: nodeId,
+      sessionGroupId,
+      openNewSession,
+      reason: openNewSession
+        ? "Mock director starts a focused session for this work boundary."
+        : "Mock director keeps this node in the active session group."
+    };
+  });
+
+  return {
+    id: createId("decision"),
+    runId: run.id,
+    controllerNodeId: controller.id,
+    kind: "session",
+    targetNodeIds: managedNodeIds,
+    summary:
+      "Mock Session Director chooses implementation/review session boundaries without calling a real agent.",
+    sessionDecisions,
+    createdAt: now()
+  };
+}
+
+function resolveNodeSession(
+  run: WorkflowRun,
+  nodeId: string,
+  execution: NodeExecutionState,
+  now: () => string
+): WorkflowSession | undefined {
+  const node = findNode(run, nodeId);
+  const policy = node.session;
+
+  if (!policy || policy.mode === "none" || !policy.groupId || !execution.agentCli) {
+    return undefined;
+  }
+
+  const decision =
+    policy.mode === "ai_decides" ? findLatestSessionDecision(run, nodeId) : undefined;
+  const shouldStartFresh =
+    policy.mode === "fresh" ||
+    decision?.openNewSession === true ||
+    Boolean(policy.newSessionOnLoop && execution.attempts > 0);
+
+  if (!shouldStartFresh) {
+    const existing = findReusableSession(run, policy.groupId, execution.agentCli);
+
+    if (existing) {
+      existing.updatedAt = now();
+      return existing;
+    }
+  }
+
+  const createdAt = now();
+  const session: WorkflowSession = {
+    id: createId("session"),
+    runId: run.id,
+    groupId: policy.groupId,
+    label: policy.label ?? policy.groupId,
+    status: "open",
+    agentCli: execution.agentCli,
+    controlledByNodeId: policy.controllerNodeId,
+    nodeIds: [],
+    artifactIds: [],
+    createdAt,
+    updatedAt: createdAt
+  };
+
+  run.sessions.push(session);
+  return session;
+}
+
+function findReusableSession(
+  run: WorkflowRun,
+  groupId: string,
+  agentCli: AgentCliConfig
+): WorkflowSession | undefined {
+  return [...run.sessions]
+    .reverse()
+    .find(
+      (session) =>
+        session.status === "open" &&
+        session.groupId === groupId &&
+        session.agentCli.cli === agentCli.cli
+    );
+}
+
+function findLatestSessionDecision(
+  run: WorkflowRun,
+  nodeId: string
+): NodeSessionDecision | undefined {
+  return [...run.controlDecisions]
+    .reverse()
+    .flatMap((decision) => decision.sessionDecisions ?? [])
+    .find((decision) => decision.targetNodeId === nodeId);
+}
+
+function attachSessionToExecution(
+  session: WorkflowSession,
+  execution: NodeExecutionState,
+  nodeId: string,
+  now: () => string
+): void {
+  execution.sessionId = session.id;
+  if (!execution.sessionIds.includes(session.id)) {
+    execution.sessionIds.push(session.id);
+  }
+  if (!session.nodeIds.includes(nodeId)) {
+    session.nodeIds.push(nodeId);
+  }
+  session.updatedAt = now();
+}
+
+function sessionMetadata(session: WorkflowSession | undefined): Record<string, string> {
+  if (!session) {
+    return {};
+  }
+
+  return {
+    sessionId: session.id,
+    sessionGroupId: session.groupId,
+    sessionLabel: session.label
+  };
+}
+
 function createNodeExecutionState(
   node: WorkflowNode,
   executionMode: NodeExecutionMode
@@ -672,12 +1173,23 @@ function createNodeExecutionState(
     agentCli,
     inputArtifactIds: [],
     outputArtifactIds: [],
-    attempts: 0
+    attempts: 0,
+    sessionIds: []
   };
 }
 
 function nodeExecutionMode(nodeId: string): NodeExecutionMode {
   return nodeId === "ticket-input" || nodeId === "spec-context" ? "system" : "agent";
+}
+
+function findNode(run: WorkflowRun, nodeId: string): WorkflowNode {
+  const node = run.nodes.find((candidate) => candidate.id === nodeId);
+
+  if (!node) {
+    throw new Error(`Workflow node not found: ${nodeId}`);
+  }
+
+  return node;
 }
 
 function findExecution(run: WorkflowRun, nodeId: string): NodeExecutionState {
@@ -688,6 +1200,17 @@ function findExecution(run: WorkflowRun, nodeId: string): NodeExecutionState {
   }
 
   return execution;
+}
+
+function normalizeWorkflowRun(run: WorkflowRun): WorkflowRun {
+  run.sessions ??= [];
+  run.controlDecisions ??= [];
+
+  for (const execution of run.nodeExecutions) {
+    execution.sessionIds ??= execution.sessionId ? [execution.sessionId] : [];
+  }
+
+  return run;
 }
 
 function skipNode(run: WorkflowRun, nodeId: string, now: () => string): void {
@@ -715,7 +1238,10 @@ async function saveRun(
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+
+  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(temporaryPath, path);
 }
 
 async function readJson<T>(path: string): Promise<T> {
@@ -726,6 +1252,16 @@ async function readJson<T>(path: string): Promise<T> {
 
 function createId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
+}
+
+async function sleep(milliseconds: number): Promise<void> {
+  if (milliseconds <= 0) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

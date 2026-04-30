@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
+import { startServer } from "@specflow/server";
 import { formatDefaultWorkflowFlow } from "@specflow/shared";
 import { readSpecflowKnowledge } from "@specflow/specflow";
 import {
@@ -122,6 +124,40 @@ async function validateWorkflow(): Promise<void> {
   }
 }
 
+async function startUi(options: {
+  host?: string;
+  port?: string;
+  open?: boolean;
+}): Promise<void> {
+  const root = await findRepositoryRoot();
+  const host = options.host ?? "127.0.0.1";
+  const port = Number(options.port ?? 3000);
+  const url = `http://${host}:${port}`;
+  const server = await startServer({ root, host, port });
+
+  console.log("Specflow UI");
+  console.log(`url: ${url}`);
+
+  if (options.open !== false && !process.argv.includes("--no-open")) {
+    openBrowser(url);
+  }
+
+  await new Promise<void>((resolve) => {
+    const shutdown = async () => {
+      console.log("stopping Specflow UI");
+      await server.close();
+      resolve();
+    };
+
+    process.once("SIGINT", () => {
+      void shutdown();
+    });
+    process.once("SIGTERM", () => {
+      void shutdown();
+    });
+  });
+}
+
 async function runWorkflow(options: {
   ticket?: string;
   ticketFile?: string;
@@ -197,8 +233,23 @@ function printRunSummary(title: string, run: WorkflowRun): void {
       execution.executionMode === "agent"
         ? `agent:${execution.agentCli?.cli ?? "unknown"}`
         : "system";
+    const session = execution.sessionId ? ` session:${execution.sessionId}` : "";
     console.log(
-      `- ${execution.nodeId} ${execution.status} ${mode} attempts:${execution.attempts} outputs:${execution.outputArtifactIds.length}`
+      `- ${execution.nodeId} ${execution.status} ${mode}${session} attempts:${execution.attempts} outputs:${execution.outputArtifactIds.length}`
+    );
+  }
+
+  console.log("sessions:");
+  for (const session of run.sessions ?? []) {
+    console.log(
+      `- ${session.id} ${session.groupId} agent:${session.agentCli.cli} nodes:${session.nodeIds.join(",")}`
+    );
+  }
+
+  console.log("control decisions:");
+  for (const decision of run.controlDecisions ?? []) {
+    console.log(
+      `- ${decision.id} ${decision.kind} controller:${decision.controllerNodeId} targets:${decision.targetNodeIds.length}`
     );
   }
 
@@ -220,6 +271,14 @@ export function createCli(): Command {
     .command("doctor")
     .description("Validate that the local repository structure is present.")
     .action(runDoctor);
+
+  program
+    .command("ui")
+    .description("Start the local Specflow UI.")
+    .option("--host <host>", "Host to bind.", "127.0.0.1")
+    .option("--port <port>", "Port to bind.", "3000")
+    .option("--no-open", "Do not try to open the browser.")
+    .action(startUi);
 
   const spec = program.command("spec").description("Read Specflow project knowledge.");
 
@@ -262,4 +321,31 @@ const isEntryPoint = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isEntryPoint) {
   await createCli().parseAsync(process.argv);
+}
+
+function openBrowser(url: string): void {
+  const command =
+    process.platform === "darwin"
+      ? "open"
+      : process.platform === "win32"
+        ? "cmd"
+        : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+
+  try {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.on("error", (error) => {
+      console.log(`open failed: ${formatCliError(error)}`);
+    });
+    child.unref();
+  } catch (error) {
+    console.log(`open failed: ${formatCliError(error)}`);
+  }
+}
+
+function formatCliError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

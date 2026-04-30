@@ -28,6 +28,22 @@
 
 执行某个 workflow node 的本地 agent 命令选择。当前默认值是 `codex`，Phase 1 只建模选择边界，不调用真实 agent。
 
+## Workflow Session
+
+一组节点共享的 agent CLI 上下文。节点可以复用同组 session，也可以在特定边界开启新 session。
+
+## Session Module
+
+把多个节点放入同一个 workflow session group 的模块化能力。它用于表达哪些节点需要同一个 agent 上下文。
+
+## Session Policy
+
+节点自身声明的 session 使用规则，包括不使用 session、共享 session、每次新建 session、由 AI 决定，以及 repair loop 再次进入时是否开启新 session。
+
+## Session Director
+
+当前用于决定 session 边界的 director 节点。Phase 1 使用 mock 决策，不调用真实 agent。
+
 ## Node
 
 workflow graph 中可观察的步骤。
@@ -47,6 +63,18 @@ workflow graph 中节点之间的关系。
 ## Review Loop Edge
 
 表示审查失败后进入修复循环的边。
+
+## Control Scope Edge
+
+表示 director、manager 或 verifier 节点管理其他节点范围的边。
+
+## Director
+
+管理 workflow 某个范围的控制型节点，可以产出 session、routing、review 或 verification decision。
+
+## Manager
+
+Director 的一种具体角色名。它管理某一组节点的执行边界、上下文边界或结果路由。
 
 ## Reviewer
 

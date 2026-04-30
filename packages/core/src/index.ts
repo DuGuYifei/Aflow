@@ -7,7 +7,7 @@ export type NodeStatus =
   | "failed"
   | "completed";
 
-export type EdgeType = "control_flow" | "data_flow" | "review_loop";
+export type EdgeType = "control_flow" | "data_flow" | "review_loop" | "control_scope";
 
 export type NodeType =
   | "ticket"
@@ -15,11 +15,42 @@ export type NodeType =
   | "interview"
   | "plan"
   | "code_draft"
+  | "workflow_director"
   | "implementation_reviewer"
   | "repair"
   | "final_patch"
   | "visual_decomposer"
   | "visual_verifier";
+
+export type WorkflowNodeRole =
+  | "input"
+  | "context"
+  | "worker"
+  | "reviewer"
+  | "verifier"
+  | "director"
+  | "output";
+
+export type WorkflowControlDecisionKind =
+  | "session"
+  | "routing"
+  | "review"
+  | "verification";
+
+export type NodeSessionMode = "none" | "shared" | "fresh" | "ai_decides";
+
+export interface NodeSessionPolicy {
+  mode: NodeSessionMode;
+  groupId?: string;
+  label?: string;
+  controllerNodeId?: string;
+  newSessionOnLoop?: boolean;
+}
+
+export interface NodeControlScope {
+  managedNodeIds: string[];
+  decisionKinds: WorkflowControlDecisionKind[];
+}
 
 export type TicketSource = "inline" | "file";
 
@@ -46,6 +77,7 @@ export type WorkflowArtifactKind =
   | "plan"
   | "code-draft"
   | "review-result"
+  | "control-decision"
   | "repair"
   | "final-patch"
   | "spec"
@@ -83,6 +115,9 @@ export interface WorkflowNode {
   label: string;
   status: NodeStatus;
   description?: string;
+  role?: WorkflowNodeRole;
+  session?: NodeSessionPolicy;
+  control?: NodeControlScope;
 }
 
 export interface WorkflowEdge {
@@ -114,6 +149,40 @@ export interface AgentCliConfig {
   args: string[];
 }
 
+export type WorkflowSessionStatus = "open" | "closed";
+
+export interface WorkflowSession {
+  id: string;
+  runId: string;
+  groupId: string;
+  label: string;
+  status: WorkflowSessionStatus;
+  agentCli: AgentCliConfig;
+  controlledByNodeId?: string;
+  nodeIds: string[];
+  artifactIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NodeSessionDecision {
+  targetNodeId: string;
+  sessionGroupId: string;
+  openNewSession: boolean;
+  reason: string;
+}
+
+export interface WorkflowControlDecision {
+  id: string;
+  runId: string;
+  controllerNodeId: string;
+  kind: WorkflowControlDecisionKind;
+  targetNodeIds: string[];
+  summary: string;
+  sessionDecisions?: NodeSessionDecision[];
+  createdAt: string;
+}
+
 export interface NodeExecutionState {
   nodeId: string;
   nodeType: NodeType;
@@ -124,6 +193,8 @@ export interface NodeExecutionState {
   inputArtifactIds: string[];
   outputArtifactIds: string[];
   attempts: number;
+  sessionId?: string;
+  sessionIds: string[];
   startedAt?: string;
   completedAt?: string;
   error?: string;
@@ -136,6 +207,8 @@ export interface WorkflowRun {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   nodeExecutions: NodeExecutionState[];
+  sessions: WorkflowSession[];
+  controlDecisions: WorkflowControlDecision[];
   artifacts: WorkflowArtifact[];
   reviews: ReviewResult[];
   createdAt: string;

@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_AGENT_CLI,
   FileWorkflowRunStore,
+  createLocalWorkflowRun,
   createDefaultWorkflowGraph,
+  executeLocalWorkflowRun,
   runLocalWorkflow,
   validateGraph
 } from "./index.js";
@@ -13,7 +15,9 @@ import {
 const tempRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    tempRoots.map((root) => rm(root, { recursive: true, force: true }))
+  );
   tempRoots.length = 0;
 });
 
@@ -44,7 +48,14 @@ describe("runLocalWorkflow", () => {
     expect(ticketArtifact).toBeDefined();
     expect(
       await readFile(
-        join(root, ".specflow", "runs", run.id, "artifacts", `${ticketArtifact?.id}.json`),
+        join(
+          root,
+          ".specflow",
+          "runs",
+          run.id,
+          "artifacts",
+          `${ticketArtifact?.id}.json`
+        ),
         "utf8"
       )
     ).toContain("Implement the local loop.");
@@ -73,6 +84,55 @@ describe("runLocalWorkflow", () => {
     expect(specExecution?.agentCli).toBeUndefined();
     expect(planExecution?.executionMode).toBe("agent");
     expect(planExecution?.agentCli?.cli).toBe(DEFAULT_AGENT_CLI);
+  });
+
+  it("records session director decisions and session reuse boundaries", async () => {
+    const root = await createRepositoryRoot();
+    const run = await runLocalWorkflow({
+      root,
+      ticket: { body: "Model session boundaries.", source: "inline" }
+    });
+    const planExecution = run.nodeExecutions.find(
+      (execution) => execution.nodeId === "plan"
+    );
+    const draftExecution = run.nodeExecutions.find(
+      (execution) => execution.nodeId === "code-draft"
+    );
+    const reviewExecution = run.nodeExecutions.find(
+      (execution) => execution.nodeId === "implementation-review"
+    );
+    const repairExecution = run.nodeExecutions.find(
+      (execution) => execution.nodeId === "repair-loop"
+    );
+    const finalExecution = run.nodeExecutions.find(
+      (execution) => execution.nodeId === "final-patch"
+    );
+
+    expect(run.controlDecisions).toHaveLength(1);
+    expect(run.controlDecisions[0]?.controllerNodeId).toBe("session-director");
+    expect(
+      run.controlDecisions[0]?.sessionDecisions?.map(
+        (decision) => decision.targetNodeId
+      )
+    ).toEqual([
+      "plan",
+      "code-draft",
+      "implementation-review",
+      "repair-loop",
+      "final-patch"
+    ]);
+    expect(planExecution?.sessionId).toBeDefined();
+    expect(draftExecution?.sessionId).toBe(planExecution?.sessionId);
+    expect(repairExecution?.sessionId).not.toBe(planExecution?.sessionId);
+    expect(finalExecution?.sessionId).toBe(repairExecution?.sessionId);
+    expect(reviewExecution?.sessionIds).toHaveLength(2);
+    expect(run.sessions.map((session) => session.groupId)).toEqual([
+      "direction",
+      "implementation",
+      "review",
+      "implementation",
+      "review"
+    ]);
   });
 
   it("creates spec context from generic .specflow Markdown files", async () => {
@@ -124,6 +184,39 @@ describe("runLocalWorkflow", () => {
     expect(finalPatchExecution?.status).toBe("skipped");
     expect(run.reviews.map((review) => review.approved)).toEqual([false, false]);
   });
+
+  it("persists running state during progressive execution", async () => {
+    const root = await createRepositoryRoot();
+    const store = new FileWorkflowRunStore(root);
+    const createdRun = await createLocalWorkflowRun({
+      root,
+      ticket: { body: "Observe running state.", source: "inline" },
+      store
+    });
+    const execution = executeLocalWorkflowRun({
+      root,
+      runId: createdRun.id,
+      stepDelayMs: 50,
+      reviewerMode: "pass",
+      store
+    });
+
+    const runningRun = await waitForStoredRun(store, createdRun.id, (candidate) => {
+      const ticketExecution = candidate.nodeExecutions.find(
+        (nodeExecution) => nodeExecution.nodeId === "ticket-input"
+      );
+
+      return candidate.status === "running" && ticketExecution?.status === "running";
+    });
+    const ticketExecution = runningRun.nodeExecutions.find(
+      (nodeExecution) => nodeExecution.nodeId === "ticket-input"
+    );
+
+    expect(runningRun.status).toBe("running");
+    expect(ticketExecution?.status).toBe("running");
+
+    await execution;
+  });
 });
 
 async function createRepositoryRoot(
@@ -144,4 +237,28 @@ async function createRepositoryRoot(
   }
 
   return root;
+}
+
+async function wait(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+async function waitForStoredRun(
+  store: FileWorkflowRunStore,
+  runId: string,
+  predicate: (run: Awaited<ReturnType<FileWorkflowRunStore["readRun"]>>) => boolean
+): Promise<Awaited<ReturnType<FileWorkflowRunStore["readRun"]>>> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const run = await store.readRun(runId);
+
+    if (predicate(run)) {
+      return run;
+    }
+
+    await wait(10);
+  }
+
+  throw new Error("Timed out waiting for stored run state.");
 }

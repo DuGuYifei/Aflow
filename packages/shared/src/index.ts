@@ -5,6 +5,7 @@ export const LOCAL_FOUNDATION_STATUS = "local-foundation";
 export const DEFAULT_WORKFLOW_STEPS = [
   "ticket",
   "interview",
+  "session director",
   "plan",
   "code draft",
   "implementation review",

@@ -4,12 +4,13 @@ Phase 1 当前状态：已开始实现。
 
 当前目标：实现本地持续编码最小闭环，但按可交付切片逐步推进。
 
-当前已实现切片：最小 workflow run、artifact、execution state 的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run。
+当前已实现切片：最小 workflow run、artifact、execution state、session module、mock Session Director 的本地类型和 `.specflow/runs/` 文件存储边界；CLI 可以创建、列出和查看本地 placeholder workflow run；`specflow ui` 可以启动本地可视化面板观察运行过程。
 
 ## 当前边界
 
 - CLI 是当前唯一真实应用入口。
 - `packages/runtime` 负责 workflow graph、状态机、执行占位、run state 和 artifact 边界。
+- `packages/runtime` 负责将节点 session policy、Session Director control decision 和 workflow session 写入 run state。
 - `packages/specflow` 只负责通用 `.specflow` 读写和仓库知识层能力。
 - `packages/agent` 只保留 agent runner、执行策略和 agent CLI 选择的边界。
 - 不集成真实 Codex 调用。
@@ -17,6 +18,7 @@ Phase 1 当前状态：已开始实现。
 - 不添加数据库、认证或 CI workflow。
 - 不创建复杂 UI 或桌面壳。
 - 本地运行记录写入 `.specflow/runs/`，该目录不提交入库。
+- UI 由 `specflow ui` 启动，不新增独立 app 入口。
 
 ## Agent CLI 选择
 
@@ -74,7 +76,7 @@ Phase 1 当前状态：已开始实现。
 非目标：
 
 - 不执行完整 workflow。
-- 不连接 UI。
+- 本切片不连接 UI；UI 作为后续切片接入。
 
 ### P1.3 Spec Context 节点
 
@@ -123,6 +125,25 @@ Phase 1 当前状态：已开始实现。
 - 不执行真实代码改动。
 - 不做多 agent 并发编排。
 
+### P1.9 Session Module / Session Director
+
+完成状态：已完成。
+
+完成条件：
+
+- 节点可以声明 session policy：不使用 session、共享 session、每次新建 session、由 AI 决定。
+- 节点可以声明 repair loop 再次进入时是否开启新 session。
+- runtime 可以记录 workflow session、节点 session id、session artifact 关联和 control decision。
+- 默认 Phase 1 workflow 包含 mock Session Director 节点。
+- Session Director 通过 `control_scope` 声明自己管理哪些节点。
+- UI 可以显示节点角色、session 归属、director 管理边、control decision 和 session 列表。
+
+非目标：
+
+- 不调用真实 AI 决定 session。
+- 不实现多 agent 并发。
+- 不实现复杂图编辑器。
+
 ### P1.6 Final Patch 候选输出
 
 完成状态：已完成。
@@ -154,6 +175,23 @@ Phase 1 当前状态：已开始实现。
 - 不实现生产级日志系统。
 - 不实现可恢复任务队列。
 
+### P1.8 `specflow ui` 本地可视化面板
+
+完成状态：已完成。
+
+完成条件：
+
+- CLI 提供 `specflow ui`，启动本地 server 并托管 UI。
+- Server 提供本地 runs、run detail、artifact 和 create run API。
+- UI 可以输入 inline ticket、创建 run、轮询 run 状态，并在节点画布中观察执行过程。
+- UI 保持在 `packages/ui`，不新增独立 app 入口。
+
+非目标：
+
+- 不实现 SSE、WebSocket 或远程 hosted backend。
+- 不做 auth、数据库或生产级 orchestration。
+- 不接真实 agent。
+
 ## 当前默认 Workflow 节点
 
 最小 Phase 1 workflow 节点顺序：
@@ -161,6 +199,7 @@ Phase 1 当前状态：已开始实现。
 ```txt
 ticket input
   -> spec context
+  -> session director
   -> plan
   -> code draft
   -> implementation reviewer
