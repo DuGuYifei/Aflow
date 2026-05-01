@@ -73,7 +73,7 @@ Reviewer、director、manager 和 verifier 节点应优先使用 `control_scope`
 
 UI 展示 control decision 时应读取通用 `WorkflowControlDecision` 形状。Session Director 可以有 `sessionDecisions` 明细，但不要把 UI 绑定到某个单一节点 id。
 
-`.specflow/workflows/*.workflow.json` 是程序读取的结构化事实，`.specflow/workflows/*.md` 是状态说明。不要只改 Markdown 而遗漏 JSON definition。
+`.specflow/workflows` 只保存程序读取的结构化事实：`*.workflow.json` 和 JSON Schema。阶段说明、路线和状态记录放在 `docs/product/phases/`，不要在 `.specflow/workflows` 新增 Markdown。
 
 Workflow definition schema 位于 `.specflow/workflows/workflow-definition.schema.json`，说明文档位于 `docs/reference/workflow-definition.md`。修改 definition 形状时应同步更新 schema、reference 和 runtime validation。
 
