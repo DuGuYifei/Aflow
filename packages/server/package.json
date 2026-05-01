@@ -7,7 +7,6 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "bun src/main.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

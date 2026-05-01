@@ -1,5 +1,9 @@
 node_modules/
 dist/
+
+# compiled binary output
+/specflow
+/specflow.exe
 .vite/
 .turbo/
 .cache/
@@ -13,3 +17,8 @@ dist/
 
 .DS_Store
 Thumbs.db
+
+.claude/
+.codex
+.vscode/
+.idea/

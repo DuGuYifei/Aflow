@@ -1,5 +1,5 @@
 import { createSpecflowBridge } from "@specflow/bridge";
-import { APP_NAME, DEFAULT_HOST, DEFAULT_PORT } from "@specflow/shared";
+import { APP_NAME, DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
 import { serveStaticUi } from "./static-ui";
 import { createDevUiProxy } from "./ui-dev";
 
@@ -18,7 +18,7 @@ export async function startSpecflowServer(
   options: SpecflowServerOptions = {},
 ): Promise<RunningSpecflowServer> {
   const host = options.host ?? DEFAULT_HOST;
-  const preferredPort = options.port ?? DEFAULT_PORT;
+  const preferredPort = options.port ?? SERVER_PORT;
   const mode =
     options.mode ?? (process.env.NODE_ENV === "production" ? "production" : "development");
   const bridge = createSpecflowBridge();

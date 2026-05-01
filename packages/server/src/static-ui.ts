@@ -1,10 +1,11 @@
-import { file, type BunFile } from "bun";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, extname, join, resolve } from "node:path";
+import { extname } from "node:path";
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const uiDist = resolve(currentDir, "../../ui/dist");
+const distPrefix = "../../ui/dist";
+
+const files = import.meta.glob<string>("../../ui/dist/**/*", {
+  as: "file",
+  eager: true,
+});
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -19,24 +20,20 @@ const contentTypes = new Map([
 
 export function serveStaticUi(request: Request): Response {
   const url = new URL(request.url);
-  const pathname = decodeURIComponent(url.pathname);
-  const safePath = pathname === "/" ? "/index.html" : pathname;
-  const candidate = resolve(uiDist, `.${safePath}`);
+  const suffix = decodeURIComponent(url.pathname);
+  const normalized = suffix === "/" ? "/index.html" : suffix;
+  const key = `${distPrefix}${normalized}`;
 
-  if (!candidate.startsWith(uiDist)) {
-    return new Response("Not found", { status: 404 });
+  const embeddedPath = files[key];
+  if (embeddedPath) {
+    const contentType = contentTypes.get(extname(normalized));
+    return new Response(Bun.file(embeddedPath), {
+      headers: contentType ? { "content-type": contentType } : undefined,
+    });
   }
 
-  if (existsSync(candidate)) {
-    return fileResponse(file(candidate));
-  }
-
-  return fileResponse(file(join(uiDist, "index.html")));
-}
-
-function fileResponse(asset: BunFile): Response {
-  const contentType = contentTypes.get(extname(asset.name ?? ""));
-  return new Response(asset, {
-    headers: contentType ? { "content-type": contentType } : undefined,
+  // SPA fallback: unknown routes serve index.html
+  return new Response(Bun.file(files[`${distPrefix}/index.html`]), {
+    headers: { "content-type": "text/html; charset=utf-8" },
   });
 }

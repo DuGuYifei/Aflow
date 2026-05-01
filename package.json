@@ -12,7 +12,9 @@
   "scripts": {
     "dev": "bun run specflow",
     "specflow": "bun packages/cli/src/specflow.ts",
-    "build": "bun run --cwd packages/ui build",
+    "build:ui": "bun run --cwd packages/ui build",
+    "build:bin": "bun build --compile packages/cli/src/specflow.ts --outfile specflow",
+    "build": "bun run build:ui && bun run build:bin",
     "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/agent-proxy typecheck && bun run --cwd packages/workflow typecheck && bun run --cwd packages/bridge typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/ui typecheck && bun run --cwd packages/cli typecheck"
   },
   "devDependencies": {
