@@ -21,12 +21,12 @@ export function createSpecflowBridge(): SpecflowBridge {
   workflow.agents.push({
     id: defaultAgentId,
     kind: "provider",
-    name: "Codex",
-    provider: "codex",
+    name: "Mock",
+    provider: "mock",
   });
   workflow.sessions.push({
     id: defaultSessionId,
-    name: "Default Codex session",
+    name: "Default mock session",
     agentId: defaultAgentId,
     createdAt: new Date().toISOString(),
   });

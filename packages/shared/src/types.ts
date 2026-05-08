@@ -1,4 +1,4 @@
-export type AgentProvider = "claude-code" | "codex";
+export type AgentProvider = "mock" | "claude-code" | "codex";
 
 export type WorkflowNodeKind = "agent" | "gate";
 

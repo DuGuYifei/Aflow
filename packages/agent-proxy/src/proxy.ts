@@ -25,7 +25,11 @@ export interface AgentTerminalEvent {
 export async function runAgentCommand(
   request: AgentCommandRequest,
 ): Promise<AgentCommandResult> {
-  const output = `Agent proxy placeholder for ${request.provider}`;
+  const output =
+    request.provider === "mock"
+      ? createMockAgentOutput(request.prompt)
+      : `Agent proxy placeholder for ${request.provider}`;
+
   request.onTerminalEvent?.({
     stream: "stdout",
     chunk: output,
@@ -36,4 +40,8 @@ export async function runAgentCommand(
     exitCode: 0,
     output,
   };
+}
+
+function createMockAgentOutput(prompt: string): string {
+  return `Mock agent response:\n${prompt}`;
 }

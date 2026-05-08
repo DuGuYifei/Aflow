@@ -364,7 +364,7 @@ function resolveAgentProvider(agent: AgentDefinition): AgentProvider {
     return agent.provider;
   }
 
-  return "codex";
+  return "mock";
 }
 
 function assertSessionBelongsToAgent(

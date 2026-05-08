@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentCommandRequest, AgentCommandResult } from "@specflow/agent-proxy";
+import { runAgentCommand } from "@specflow/agent-proxy";
 import type {
   AgentNode,
   GateNode,
@@ -215,6 +216,45 @@ describe("WorkflowExecutor", () => {
     expect(run.nodeRuns[0]?.status).toBe("failed");
     expect(run.nodeRuns[0]?.error).toContain("belongs to agent");
   });
+
+  test("can run with the mock provider without injecting a custom agent runner", async () => {
+    const workflow = createWorkflow({
+      nodes: [agentNode("source", "mock <specflow_input>")],
+      edges: [],
+    });
+    workflow.agents[0] = {
+      id: agentId,
+      kind: "provider",
+      name: "Mock",
+      provider: "mock",
+    };
+
+    const run = await new WorkflowExecutor().run(workflow, "input");
+
+    expect(run.status).toBe("done");
+    expect(run.nodeRuns[0]?.output).toBe("Mock agent response:\nmock input");
+  });
+});
+
+describe("runAgentCommand", () => {
+  test("returns stable mock output and emits terminal output", async () => {
+    const chunks: string[] = [];
+    const result = await runAgentCommand({
+      provider: "mock",
+      prompt: "hello",
+      cwd: ".",
+      onTerminalEvent(event) {
+        chunks.push(event.chunk);
+      },
+    });
+
+    expect(result).toEqual({
+      provider: "mock",
+      exitCode: 0,
+      output: "Mock agent response:\nhello",
+    });
+    expect(chunks).toEqual(["Mock agent response:\nhello"]);
+  });
 });
 
 function createWorkflow(input: {
@@ -228,14 +268,14 @@ function createWorkflow(input: {
       {
         id: agentId,
         kind: "provider",
-        name: "Codex",
-        provider: "codex",
+        name: "Mock",
+        provider: "mock",
       },
     ],
     sessions: [
       {
         id: sessionId,
-        name: "Codex session",
+        name: "Mock session",
         agentId,
         createdAt: "2026-05-07T00:00:00.000Z",
       },
