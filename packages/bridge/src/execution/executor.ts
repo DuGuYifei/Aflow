@@ -10,11 +10,11 @@ import {
   type AgentDefinition,
   type AgentInvocation,
   type AgentNode,
-  type AnyWorkflowEdge,
-  type AnyWorkflowNode,
   type NodeRun,
   type TerminalStream,
   type Workflow,
+  type WorkflowEdge,
+  type WorkflowNode,
   type WorkflowRun,
 } from "@specflow/workflow";
 import {
@@ -159,7 +159,7 @@ export class WorkflowExecutor {
   async #executeNode(input: {
     workflow: Workflow;
     run: WorkflowRun;
-    node: AnyWorkflowNode;
+    node: WorkflowNode;
     input: string;
     edgeValues: Record<string, string>;
   }): Promise<NodeExecutionResult> {
@@ -251,7 +251,7 @@ export class WorkflowExecutor {
   async #resolveTaggedEdgeContent(input: {
     workflow: Workflow;
     run: WorkflowRun;
-    edge: AnyWorkflowEdge;
+    edge: WorkflowEdge;
     input: string;
   }): Promise<string> {
     if (input.edge.kind !== "tagged-output" || !input.edge.handoff) {
@@ -388,27 +388,27 @@ function assertSessionBelongsToAgent(
   }
 }
 
-function findEntryNodes(workflow: Workflow): AnyWorkflowNode[] {
+function findEntryNodes(workflow: Workflow): WorkflowNode[] {
   const targetNodeIds = new Set(workflow.edges.map((edge) => edge.targetNodeId));
   return workflow.nodes.filter((node) => !targetNodeIds.has(node.id));
 }
 
-function groupEdgesByTarget(edges: AnyWorkflowEdge[]): Map<string, AnyWorkflowEdge[]> {
-  const grouped = new Map<string, AnyWorkflowEdge[]>();
+function groupEdgesByTarget(edges: WorkflowEdge[]): Map<string, WorkflowEdge[]> {
+  const grouped = new Map<string, WorkflowEdge[]>();
   for (const edge of edges) {
     grouped.set(edge.targetNodeId, [...(grouped.get(edge.targetNodeId) ?? []), edge]);
   }
   return grouped;
 }
 
-function groupEdgesBySource(edges: AnyWorkflowEdge[]): Map<string, AnyWorkflowEdge[]> {
-  const grouped = new Map<string, AnyWorkflowEdge[]>();
+function groupEdgesBySource(edges: WorkflowEdge[]): Map<string, WorkflowEdge[]> {
+  const grouped = new Map<string, WorkflowEdge[]>();
   for (const edge of edges) {
     grouped.set(edge.sourceNodeId, [...(grouped.get(edge.sourceNodeId) ?? []), edge]);
   }
   return grouped;
 }
 
-function isNodeReady(incomingEdges: AnyWorkflowEdge[], completedNodes: Set<string>): boolean {
+function isNodeReady(incomingEdges: WorkflowEdge[], completedNodes: Set<string>): boolean {
   return incomingEdges.every((edge) => completedNodes.has(edge.sourceNodeId));
 }

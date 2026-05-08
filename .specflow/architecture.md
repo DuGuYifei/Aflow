@@ -5,9 +5,9 @@
 ```
 packages/
   shared/       — constants and types shared across all packages
-  workflow/     — core graph model: Workflow, WorkflowNode, WorkflowEdge
-  agent-proxy/  — subprocess wrapper for external agent CLIs (Codex, Claude Code)
-  bridge/       — stateful runtime; orchestrates workflow execution and agent calls
+  workflow/     — workflow definitions, graph model, prompt schemas, run schemas
+  agent-proxy/  — subprocess wrapper boundary for external agent CLIs
+  bridge/       — stateful runtime; orchestrates workflow execution, gate routing, and agent calls
   server/       — HTTP server; serves the UI and exposes the API; calls bridge
   ui/           — React canvas app built by Vite; embedded into the binary at build time
   cli/          — binary entry point (`specflow`); starts the server
@@ -24,6 +24,23 @@ ui  → server (HTTP API)
 ```
 
 No package may import from a package above it in this graph.
+
+## Workflow core
+
+`workflow` owns definition-time types and pure helpers only. It does not know about HTTP,
+UI state, subprocesses, or runtime orchestration.
+
+- `WorkflowNode` is a union of concrete node types. Agent nodes own agent/session/resource
+  fields. Gate nodes are functional nodes and do not inherit agent fields.
+- `WorkflowEdge` is a union of passthrough and tagged-output edges. Gate branch routing uses
+  `sourcePortId` to select a branch output.
+- `Workflow` owns agents, sessions, nodes, and edges directly.
+
+`bridge` owns execution-time behavior:
+
+- `WorkflowExecutor` walks the graph, renders prompts, invokes agents, and advances branches.
+- `GateEvaluator` chooses one gate branch and passes the original gate input downstream.
+- `TerminalEventStore` records append-only terminal chunks for UI replay and filtering.
 
 ## Entry points
 

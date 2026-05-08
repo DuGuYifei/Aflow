@@ -1,5 +1,5 @@
-import type { AnyWorkflowEdge } from "./graph/edge";
-import type { AnyWorkflowNode } from "./graph/node";
+import type { WorkflowEdge } from "./graph/edge";
+import type { WorkflowNode } from "./graph/node";
 import type { AgentDefinition } from "./schema/agent";
 import type { WorkflowSession } from "./schema/session";
 
@@ -9,8 +9,8 @@ export interface Workflow {
   description?: string;
   agents: AgentDefinition[];
   sessions: WorkflowSession[];
-  nodes: AnyWorkflowNode[];
-  edges: AnyWorkflowEdge[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
 }
 
 export function createEmptyWorkflow(name = "Untitled workflow"): Workflow {

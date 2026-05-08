@@ -41,16 +41,4 @@ export interface TaggedOutputEdge extends BaseEdge {
   handoff?: EdgeHandoff;
 }
 
-export type AnyWorkflowEdge = PassthroughEdge | TaggedOutputEdge;
-
-/** @deprecated use WorkflowEdgeKind */
-export type EdgeType = WorkflowEdgeKind;
-
-/** @deprecated use PassthroughEdge */
-export type SimpleEdge = PassthroughEdge;
-
-/** @deprecated use TaggedOutputEdge */
-export type DataEdge = TaggedOutputEdge;
-
-/** @deprecated use AnyWorkflowEdge */
-export type WorkflowEdge = AnyWorkflowEdge;
+export type WorkflowEdge = PassthroughEdge | TaggedOutputEdge;

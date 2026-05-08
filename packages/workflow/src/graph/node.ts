@@ -42,7 +42,4 @@ export interface GateNode extends FunctionalNode<"gate"> {
   branches: GateBranch[];
 }
 
-export type AnyWorkflowNode = AgentNode | GateNode;
-
-/** @deprecated use AnyWorkflowNode */
-export type WorkflowNode = AnyWorkflowNode;
+export type WorkflowNode = AgentNode | GateNode;

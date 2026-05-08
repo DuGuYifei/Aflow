@@ -28,6 +28,7 @@
 
 ## Workflow domain
 
-- `WorkflowNode` and `WorkflowEdge` are the base types. All concrete node and edge types extend these interfaces.
+- `WorkflowNode` and `WorkflowEdge` are discriminated unions of concrete graph types.
 - `Workflow` owns the graph directly (`nodes`, `edges`). There is no separate `WorkflowGraph` wrapper.
-- Node `type` and edge `type` fields are string discriminators for extensibility.
+- Nodes use `kind` as the discriminator. Agent nodes and functional nodes do not share agent-only fields.
+- Edges use `kind` as the discriminator. Passthrough edges forward content unchanged; tagged-output edges bind content into prompt variables.

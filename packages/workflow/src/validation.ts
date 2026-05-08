@@ -1,7 +1,7 @@
-import type { AgentNode, AnyWorkflowNode } from "./graph/node";
+import type { AgentNode, WorkflowNode } from "./graph/node";
 import type { Workflow } from "./workflow";
 
-export function assertValidWorkflowNode(workflow: Workflow, node: AnyWorkflowNode): void {
+export function assertValidWorkflowNode(workflow: Workflow, node: WorkflowNode): void {
   if (node.kind !== "agent") {
     return;
   }

@@ -1,14 +1,14 @@
 import {
   renderPromptTemplate,
   wrapXmlTag,
-  type AnyWorkflowEdge,
-  type AnyWorkflowNode,
   type GateNode,
   type PromptTemplate,
+  type WorkflowEdge,
+  type WorkflowNode,
 } from "@specflow/workflow";
 
 export interface PromptRenderContext {
-  node: AnyWorkflowNode;
+  node: WorkflowNode;
   input: string;
   edgeValues: Record<string, string>;
 }
@@ -43,7 +43,7 @@ export function renderGatePrompt(node: GateNode, input: string): string {
   });
 }
 
-export function createTaggedEdgeVariable(edge: AnyWorkflowEdge, content: string): Record<string, string> {
+export function createTaggedEdgeVariable(edge: WorkflowEdge, content: string): Record<string, string> {
   if (edge.kind !== "tagged-output") {
     return {};
   }

@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { AgentCommandRequest, AgentCommandResult } from "@specflow/agent-proxy";
 import type {
   AgentNode,
-  AnyWorkflowEdge,
-  AnyWorkflowNode,
   GateNode,
   Workflow,
+  WorkflowEdge,
+  WorkflowNode,
 } from "@specflow/workflow";
 import { WorkflowExecutor, type AgentRunner } from "./executor";
 import { TerminalEventStore } from "./terminal-store";
@@ -218,8 +218,8 @@ describe("WorkflowExecutor", () => {
 });
 
 function createWorkflow(input: {
-  nodes: AnyWorkflowNode[];
-  edges: AnyWorkflowEdge[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
 }): Workflow {
   return {
     id: "workflow",
@@ -277,7 +277,7 @@ function passthrough(
   sourceNodeId: string,
   targetNodeId: string,
   sourcePortId?: string,
-): AnyWorkflowEdge {
+): WorkflowEdge {
   return {
     id,
     kind: "passthrough",
