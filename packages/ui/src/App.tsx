@@ -1,6 +1,11 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import type { WorkflowNode, Edge, Selection, RunStateMap, Theme } from './types';
-import { SPECFLOW_DATA } from './data';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus } from './types';
+import {
+  fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
+  fetchRuns, fetchRun, subscribeToRun,
+  apiRunToUiRun, summaryToWorkflow,
+  type SseEventType,
+} from './api';
 import { TopBar } from './components/top-bar';
 import { Sidebar } from './components/sidebar';
 import { Canvas } from './components/canvas';
@@ -9,88 +14,229 @@ import { ConnectionPanel } from './components/connection-panel';
 import { SessionsBar } from './components/sessions-bar';
 
 export function App() {
-  const { sessions, workflows, runs } = SPECFLOW_DATA;
-  const [nodes, setNodes] = useState<WorkflowNode[]>(SPECFLOW_DATA.nodes);
-  const [edges, setEdges] = useState<Edge[]>(SPECFLOW_DATA.edges);
-
   const [activeWorkflow, setActiveWorkflow] = useState('wf1');
-  const [activeRunId, setActiveRunId]       = useState('r12');
+  const [activeCanvasName, setActiveCanvasName] = useState('');
+
+  const [nodes, setNodes] = useState<WorkflowNode[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [runs, setRuns] = useState<Run[]>([]);
+
+  const [activeRunId, setActiveRunId] = useState('');
   const activeRun = runs.find((r) => r.id === activeRunId);
 
-  const [selection, setSelection]           = useState<Selection | null>({ kind: 'node', id: 'n4b' });
-  const [zoom, setZoom]                     = useState(1);
-  const [pan, setPan]                       = useState({ x: 0, y: 0 });
-  const [barExpanded, setBarExpanded]       = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState('s5');
-  const [addSessionPing, setAddSessionPing] = useState(0);
-  const [theme, setTheme]                   = useState<Theme>('light');
+  // Node state from the selected historical run record
+  const [historicNodeStates, setHistoricNodeStates] = useState<RunStateMap>({});
+  // Live node state overrides from SSE during an active run
+  const [liveNodeStates, setLiveNodeStates] = useState<RunStateMap>({});
+  const runState = useMemo<RunStateMap>(() => ({ ...historicNodeStates, ...liveNodeStates }), [historicNodeStates, liveNodeStates]);
+
+  const [logLines, setLogLines] = useState<string[]>([]);
+
+  const [selection, setSelection]             = useState<Selection | null>(null);
+  const [zoom, setZoom]                       = useState(1);
+  const [pan, setPan]                         = useState({ x: 0, y: 0 });
+  const [barExpanded, setBarExpanded]         = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState('');
+  const [addSessionPing, setAddSessionPing]   = useState(0);
+  const [theme, setTheme]                     = useState<Theme>('light');
+
+  const nodesRef    = useRef(nodes);
+  const edgesRef    = useRef(edges);
+  const sessionsRef = useRef(sessions);
+  useEffect(() => { nodesRef.current    = nodes;    }, [nodes]);
+  useEffect(() => { edgesRef.current    = edges;    }, [edges]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
+  // Apply theme to <html>
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // Load canvases list once
+  useEffect(() => {
+    fetchCanvases().then((list) => {
+      setWorkflows(list.map(summaryToWorkflow));
+    }).catch(console.error);
+  }, []);
+
+  // Load active canvas + runs whenever workflow changes
+  useEffect(() => {
+    fetchCanvas(activeWorkflow).then((doc) => {
+      setNodes(doc.nodes as WorkflowNode[]);
+      setEdges(doc.edges as Edge[]);
+      setSessions(doc.sessions as Session[]);
+      setActiveCanvasName(doc.name);
+      if (doc.sessions[0]) setActiveSessionId(doc.sessions[0].id);
+      setSelection(null);
+    }).catch(console.error);
+
+    fetchRuns(activeWorkflow).then((records) => {
+      const uiRuns = records.map(apiRunToUiRun);
+      setRuns(uiRuns);
+      if (records[0]) {
+        setActiveRunId(records[0].id);
+        setHistoricNodeStates(records[0].nodeStates);
+        setLiveNodeStates({});
+      }
+    }).catch(console.error);
+  }, [activeWorkflow]);
+
+  // ── debounced save ────────────────────────────────────────────────────────
+
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scheduleSave = useCallback(() => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const doc = {
+        id: activeWorkflow,
+        name: activeCanvasName,
+        sessions: sessionsRef.current,
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      };
+      saveCanvas(activeWorkflow, doc).catch(console.error);
+    }, 300);
+  }, [activeWorkflow, activeCanvasName]);
+
+  // ── canvas edit handlers ──────────────────────────────────────────────────
+
+  const onNodeMove = useCallback((id: string, x: number, y: number) => {
+    setNodes((ns) => {
+      const updated = ns.map((n) => n.id === id ? { ...n, x, y } : n);
+      nodesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+  }, [scheduleSave]);
+
+  const onToggleUpdateDoc = (id: string) => {
+    setNodes((ns) => {
+      const updated = ns.map((n) => {
+        if (n.id !== id || n.kind !== 'step') return n;
+        return { ...n, updateDoc: !n.updateDoc };
+      });
+      nodesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+  };
+
+  const onChangeSession = useCallback((id: string, sid: string) => {
+    setNodes((ns) => {
+      const updated = ns.map((n) => {
+        if (n.id !== id || n.kind === 'end') return n;
+        return { ...n, sessionId: sid };
+      });
+      nodesRef.current = updated;
+      setEdges((es) => {
+        const recomputed = es.map((e) => {
+          const fromN = updated.find((n) => n.id === e.from);
+          const toN   = updated.find((n) => n.id === e.to);
+          if (!fromN || !toN || e.loopback || fromN.kind === 'gate' || toN.kind === 'gate' || toN.kind === 'end') return e;
+          const fromSid = fromN.sessionId;
+          const toSid   = toN.sessionId;
+          return { ...e, sameSession: fromSid != null && fromSid === toSid };
+        });
+        edgesRef.current = recomputed;
+        scheduleSave();
+        return recomputed;
+      });
+      return updated;
+    });
+  }, [scheduleSave]);
+
+  const onEditEdge = useCallback((id: string, patch: { tag?: string; prompt?: string }) => {
+    setEdges((es) => {
+      const updated = es.map((e) => e.id === id ? { ...e, ...patch } : e);
+      edgesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+  }, [scheduleSave]);
+
+  // ── selection ─────────────────────────────────────────────────────────────
+
+  const onSelectNode     = (id: string) => setSelection({ kind: 'node', id });
+  const onSelectEdge     = (id: string) => setSelection({ kind: 'edge', id });
+  const onClearSelection = ()            => setSelection(null);
 
   const onAddSessionRequest = useCallback(() => {
     setBarExpanded(true);
     setAddSessionPing((n) => n + 1);
   }, []);
 
-  // apply theme to <html> so CSS [data-theme] selectors work
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+  // ── run management ────────────────────────────────────────────────────────
 
-  // runState: map nodeId → RunState based on active run
-  const runState = useMemo<RunStateMap>(() => {
-    const m: RunStateMap = {};
-    if (!activeRun) return m;
-    const order = ['n1','n2a','n2b','n2c','g1','n3a','n3b','n3c','n4a','n4b','n4c','g2','end1'];
-    if (activeRun.status === 'running') {
-      let hit = false;
-      for (const id of order) {
-        if (id === activeRun.activeNode) { m[id] = 'running'; hit = true; }
-        else if (!hit) m[id] = 'success';
-        else           m[id] = 'pending';
-      }
-    } else if (activeRun.status === 'success') {
-      order.forEach((id) => { m[id] = 'success'; });
-    } else if (activeRun.status === 'error') {
-      ['n1','n2a','n2b','n2c','g1','n3a','n3b','n3c','n4a','n4b'].forEach((id) => { m[id] = 'success'; });
-      m['n4c']  = 'error';
-      m['g2']   = 'pending';
-      m['end1'] = 'pending';
-    }
-    return m;
-  }, [activeRun]);
-
-  const onNodeMove = useCallback((id: string, x: number, y: number) => {
-    setNodes((ns) => ns.map((n) => n.id === id ? { ...n, x, y } : n));
+  const onSelectRun = useCallback((id: string) => {
+    setActiveRunId(id);
+    setLiveNodeStates({});
+    fetchRun(id).then((rec) => {
+      setHistoricNodeStates(rec.nodeStates);
+    }).catch(console.error);
   }, []);
 
-  const onSelectNode = (id: string) => setSelection({ kind: 'node', id });
-  const onSelectEdge = (id: string) => setSelection({ kind: 'edge', id });
-  const onClearSelection = () => setSelection(null);
+  const handleNewRun = useCallback(async () => {
+    try {
+      const { runId } = await runCanvas(activeWorkflow);
 
-  const onToggleUpdateDoc = (id: string) => {
-    setNodes((ns) => ns.map((n) => {
-      if (n.id !== id || n.kind !== 'step') return n;
-      return { ...n, updateDoc: !n.updateDoc };
-    }));
-  };
+      // Initialise all nodes as pending
+      const pending: RunStateMap = {};
+      for (const n of nodesRef.current) pending[n.id] = 'pending';
+      setLiveNodeStates(pending);
+      setHistoricNodeStates({});
+      setLogLines([]);
 
-  const onChangeSession = useCallback((id: string, sid: string) => {
-    setNodes((ns) => ns.map((n) => {
-      if (n.id !== id || n.kind === 'end') return n;
-      return { ...n, sessionId: sid };
-    }));
-    // recompute sameSession on adjacent edges using the incoming sid for the changed node
-    setEdges((es) => es.map((e) => {
-      const fromN = nodes.find((n) => n.id === e.from);
-      const toN   = nodes.find((n) => n.id === e.to);
-      if (!fromN || !toN || e.loopback || fromN.kind === 'gate' || toN.kind === 'gate' || toN.kind === 'end') return e;
-      const fromSid = e.from === id ? sid : fromN.sessionId;
-      const toSid   = e.to   === id ? sid : toN.sessionId;
-      return { ...e, sameSession: fromSid != null && fromSid === toSid };
-    }));
-  }, [nodes]);
+      const placeholder: Run = {
+        id: runId,
+        label: 'New run…',
+        ticket: '',
+        status: 'running',
+        time: 'just now',
+        duration: '—',
+        agent: sessionsRef.current[0]?.agent ?? 'mock',
+      };
+      setRuns((prev) => [placeholder, ...prev]);
+      setActiveRunId(runId);
+      setBarExpanded(true);
 
-  const selectedNode = selection?.kind === 'node' ? nodes.find((n) => n.id === selection.id) : null;
-  const selectedEdge = selection?.kind === 'edge' ? edges.find((e) => e.id === selection.id) : null;
+      const unsub = subscribeToRun(runId, (type: SseEventType, data: unknown) => {
+        if (type === 'node-status') {
+          const ev = data as { nodeId: string; status: string };
+          setLiveNodeStates((prev) => ({ ...prev, [ev.nodeId]: ev.status as import('./types').RunState }));
+        } else if (type === 'terminal') {
+          const ev = data as { chunk: string };
+          setLogLines((prev) => [...prev.slice(-500), ev.chunk]);
+        } else if (type === 'run-status') {
+          const ev = data as { status: string };
+          const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';
+          setRuns((prev) => prev.map((r) =>
+            r.id === runId ? { ...r, status: uiStatus as RunStatus } : r,
+          ));
+          if (uiStatus !== 'running') {
+            unsub();
+            // Reload fresh run list + states
+            fetchRuns(activeWorkflow).then((records) => {
+              setRuns(records.map(apiRunToUiRun));
+              const fresh = records.find((r) => r.id === runId);
+              if (fresh) {
+                setHistoricNodeStates(fresh.nodeStates);
+                setLiveNodeStates({});
+              }
+            }).catch(console.error);
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Failed to start run', err);
+    }
+  }, [activeWorkflow]);
+
+  // ── derived selection state ───────────────────────────────────────────────
+
+  const selectedNode     = selection?.kind === 'node' ? nodes.find((n) => n.id === selection.id) : null;
+  const selectedEdge     = selection?.kind === 'edge' ? edges.find((e) => e.id === selection.id) : null;
   const selectedFromNode = selectedEdge ? nodes.find((n) => n.id === selectedEdge.from) : undefined;
   const selectedToNode   = selectedEdge ? nodes.find((n) => n.id === selectedEdge.to)   : undefined;
 
@@ -98,22 +244,21 @@ export function App() {
     ? { ...selectedNode, runState: runState[selectedNode.id] }
     : null;
 
-  const barH = barExpanded ? 252 : 32;
-
-  // The grid root class drives layout; "no-right" collapses the third column
-  const rootClass = [
-    'app',
-    'two-col-left',
-    'has-bottom-bar',
-    selection ? '' : 'no-right',
-  ].filter(Boolean).join(' ');
+  const barH     = barExpanded ? 252 : 32;
+  const rootClass = ['app', 'two-col-left', 'has-bottom-bar', selection ? '' : 'no-right'].filter(Boolean).join(' ');
 
   return (
     <div
       className={rootClass}
       style={{ '--bar-h': `${barH}px` } as React.CSSProperties}
     >
-      <TopBar theme={theme} onThemeChange={setTheme} runLabel={activeRun?.label} />
+      <TopBar
+        theme={theme}
+        onThemeChange={setTheme}
+        runLabel={activeRun?.label}
+        workflowName={activeCanvasName}
+        onNewRun={handleNewRun}
+      />
 
       <Sidebar
         workflows={workflows}
@@ -121,7 +266,7 @@ export function App() {
         activeWorkflow={activeWorkflow}
         activeRun={activeRunId}
         onSelectWorkflow={setActiveWorkflow}
-        onSelectRun={setActiveRunId}
+        onSelectRun={onSelectRun}
       />
 
       <div className="canvas-cell" style={{ position: 'relative', overflow: 'hidden', minHeight: 0, height: '100%' }}>
@@ -169,6 +314,7 @@ export function App() {
           fromNode={selectedFromNode}
           toNode={selectedToNode}
           onClose={onClearSelection}
+          onEditEdge={onEditEdge}
         />
       )}
 
@@ -182,6 +328,7 @@ export function App() {
           setActiveSessionId={setActiveSessionId}
           onAssignSession={onChangeSession}
           addSessionPing={addSessionPing}
+          logLines={logLines}
         />
       </div>
     </div>

@@ -1,0 +1,73 @@
+export interface CanvasBranch {
+  id: string;
+  label: string;
+  color: string;
+}
+
+export interface CanvasSession {
+  id: string;
+  name: string;
+  color: string;
+  agent: string;
+}
+
+export interface CanvasStepNode {
+  kind: "step";
+  id: string;
+  num: string;
+  x: number;
+  y: number;
+  w: number;
+  title: string;
+  desc: string;
+  sessionId: string | null;
+  updateDoc: boolean;
+  locked?: boolean;
+  attachments?: Array<{ label: string }>;
+  paths?: string[];
+}
+
+export interface CanvasGateNode {
+  kind: "gate";
+  id: string;
+  num: string;
+  x: number;
+  y: number;
+  w: number;
+  title: string;
+  gateDesc?: string;
+  sessionId: string | null;
+  branches: CanvasBranch[];
+}
+
+export interface CanvasEndNode {
+  kind: "end";
+  id: string;
+  num: string;
+  x: number;
+  y: number;
+  w: number;
+  title: string;
+  sessionId: null;
+}
+
+export type CanvasNode = CanvasStepNode | CanvasGateNode | CanvasEndNode;
+
+export interface CanvasEdge {
+  id: string;
+  from: string;
+  to: string;
+  tag?: string;
+  prompt?: string;
+  branch?: string;
+  loopback?: boolean;
+  sameSession?: boolean;
+}
+
+export interface CanvasDoc {
+  id: string;
+  name: string;
+  sessions: CanvasSession[];
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@specflow/bridge": "workspace:*",
-    "@specflow/shared": "workspace:*"
+    "@specflow/shared": "workspace:*",
+    "@specflow/workflow": "workspace:*",
+    "yaml": "^2.8.4"
   }
 }

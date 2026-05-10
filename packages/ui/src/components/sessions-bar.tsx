@@ -11,6 +11,7 @@ interface SessionsBarProps {
   setActiveSessionId: (id: string) => void;
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
+  logLines?: string[];
 }
 
 export function SessionsBar({
@@ -18,6 +19,7 @@ export function SessionsBar({
   expanded, setExpanded,
   activeSessionId, setActiveSessionId,
   onAssignSession, addSessionPing,
+  logLines,
 }: SessionsBarProps) {
   const [tab, setTab] = useState<'logs' | 'settings'>('logs');
   const stepNodes = nodes.filter((n) => n.kind === 'step');
@@ -82,6 +84,7 @@ export function SessionsBar({
           activeSession={activeSession}
           setActiveSessionId={setActiveSessionId}
           stepNodes={stepNodes}
+          logLines={logLines}
         />
       )}
       {tab === 'settings' && (
@@ -103,9 +106,10 @@ interface LogsTabProps {
   activeSession: Session;
   setActiveSessionId: (id: string) => void;
   stepNodes: WorkflowNode[];
+  logLines?: string[];
 }
 
-function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes }: LogsTabProps) {
+function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes, logLines }: LogsTabProps) {
   const [sideW, setSideW] = useState(() => {
     try {
       const saved = parseInt(localStorage.getItem('sf-side-w') ?? '', 10);
@@ -138,6 +142,15 @@ function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes }: Log
     window.addEventListener('mouseup', onUp);
   };
 
+  const termRef = useRef<HTMLDivElement>(null);
+  const prevLinesLen = useRef(0);
+  useEffect(() => {
+    if (logLines && logLines.length > prevLinesLen.current && termRef.current) {
+      termRef.current.scrollTop = termRef.current.scrollHeight;
+    }
+    prevLinesLen.current = logLines?.length ?? 0;
+  }, [logLines]);
+
   return (
     <div className="sessions-body logs">
       <div className="term-pane">
@@ -148,25 +161,27 @@ function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes }: Log
             <span className="dot" style={{ background: activeSession.color }} />{activeSession.agent}
           </span>
           <span style={{ color: 'var(--ink-3)', fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
-            · {stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession.id).length} nodes · pid 24811
+            · {stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession.id).length} nodes
           </span>
         </div>
-        <div className="term-stream">
-          <div className="term-line"><span className="ts">14:02:11</span><span className="lvl">[ses:{activeSession.name}]</span><span>opened session · agent={activeSession.agent}</span></div>
-          <div className="term-line"><span className="ts">14:02:11</span><span className="lvl">[ses:{activeSession.name}]</span><span>node 04·a · plan started</span></div>
-          <div className="term-line"><span className="ts">14:02:13</span><span className="tag">tool_use</span><span>read_file SPECFLOW.md</span></div>
-          <div className="term-line"><span className="ts">14:02:14</span><span className="tag">tool_use</span><span>read_file src/components/EmptyState.tsx</span></div>
-          <div className="term-line ok"><span className="ts">14:02:18</span><span className="lvl">[ok]</span><span>plan emitted · 4 steps</span></div>
-          <div className="term-line"><span className="ts">14:02:19</span><span className="lvl">[ses:{activeSession.name}]</span><span>node 04·b · code started · same session, no handoff</span></div>
-          <div className="term-line"><span className="ts">14:02:21</span><span className="tag">tool_use</span><span>edit_file src/components/EmptyState.tsx (+84)</span></div>
-          <div className="term-line"><span className="ts">14:02:22</span><span className="tag">tool_use</span><span>edit_file app/routes/settings.tsx (+12 -3)</span></div>
-          <div className="term-line"><span className="ts">14:02:23</span><span className="tag">tool_use</span><span>shell pnpm test src/components/EmptyState…</span></div>
-          <div className="term-line ok"><span className="ts">14:02:27</span><span className="lvl">[ok]</span><span>4 passed · 0 failed</span></div>
-          <div className="term-line">
-            <span className="ts">14:02:27</span>
-            <span style={{ color: 'var(--ink-3)' }}>·</span>
-            <span style={{ animation: 'blink 1s steps(2) infinite' }}>▎</span>
-          </div>
+        <div className="term-stream" ref={termRef}>
+          {logLines && logLines.length > 0 ? (
+            logLines.map((line, i) => (
+              <div key={i} className="term-line">
+                <span className="lvl">[out]</span>
+                <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line}</span>
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="term-line"><span className="ts">—</span><span className="lvl">[sys]</span><span>No run output yet · click New run to start</span></div>
+              <div className="term-line">
+                <span className="ts">—</span>
+                <span style={{ color: 'var(--ink-3)' }}>·</span>
+                <span style={{ animation: 'blink 1s steps(2) infinite' }}>▎</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
       <div

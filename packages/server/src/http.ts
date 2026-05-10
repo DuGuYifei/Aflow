@@ -3,6 +3,7 @@ import { APP_NAME, DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
 import { serveStaticUi } from "./static-ui";
 import { createDevUiProxy } from "./ui-dev";
 import { initWorkspace } from "./workspace";
+import { createApiHandler } from "./api";
 
 export interface SpecflowServerOptions {
   host?: string;
@@ -18,20 +19,18 @@ export interface RunningSpecflowServer {
 export async function startSpecflowServer(
   options: SpecflowServerOptions = {},
 ): Promise<RunningSpecflowServer> {
-  await initWorkspace();
+  const cwd = process.cwd();
+  await initWorkspace(cwd);
+
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
   const mode =
     options.mode ?? (process.env.NODE_ENV === "production" ? "production" : "development");
   const bridge = createSpecflowBridge();
   const devUi = mode === "development" ? await createDevUiProxy() : undefined;
+  const handleApi = createApiHandler(bridge, cwd);
 
-  const server = startHttpServer({
-    bridge,
-    devUi,
-    host,
-    preferredPort,
-  });
+  const server = startHttpServer({ bridge, devUi, host, preferredPort, handleApi });
 
   const url = `http://${host}:${server.port}/`;
   console.log(`${APP_NAME} UI: ${url}`);
@@ -50,9 +49,10 @@ interface HttpServerOptions {
   devUi?: Awaited<ReturnType<typeof createDevUiProxy>>;
   host: string;
   preferredPort: number;
+  handleApi: (req: Request) => Promise<Response | null>;
 }
 
-function startHttpServer({ bridge, devUi, host, preferredPort }: HttpServerOptions) {
+function startHttpServer({ bridge, devUi, host, preferredPort, handleApi }: HttpServerOptions) {
   for (let port = preferredPort; port < preferredPort + 20; port += 1) {
     try {
       return Bun.serve({
@@ -70,6 +70,9 @@ function startHttpServer({ bridge, devUi, host, preferredPort }: HttpServerOptio
               startedAt: bridge.runtime.startedAt.toISOString(),
             });
           }
+
+          const apiResponse = await handleApi(request);
+          if (apiResponse) return apiResponse;
 
           if (devUi) {
             return devUi.fetch(request);

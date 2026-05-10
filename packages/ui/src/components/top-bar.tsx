@@ -5,9 +5,11 @@ interface TopBarProps {
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   runLabel?: string;
+  workflowName?: string;
+  onNewRun?: () => void;
 }
 
-export function TopBar({ theme, onThemeChange, runLabel }: TopBarProps) {
+export function TopBar({ theme, onThemeChange, runLabel, workflowName, onNewRun }: TopBarProps) {
   return (
     <div className="topbar">
       <div className="brand">
@@ -17,7 +19,7 @@ export function TopBar({ theme, onThemeChange, runLabel }: TopBarProps) {
       <div className="crumbs">
         <span>Acme</span><span className="sep">/</span>
         <span>Workflows</span><span className="sep">/</span>
-        <span className="current">Frontend ticket flow</span>
+        <span className="current">{workflowName ?? 'Loading…'}</span>
         {runLabel && (
           <>
             <span className="sep">/</span>
@@ -46,7 +48,7 @@ export function TopBar({ theme, onThemeChange, runLabel }: TopBarProps) {
         </button>
       </div>
       <button className="btn sm"><Icon name="rotate" size={11} />Re-run</button>
-      <button className="btn sm primary"><Icon name="play" size={10} />New run</button>
+      <button className="btn sm primary" onClick={onNewRun}><Icon name="play" size={10} />New run</button>
     </div>
   );
 }

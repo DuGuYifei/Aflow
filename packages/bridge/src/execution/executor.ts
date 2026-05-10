@@ -4,7 +4,7 @@ import {
   type AgentCommandResult,
   type AgentTerminalEvent,
 } from "@specflow/agent-proxy";
-import type { AgentProvider } from "@specflow/shared";
+import type { AgentProvider, NodeStatus } from "@specflow/shared";
 import {
   assertValidAgentNodeSession,
   type AgentDefinition,
@@ -16,6 +16,7 @@ import {
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowRun,
+  type WorkflowRunStatus,
 } from "@specflow/workflow";
 import {
   createTaggedEdgeVariable,
@@ -26,11 +27,28 @@ import {
 import { DeterministicGateEvaluator, type GateEvaluator } from "./gate-evaluator";
 import { TerminalEventStore } from "./terminal-store";
 
+export interface NodeStatusEvent {
+  runId: string;
+  nodeId: string;
+  status: NodeStatus;
+  at: string;
+}
+
+export interface RunStatusEvent {
+  runId: string;
+  workflowId: string;
+  status: WorkflowRunStatus;
+  at: string;
+  error?: string;
+}
+
 export interface WorkflowExecutorOptions {
   cwd?: string;
   gateEvaluator?: GateEvaluator;
   terminalEvents?: TerminalEventStore;
   agentRunner?: AgentRunner;
+  onNodeStatus?: (event: NodeStatusEvent) => void;
+  onRunStatus?: (event: RunStatusEvent) => void;
 }
 
 export type AgentRunner = (request: AgentCommandRequest) => Promise<AgentCommandResult>;
@@ -51,12 +69,16 @@ export class WorkflowExecutor {
   readonly #gateEvaluator: GateEvaluator;
   readonly #terminalEvents: TerminalEventStore;
   readonly #agentRunner: AgentRunner;
+  readonly #onNodeStatus: ((event: NodeStatusEvent) => void) | undefined;
+  readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
 
   constructor(options: WorkflowExecutorOptions = {}) {
     this.#cwd = options.cwd ?? process.cwd();
     this.#gateEvaluator = options.gateEvaluator ?? new DeterministicGateEvaluator();
     this.#terminalEvents = options.terminalEvents ?? new TerminalEventStore();
     this.#agentRunner = options.agentRunner ?? runAgentCommand;
+    this.#onNodeStatus = options.onNodeStatus;
+    this.#onRunStatus = options.onRunStatus;
   }
 
   get terminalEvents(): TerminalEventStore {
@@ -72,6 +94,7 @@ export class WorkflowExecutor {
       nodeRuns: [],
       agentInvocations: [],
     };
+    this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "running", at: run.startedAt! });
 
     try {
       const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
@@ -143,15 +166,14 @@ export class WorkflowExecutor {
 
       run.status = "done";
       run.completedAt = new Date().toISOString();
+      this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "done", at: run.completedAt });
       return run;
     } catch (error) {
       run.status = "failed";
       run.completedAt = new Date().toISOString();
-      this.#terminalEvents.append({
-        runId: run.id,
-        stream: "system",
-        chunk: error instanceof Error ? error.message : String(error),
-      });
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.#terminalEvents.append({ runId: run.id, stream: "system", chunk: errMsg });
+      this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "failed", at: run.completedAt, error: errMsg });
       return run;
     }
   }
@@ -171,6 +193,7 @@ export class WorkflowExecutor {
       input: input.input,
     };
     input.run.nodeRuns.push(nodeRun);
+    this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "running", at: nodeRun.startedAt! });
 
     try {
       if (input.node.kind === "agent") {
@@ -186,6 +209,7 @@ export class WorkflowExecutor {
         nodeRun.status = "done";
         nodeRun.output = output;
         nodeRun.completedAt = new Date().toISOString();
+        this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "done", at: nodeRun.completedAt });
         return { output, downstreamInput: output };
       }
 
@@ -198,6 +222,7 @@ export class WorkflowExecutor {
       nodeRun.output = JSON.stringify(decision);
       nodeRun.gateDecision = decision;
       nodeRun.completedAt = new Date().toISOString();
+      this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "done", at: nodeRun.completedAt });
       return {
         output: nodeRun.output,
         downstreamInput: input.input,
@@ -207,6 +232,7 @@ export class WorkflowExecutor {
       nodeRun.status = "failed";
       nodeRun.error = error instanceof Error ? error.message : String(error);
       nodeRun.completedAt = new Date().toISOString();
+      this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "failed", at: nodeRun.completedAt! });
       throw error;
     }
   }

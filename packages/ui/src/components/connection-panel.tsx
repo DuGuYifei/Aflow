@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Edge, WorkflowNode } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
@@ -7,9 +8,10 @@ interface ConnectionPanelProps {
   fromNode?: WorkflowNode;
   toNode?: WorkflowNode;
   onClose: () => void;
+  onEditEdge?: (id: string, patch: { tag?: string; prompt?: string }) => void;
 }
 
-export function ConnectionPanel({ edge, fromNode, toNode, onClose }: ConnectionPanelProps) {
+export function ConnectionPanel({ edge, fromNode, toNode, onClose, onEditEdge }: ConnectionPanelProps) {
   if (edge.sameSession) {
     return (
       <RightPanel
@@ -47,6 +49,17 @@ export function ConnectionPanel({ edge, fromNode, toNode, onClose }: ConnectionP
     );
   }
 
+  return <EditableConnectionPanel edge={edge} fromNode={fromNode} toNode={toNode} onClose={onClose} onEditEdge={onEditEdge} />;
+}
+
+function EditableConnectionPanel({ edge, fromNode, toNode, onClose, onEditEdge }: ConnectionPanelProps) {
+  const [tag, setTag] = useState(edge.tag ?? '');
+  const [prompt, setPrompt] = useState(edge.prompt ?? '');
+
+  const handleSave = () => {
+    onEditEdge?.(edge.id, { tag, prompt });
+  };
+
   return (
     <RightPanel
       label={
@@ -68,11 +81,16 @@ export function ConnectionPanel({ edge, fromNode, toNode, onClose }: ConnectionP
         <Icon name="tag" size={10} />Output tag
         <span style={{ color: 'var(--ink-4)', fontWeight: 400, marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>identifier</span>
       </div>
-      <input className="input" style={{ fontFamily: 'var(--font-mono)' }} defaultValue={edge.tag} />
+      <input
+        className="input"
+        style={{ fontFamily: 'var(--font-mono)' }}
+        value={tag}
+        onChange={(e) => setTag(e.target.value)}
+      />
       <div className="code-hint">
-        Reference in the next prompt as <code>&lt;specflow_{edge.tag || 'tag_name'}&gt;</code>.<br />
+        Reference in the next prompt as <code>&lt;specflow_{tag || 'tag_name'}&gt;</code>.<br />
         At runtime it&apos;s substituted with{' '}
-        <code>&lt;{edge.tag || 'tag_name'}&gt;…content…&lt;/{edge.tag || 'tag_name'}&gt;</code>.
+        <code>&lt;{tag || 'tag_name'}&gt;…content…&lt;/{tag || 'tag_name'}&gt;</code>.
       </div>
 
       <div className="section-title">
@@ -82,7 +100,8 @@ export function ConnectionPanel({ edge, fromNode, toNode, onClose }: ConnectionP
       <textarea
         className="textarea code"
         rows={5}
-        defaultValue={edge.prompt}
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
         placeholder="How should the previous node format its output?"
       />
 
@@ -90,7 +109,7 @@ export function ConnectionPanel({ edge, fromNode, toNode, onClose }: ConnectionP
         <button className="btn ghost" style={{ color: 'var(--err)' }}>
           <Icon name="trash" size={12} />Delete
         </button>
-        <button className="btn primary">
+        <button className="btn primary" onClick={handleSave}>
           <Icon name="check" size={12} />Save
         </button>
       </div>
