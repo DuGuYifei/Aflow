@@ -100,6 +100,16 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     const prepared = prepareCanvasRun(doc, { initialInput, variableValues });
+    if (prepared.missingVariables.length > 0) {
+      return Response.json({
+        error: "Missing required variables",
+        missingVariables: prepared.missingVariables.map((v) => ({
+          name: v.name,
+          description: v.description,
+        })),
+      }, { status: 400 });
+    }
+
     const workflow = canvasToWorkflow(prepared.doc);
     const runId = crypto.randomUUID();
     const existingCount = (await listRuns(workflowId, root)).length;

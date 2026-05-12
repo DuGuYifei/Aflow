@@ -51,6 +51,11 @@ describe("prepareCanvasRun", () => {
     });
     expect(findStep(prepared.doc, "n1").desc).toBe("1 + 1 = ?");
   });
+
+  it("treats empty overrides as missing", () => {
+    const prepared = prepareCanvasRun(doc, { variableValues: { specflow_value: "" } });
+    expect(prepared.missingVariables.map((v) => v.name)).toEqual(["specflow_value"]);
+  });
 });
 
 function findStep(input: CanvasDoc, id: string): CanvasStepNode {

@@ -7,6 +7,7 @@ import {
   prepareCanvasRun,
   startSpecflowServer,
   type CanvasDoc,
+  type RunInputVariable,
 } from "@specflow/server";
 
 interface RunCliOptions {
@@ -18,10 +19,15 @@ interface RunCliOptions {
 
 const args = Bun.argv.slice(2);
 
-if (args[0] === "run") {
-  await runWorkflowCommand(args.slice(1));
-} else {
-  await startSpecflowServer();
+try {
+  if (args[0] === "run") {
+    await runWorkflowCommand(args.slice(1));
+  } else {
+    await startSpecflowServer();
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
 }
 
 async function runWorkflowCommand(args: string[]): Promise<void> {
@@ -37,11 +43,11 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
   printRunPlan(filePath, doc, prepared.variables);
 
   if (prepared.missingVariables.length > 0) {
-    console.error("\nMissing required variables:");
+    console.log("\nMissing required variables:");
     for (const v of prepared.missingVariables) {
-      console.error(`  - ${v.name}${v.description ? ` (${v.description})` : ""}`);
+      console.log(`  - ${v.name}${v.description ? ` (${v.description})` : ""}`);
     }
-    console.error("\nPass them with -Dname=value, for example: -Dvalue=1 or -Dspecflow_value=1");
+    console.log("\nPass them with -Dname=value, for example: -Dvalue=1 or -Dspecflow_value=1");
     process.exitCode = 2;
     return;
   }
@@ -54,17 +60,39 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
     }
   }
 
+  console.log("\nStarting run...");
+  const nodeTitles = new Map(
+    prepared.doc.nodes
+      .filter((n) => n.kind === "step" || n.kind === "gate")
+      .map((n) => [n.id, `${n.num} ${n.title}`]),
+  );
+
   const run = await executeCanvasDoc({
     doc: prepared.doc,
     initialInput: prepared.initialInput,
     cwd: process.cwd(),
+    onRunStatus(event) {
+      if (event.status === "failed" && event.error) {
+        console.log(`Run failed: ${event.error}`);
+      }
+    },
+    onNodeStatus(event) {
+      const label = nodeTitles.get(event.nodeId) ?? event.nodeId;
+      if (event.status === "running") {
+        console.log(`-> ${label}`);
+      } else if (event.status === "done") {
+        console.log(`OK ${label}`);
+        if (event.output) console.log(indentBlock("output", event.output));
+      } else if (event.status === "failed") {
+        console.log(`FAIL ${label}`);
+      }
+    },
   });
 
   console.log(`\nRun ${run.status}: ${run.id}`);
-  for (const nodeRun of run.nodeRuns) {
-    console.log(`\n[${nodeRun.status}] ${nodeRun.nodeId}`);
-    if (nodeRun.input) console.log(indentBlock("input", nodeRun.input));
-    if (nodeRun.output) console.log(indentBlock("output", nodeRun.output));
+  const failed = run.nodeRuns.filter((nodeRun) => nodeRun.status === "failed");
+  for (const nodeRun of failed) {
+    console.log(`\n[failed] ${nodeTitles.get(nodeRun.nodeId) ?? nodeRun.nodeId}`);
     if (nodeRun.error) console.log(indentBlock("error", nodeRun.error));
   }
 
@@ -130,7 +158,7 @@ function normalizeVariableValues(doc: CanvasDoc, values: Record<string, string>)
   return normalized;
 }
 
-function printRunPlan(filePath: string, doc: CanvasDoc, variables: ReturnType<typeof prepareCanvasRun>["variables"]): void {
+function printRunPlan(filePath: string, doc: CanvasDoc, variables: RunInputVariable[]): void {
   const runtimeNodes = doc.nodes.filter((n) => n.kind === "step" || n.kind === "gate");
   console.log(`Workflow: ${doc.name} (${doc.id})`);
   console.log(`File: ${filePath}`);

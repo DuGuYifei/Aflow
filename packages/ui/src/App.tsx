@@ -493,8 +493,8 @@ export function App() {
           const ev = data as { nodeId: string; status: string };
           setLiveNodeStates((prev) => ({ ...prev, [ev.nodeId]: ev.status as import('./types').RunState }));
         } else if (type === 'terminal') {
-          const ev = data as { chunk: string; nodeId?: string };
-          setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId }]);
+          const ev = data as { chunk: string; nodeId?: string; stream?: LogLine['stream'] };
+          setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId, stream: ev.stream }]);
         } else if (type === 'run-status') {
           const ev = data as { status: string };
           const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';
@@ -543,8 +543,8 @@ export function App() {
           const ev = data as { nodeId: string; status: string };
           setLiveNodeStates((prev) => ({ ...prev, [ev.nodeId]: ev.status as import('./types').RunState }));
         } else if (type === 'terminal') {
-          const ev = data as { chunk: string; nodeId?: string };
-          setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId }]);
+          const ev = data as { chunk: string; nodeId?: string; stream?: LogLine['stream'] };
+          setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId, stream: ev.stream }]);
         } else if (type === 'run-status') {
           const ev = data as { status: string };
           const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';

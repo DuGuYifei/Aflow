@@ -57,6 +57,7 @@ export interface Run {
 export interface LogLine {
   chunk: string;
   nodeId?: string;
+  stream?: 'stdout' | 'stderr' | 'system';
 }
 
 export interface Branch {

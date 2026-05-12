@@ -202,6 +202,12 @@ function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes, logLi
     prevLinesLen.current = logLines?.length ?? 0;
   }, [logLines]);
 
+  const activeNodeIds = new Set(
+    stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).map((n) => n.id),
+  );
+  const nodeById = new Map(stepNodes.map((n) => [n.id, n]));
+  const visibleLines = (logLines ?? []).filter((line) => !line.nodeId || activeNodeIds.has(line.nodeId));
+
   return (
     <div className="sessions-body logs">
       <div className="term-pane">
@@ -216,16 +222,20 @@ function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes, logLi
           </span>
         </div>
         <div className="term-stream" ref={termRef}>
-          {logLines && logLines.length > 0 ? (
-            logLines.map((line, i) => (
+          {visibleLines.length > 0 ? (
+            visibleLines.map((line, i) => {
+              const node = line.nodeId ? nodeById.get(line.nodeId) : undefined;
+              return (
               <div key={i} className="term-line">
-                <span className="lvl">[out]</span>
+                <span className={`lvl ${line.stream ?? 'stdout'}`}>[{line.stream === 'stderr' ? 'err' : line.stream === 'system' ? 'sys' : 'out'}]</span>
+                {node && <span className="node-ref">{node.num}</span>}
                 <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line.chunk}</span>
               </div>
-            ))
+              );
+            })
           ) : (
             <>
-              <div className="term-line"><span className="ts">-</span><span className="lvl">[sys]</span><span>No run output yet. Click Start run when the workflow is ready.</span></div>
+              <div className="term-line"><span className="ts">-</span><span className="lvl">[sys]</span><span>{logLines && logLines.length > 0 ? 'No output for this session.' : 'No run output yet. Click Start run when the workflow is ready.'}</span></div>
               <div className="term-line">
                 <span className="ts">—</span>
                 <span style={{ color: 'var(--ink-3)' }}>·</span>

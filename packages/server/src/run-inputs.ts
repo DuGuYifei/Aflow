@@ -32,9 +32,9 @@ export function prepareCanvasRun(
 
     const hasOverride = Object.prototype.hasOwnProperty.call(overrides, n.variableName);
     const overrideValue = overrides[n.variableName];
-    const hasDefault = n.defaultValue != null && n.defaultValue !== "";
     const value = hasOverride ? overrideValue : n.defaultValue ?? "";
-    const source = hasOverride ? "override" : hasDefault ? "default" : "missing";
+    const isMissing = value.trim() === "";
+    const source = isMissing ? "missing" : hasOverride ? "override" : "default";
 
     effectiveValues[n.variableName] = value;
     variables.push({

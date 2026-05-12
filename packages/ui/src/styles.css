@@ -1100,9 +1100,17 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .session-chip .ses-x:hover { color: var(--err); background: var(--err-soft); }
 .assn-add { color: var(--ink-3); }
 
-.term-line { display: flex; gap: 6px; }
+.term-line { display: flex; gap: 6px; align-items: flex-start; }
 .term-line .ts { color: var(--ink-3); }
 .term-line .lvl { color: oklch(0.62 0.13 230); }
+.term-line .lvl.stderr { color: var(--err); }
+.term-line .lvl.system { color: var(--ink-3); }
+.term-line .node-ref {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  min-width: 28px;
+}
 .term-line .tag { color: oklch(0.62 0.13 45); }
 .term-line.ok .lvl { color: oklch(0.55 0.13 145); }
 .term-line.err .lvl { color: var(--err); }
