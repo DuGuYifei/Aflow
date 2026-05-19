@@ -17,6 +17,7 @@ import {
   removeRunFromAgentSessions,
   upsertAgentSessionsFromRun,
 } from "./agent-session-store";
+import { appendRunLogEvent, deleteRunLog, listRunLogEvents } from "./run-log-store";
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
 import type { CanvasSession } from "./canvas-doc";
@@ -62,11 +63,23 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     let cleanup = () => {};
 
     const stream = new ReadableStream({
-      start(controller) {
+      async start(controller) {
         const enqueue = (type: string, data: unknown) =>
           controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
 
         enqueue("hello", { runId });
+
+        for (const event of await listRunLogEvents(root, runId)) {
+          if (event.type === "terminal") {
+            enqueue("terminal", {
+              chunk: event.chunk,
+              stream: event.stream,
+              nodeId: event.nodeId,
+              agentInvocationId: event.agentInvocationId,
+              replay: true,
+            });
+          }
+        }
 
         const offNode = bus.on(`${runId}:node`, (e) => enqueue("node-status", e));
         const offInteraction = bridge.interactions.subscribe(runId, (interaction) => {
@@ -163,16 +176,41 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     };
 
     await saveRun(record, root);
+    await appendRunLogEvent(root, {
+      type: "run_status",
+      runId,
+      workflowId,
+      status: "running",
+      at: record.startedAt,
+    });
 
     let lastTermSeq = 0;
     let currentNodeId: string | undefined;
+    let logWrite = Promise.resolve();
+    const appendLog = (event: Parameters<typeof appendRunLogEvent>[1]) => {
+      logWrite = logWrite
+        .then(() => appendRunLogEvent(root, event))
+        .catch((error) => {
+          console.error("Failed to append run log", error);
+        });
+    };
+    const offInteractionLog = bridge.interactions.subscribe(runId, (interaction) => {
+      appendLog({ type: "interaction", ...interaction });
+    });
 
     const flushTerminalEvents = () => {
       const all = bridge.terminalEvents.list({ runId });
       for (const te of all) {
         if (te.sequence > lastTermSeq) {
           lastTermSeq = te.sequence;
-          bus.emit(`${runId}:term`, { chunk: te.chunk, stream: te.stream, nodeId: currentNodeId });
+          const event = { type: "terminal" as const, ...te, nodeId: currentNodeId };
+          appendLog(event);
+          bus.emit(`${runId}:term`, {
+            chunk: te.chunk,
+            stream: te.stream,
+            nodeId: currentNodeId,
+            agentInvocationId: te.agentInvocationId,
+          });
         }
       }
     };
@@ -195,6 +233,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
 
       void saveRun(record, root);
+      appendLog({ type: "node_status", ...e });
       bus.emit(`${runId}:node`, { nodeId: e.nodeId, status: uiStatus, runId });
       flushTerminalEvents();
     };
@@ -215,7 +254,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         bridge.interactions.cancelPendingForRun(runId, `run ${record.status}`);
       }
       void saveRun(record, root);
+      appendLog({ type: "run_status", ...e });
       bus.emit(`${runId}:run`, { runId, status: record.status, workflowId });
+      offInteractionLog();
     };
 
     const executor = new WorkflowExecutor({
@@ -228,6 +269,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     void executor.run(workflow, prepared.initialInput, { runId })
       .then(async (workflowRun) => {
+        await logWrite;
         record.agentInvocations = workflowRun.agentInvocations;
         await saveRun(record, root);
         await upsertAgentSessionsFromRun(record, root);
@@ -327,8 +369,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       if (request.method === "DELETE") {
         await deleteRun(id, root);
         await removeRunFromAgentSessions(id, root);
+        await deleteRunLog(root, id);
         return Response.json({ ok: true });
       }
+    }
+
+    // GET /api/runs/:id/logs
+    const runLogsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/logs$/);
+    if (runLogsMatch && request.method === "GET") {
+      return Response.json(await listRunLogEvents(root, runLogsMatch[1]));
     }
 
     // GET /api/agent-sessions  (optional ?workflowId=&agentServerId=)

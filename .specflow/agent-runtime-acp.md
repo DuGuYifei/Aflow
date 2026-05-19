@@ -195,7 +195,8 @@ Recommended path:
 These logs should persist:
 
 - terminal chunks emitted during the run: `stdout`, `stderr`, and `system`
-- lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled
+- current workflow-side lifecycle events: node status and run status
+- future ACP lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled
 - permission and elicitation audit records: requested, resolved, cancelled, timed out
 - restore attempts: requested mode, selected ACP primitive, success/failure
 
@@ -216,14 +217,19 @@ Implemented:
 
 - UI can start a workflow run.
 - Server streams run/node/terminal events over SSE.
+- Server persists terminal logs and workflow-side status logs under `.specflow/run-logs/<runId>.jsonl`.
+- `GET /api/runs/:id/logs` returns historical run log events.
+- New SSE connections replay persisted terminal chunks before live events.
 - UI can show live terminal logs in the log panel.
+- UI loads historical terminal logs when viewing a completed run.
 - ACP permission and elicitation requests can be surfaced to UI and answered through `POST /api/runs/:runId/interactions/:interactionId/respond`.
 - Run records include final ACP invocation metadata after run completion.
 - Server exposes the ACP session index API.
 
 Not complete:
 
-- Historical workflow-side runtime logs are not durably persisted.
+- Detailed ACP process/prompt lifecycle events are not durably persisted yet.
+- Restore attempts are not durably persisted yet.
 - There is no UI to browse `.specflow/agent-sessions.json`.
 - There is no restore API that starts an ACP CLI and calls `session/load` or `session/resume`.
 - Headless command-template agents are reserved but not implemented.
@@ -262,6 +268,7 @@ Current test coverage includes:
 - Bridge recording of ACP session metadata on invocations.
 - Bridge interaction store resolve/cancel behavior.
 - Server interaction SSE and response endpoint.
+- Server run log JSONL append/list/delete behavior.
 - Server run-store migration/defaulting for `agentInvocations`.
 - Server ACP session index create/merge/delete behavior.
 

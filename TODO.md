@@ -30,16 +30,16 @@ Implementation order is intentional. Each phase should finish with tests and doc
 
 ### 2. Durable Workflow Runtime Logs
 
-- [ ] Add persistent terminal log storage under `.specflow/run-logs/<runId>.jsonl`.
-- [ ] Persist terminal chunks with run id, node id, invocation id, stream, sequence, and timestamp.
+- [x] Add persistent terminal log storage under `.specflow/run-logs/<runId>.jsonl`.
+- [x] Persist terminal chunks with run id, node id, invocation id, stream, sequence, and timestamp.
 - [ ] Persist workflow-side lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled.
-- [ ] Persist permission and elicitation audit events without storing secrets or sensitive form values by default.
+- [x] Persist permission and elicitation audit events without storing secrets or sensitive form values by default.
 - [ ] Persist restore attempt events: requested mode, selected ACP primitive, success/failure.
 - [ ] Do not persist full ACP `session/update` history as Specflow's canonical transcript.
-- [ ] Add `GET /api/runs/:id/logs` for historical replay.
-- [ ] Make SSE start with persisted historical chunks when reconnecting.
-- [ ] Update UI log panel to load historical logs before attaching live SSE.
-- [ ] Test log replay after server restart.
+- [x] Add `GET /api/runs/:id/logs` for historical replay.
+- [x] Make SSE start with persisted historical chunks when reconnecting.
+- [x] Update UI log panel to load historical logs before attaching live SSE.
+- [x] Test log replay after server restart.
 
 ### 3. ACP Session Restore API
 

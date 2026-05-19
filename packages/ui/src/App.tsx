@@ -2,9 +2,9 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, LogLine, InputNode } from './types';
 import {
   fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
-  fetchRuns, fetchRun, subscribeToRun,
+  fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
-  apiRunToUiRun, summaryToWorkflow, respondToRunInteraction,
+  apiRunToUiRun, apiRunLogsToLogLines, summaryToWorkflow, respondToRunInteraction,
   type SseEventType,
   type RunInteraction,
 } from './api';
@@ -440,6 +440,9 @@ export function App() {
       setRuns((prev) => prev.map((r) =>
         r.id === id ? { ...r, canvasSnapshot: uiRun.canvasSnapshot, nodeStates: uiRun.nodeStates, nodeOutputs: uiRun.nodeOutputs } : r,
       ));
+    }).catch(console.error);
+    fetchRunLogs(id).then((events) => {
+      setLogLines(apiRunLogsToLogLines(events));
     }).catch(console.error);
   }, []);
 

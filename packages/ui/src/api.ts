@@ -1,4 +1,4 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine } from './types';
 
 export interface CanvasDoc {
   id: string;
@@ -69,6 +69,23 @@ export interface RunInteraction {
   resolution?: unknown;
 }
 
+export type ApiRunLogEvent =
+  | {
+      type: 'terminal';
+      runId: string;
+      nodeId?: string;
+      agentInvocationId?: string;
+      stream: LogLine['stream'];
+      sequence: number;
+      chunk: string;
+      createdAt: string;
+    }
+  | {
+      type: 'node_status' | 'run_status' | 'interaction';
+      runId: string;
+      [key: string]: unknown;
+    };
+
 export interface CanvasSummary {
   id: string;
   name: string;
@@ -131,6 +148,12 @@ export async function fetchRuns(workflowId: string): Promise<ApiRunRecord[]> {
 export async function fetchRun(id: string): Promise<ApiRunRecord> {
   const res = await fetch(`/api/runs/${id}`);
   if (!res.ok) throw new Error(`Run ${id} not found`);
+  return res.json();
+}
+
+export async function fetchRunLogs(id: string): Promise<ApiRunLogEvent[]> {
+  const res = await fetch(`/api/runs/${id}/logs`);
+  if (!res.ok) throw new Error(`Run logs ${id} not found`);
   return res.json();
 }
 
@@ -208,6 +231,17 @@ export function apiRunToUiRun(rec: ApiRunRecord): Run {
     initialInput: rec.initialInput,
     variableValues: rec.variableValues,
   };
+}
+
+export function apiRunLogsToLogLines(events: ApiRunLogEvent[]): LogLine[] {
+  return events
+    .filter((event): event is Extract<ApiRunLogEvent, { type: 'terminal' }> => event.type === 'terminal')
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((event) => ({
+      chunk: event.chunk,
+      nodeId: event.nodeId,
+      stream: event.stream,
+    }));
 }
 
 function combineSnapshot(
