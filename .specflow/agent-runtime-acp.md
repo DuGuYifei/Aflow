@@ -198,9 +198,6 @@ These logs persist:
 - workflow-side lifecycle events: node status and run status
 - ACP lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled, and session closed where applicable
 - permission and elicitation audit records: requested, resolved, cancelled, timed out
-
-These logs should persist in the next restore phase:
-
 - restore attempts: requested mode, selected ACP primitive, success/failure
 
 These logs do not persist as primary data:
@@ -220,7 +217,7 @@ Implemented:
 
 - UI can start a workflow run.
 - Server streams run/node/terminal events over SSE.
-- Server persists terminal logs, workflow-side status logs, ACP lifecycle events, and interaction audit events under `.specflow/run-logs/<runId>.jsonl`.
+- Server persists terminal logs, workflow-side status logs, ACP lifecycle events, interaction audit events, and restore attempt audit events under `.specflow/run-logs/<runId>.jsonl`.
 - `GET /api/runs/:id/logs` returns historical run log events.
 - New SSE connections replay persisted terminal chunks before live events.
 - UI can show live terminal logs in the log panel.
@@ -231,7 +228,6 @@ Implemented:
 
 Not complete:
 
-- Restore attempts are not durably persisted yet.
 - There is no UI to browse `.specflow/agent-sessions.json`.
 - There is no restore API that starts an ACP CLI and calls `session/load` or `session/resume`.
 - Headless command-template agents are reserved but not implemented.

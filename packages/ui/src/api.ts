@@ -81,7 +81,7 @@ export type ApiRunLogEvent =
       createdAt: string;
     }
   | {
-      type: 'node_status' | 'run_status' | 'agent_lifecycle' | 'interaction';
+      type: 'node_status' | 'run_status' | 'agent_lifecycle' | 'restore_attempt' | 'interaction';
       runId: string;
       [key: string]: unknown;
     };

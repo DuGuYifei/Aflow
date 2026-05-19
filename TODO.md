@@ -34,7 +34,7 @@ Implementation order is intentional. Each phase should finish with tests and doc
 - [x] Persist terminal chunks with run id, node id, invocation id, stream, sequence, and timestamp.
 - [x] Persist workflow-side lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled.
 - [x] Persist permission and elicitation audit events without storing secrets or sensitive form values by default.
-- [ ] Persist restore attempt events: requested mode, selected ACP primitive, success/failure.
+- [x] Persist restore attempt events: requested mode, selected ACP primitive, success/failure.
 - [x] Do not persist full ACP `session/update` history as Specflow's canonical transcript.
 - [x] Add `GET /api/runs/:id/logs` for historical replay.
 - [x] Make SSE start with persisted historical chunks when reconnecting.

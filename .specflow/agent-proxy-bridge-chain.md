@@ -140,6 +140,7 @@ Persisted events include:
 - run and node status changes
 - ACP lifecycle metadata: process started, initialized, session created, prompt started/stopped/failed/cancelled, and session closed where applicable
 - permission and elicitation audit events
+- restore attempt audit events: requested mode, selected ACP primitive, success/failure
 
 These records are operational/audit logs. They intentionally do not copy full ACP `session/update` history as Specflow's canonical transcript. Historical transcript inspection should use ACP `session/load` or `session/resume` when the agent advertises those capabilities.
 

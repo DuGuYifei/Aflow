@@ -13,6 +13,19 @@ export type AgentLifecycleLogPayload = {
   [key: string]: unknown;
 };
 
+export type RestoreAttemptLogEvent = {
+  type: "restore_attempt";
+  runId: string;
+  agentSessionId: string;
+  agentServerId: string;
+  acpSessionId: string;
+  requestedMode: "inspect" | "continue";
+  selectedPrimitive?: "load" | "resume";
+  status: "requested" | "success" | "failure";
+  error?: string;
+  at: string;
+};
+
 export type RunLogEvent =
   | ({ type: "terminal" } & TerminalOutputEvent & { nodeId?: string })
   | ({ type: "node_status" } & NodeStatusEvent)
@@ -28,6 +41,7 @@ export type RunLogEvent =
       agentServerId: string;
       lifecycle: AgentLifecycleLogPayload;
     }
+  | RestoreAttemptLogEvent
   | ({ type: "interaction" } & RunInteraction);
 
 export function runLogsDir(root: string): string {
