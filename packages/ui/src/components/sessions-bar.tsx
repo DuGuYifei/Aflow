@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Session, WorkflowNode, LogLine, Variable } from '../types';
+import type { AgentSessionRecord, RestoreMode } from '../api';
 import { Icon } from './icon';
 
 interface SessionsBarProps {
@@ -19,6 +20,11 @@ interface SessionsBarProps {
   onClearLogs: () => void;
   variables: Variable[];
   onEditVariable: (name: string, patch: Partial<Variable>) => void;
+  agentSessions?: AgentSessionRecord[];
+  runs?: Array<{ id: string; label: string }>;
+  onOpenInvocationLog?: (runId: string, nodeId?: string, specflowSessionId?: string) => void;
+  onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
+  restoreStatusBySession?: Record<string, string>;
   readonly?: boolean;
 }
 
@@ -31,9 +37,12 @@ export function SessionsBar({
   logLines,
   onAddSession, onDeleteSession, onClearLogs,
   variables, onEditVariable,
+  agentSessions = [], runs = [],
+  onOpenInvocationLog, onRestoreSession,
+  restoreStatusBySession = {},
   readonly,
 }: SessionsBarProps) {
-  const [tab, setTab] = useState<'logs' | 'settings' | 'vars'>('logs');
+  const [tab, setTab] = useState<'logs' | 'history' | 'settings' | 'vars'>('logs');
   const barHeightRef = useRef(barHeight);
   const stepNodes = nodes.filter((n) => n.kind === 'step');
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
@@ -101,6 +110,10 @@ export function SessionsBar({
           <button className={`bar-tab${tab === 'logs' ? ' active' : ''}`} onClick={() => setTab('logs')}>
             <Icon name="terminal" size={11} />Logs
           </button>
+          <button className={`bar-tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>
+            <Icon name="history" size={11} />History
+            {agentSessions.length > 0 && <span className="count">{agentSessions.length}</span>}
+          </button>
           <button className={`bar-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
             <Icon name="settings" size={11} />Sessions
             <span className="count">{sessions.length}</span>
@@ -126,6 +139,18 @@ export function SessionsBar({
           stepNodes={stepNodes}
           logLines={logLines}
           onDeleteSession={onDeleteSession}
+        />
+      )}
+      {tab === 'history' && (
+        <HistoryTab
+          sessions={sessions}
+          agentSessions={agentSessions}
+          runs={runs}
+          activeSessionId={activeSession?.id}
+          setActiveSessionId={setActiveSessionId}
+          onOpenInvocationLog={onOpenInvocationLog}
+          onRestoreSession={onRestoreSession}
+          restoreStatusBySession={restoreStatusBySession}
         />
       )}
       {tab === 'settings' && (
@@ -282,6 +307,153 @@ function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes, logLi
       </div>
     </div>
   );
+}
+
+// ── history tab ───────────────────────────────────────────────────────────────
+
+interface HistoryTabProps {
+  sessions: Session[];
+  agentSessions: AgentSessionRecord[];
+  runs: Array<{ id: string; label: string }>;
+  activeSessionId?: string;
+  setActiveSessionId: (id: string) => void;
+  onOpenInvocationLog?: (runId: string, nodeId?: string, specflowSessionId?: string) => void;
+  onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
+  restoreStatusBySession: Record<string, string>;
+}
+
+function HistoryTab({
+  sessions,
+  agentSessions,
+  runs,
+  activeSessionId,
+  setActiveSessionId,
+  onOpenInvocationLog,
+  onRestoreSession,
+  restoreStatusBySession,
+}: HistoryTabProps) {
+  const [agentFilter, setAgentFilter] = useState('');
+  const knownRuns = new Set(runs.map((run) => run.id));
+  const runLabelById = new Map(runs.map((run) => [run.id, run.label]));
+  const agentIds = [...new Set(agentSessions.map((session) => session.agentServerId))].sort();
+  const visibleSessions = agentSessions
+    .filter((session) => !activeSessionId || session.specflowSessionId === activeSessionId)
+    .filter((session) => !agentFilter || session.agentServerId === agentFilter);
+
+  return (
+    <div className="sessions-body history">
+      <div className="history-filters">
+        <select className="input" value={activeSessionId ?? ''} onChange={(e) => setActiveSessionId(e.target.value)}>
+          {sessions.map((session) => (
+            <option key={session.id} value={session.id}>{session.name}</option>
+          ))}
+        </select>
+        <select className="input" value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+          <option value="">All agents</option>
+          {agentIds.map((agentId) => (
+            <option key={agentId} value={agentId}>{agentId}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="history-list">
+        {visibleSessions.length === 0 && (
+          <div className="history-empty">
+            No ACP session history for the selected filters.
+          </div>
+        )}
+
+        {visibleSessions.map((session) => {
+          const latestRunMissing = !knownRuns.has(session.latestRunId);
+          const status = restoreStatusBySession[session.id];
+          return (
+            <div key={session.id} className="history-card">
+              <div className="history-card-head">
+                <div style={{ minWidth: 0 }}>
+                  <div className="history-title">
+                    <span className="agent-badge"><span className="dot" />{session.agentServerId}</span>
+                    <span className="mono-id">{session.acpSessionId}</span>
+                  </div>
+                  <div className="history-meta">
+                    <span>{session.specflowSessionId ?? 'unscoped'}</span>
+                    <span>·</span>
+                    <span>{session.invocations.length} invocations</span>
+                    <span>·</span>
+                    <span>{formatShortDate(session.lastSeenAt)}</span>
+                  </div>
+                </div>
+                <div className="history-actions">
+                  <CapabilityBadge label="load" enabled={session.acpSupportsLoadSession} />
+                  <CapabilityBadge label="resume" enabled={session.acpSupportsResumeSession} />
+                  <button
+                    className="btn sm"
+                    disabled={!session.acpSupportsLoadSession && !session.acpSupportsResumeSession}
+                    onClick={() => onRestoreSession?.(session, 'inspect')}
+                    title="Inspect historical session"
+                  >
+                    <Icon name="search" size={10} />Inspect
+                  </button>
+                  <button
+                    className="btn sm primary"
+                    disabled={!session.acpSupportsLoadSession && !session.acpSupportsResumeSession}
+                    onClick={() => onRestoreSession?.(session, 'continue')}
+                    title="Resume historical session"
+                  >
+                    <Icon name="play-circle" size={10} />Resume
+                  </button>
+                </div>
+              </div>
+
+              {status && (
+                <div className={`history-restore-status ${status === 'failure' ? 'failed' : ''}`}>
+                  restore: {status}
+                </div>
+              )}
+
+              <div className="history-invocations">
+                {session.invocations.slice(-4).reverse().map((ref) => {
+                  const runMissing = !knownRuns.has(ref.runId);
+                  return (
+                    <button
+                      key={ref.invocationId}
+                      className="history-invocation"
+                      disabled={runMissing}
+                      onClick={() => onOpenInvocationLog?.(ref.runId, ref.nodeId, session.specflowSessionId)}
+                      title={runMissing ? 'Run record was deleted' : 'Open run log'}
+                    >
+                      <span className={`status-dot ${ref.status === 'done' ? 'success' : ref.status === 'failed' ? 'error' : 'running'}`} />
+                      <span className="mono-id">{ref.nodeId ?? ref.edgeId ?? ref.invocationId}</span>
+                      <span>{runMissing ? 'missing run' : runLabelById.get(ref.runId) ?? ref.runId}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {latestRunMissing && (
+                <div className="history-warning">
+                  Latest run reference is unavailable. Older invocation links may still work.
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CapabilityBadge({ label, enabled }: { label: string; enabled: boolean }) {
+  return (
+    <span className={`cap-badge${enabled ? ' on' : ''}`}>
+      {label}
+    </span>
+  );
+}
+
+function formatShortDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString([], { month: 'short', day: '2-digit' });
 }
 
 // ── settings tab ──────────────────────────────────────────────────────────────

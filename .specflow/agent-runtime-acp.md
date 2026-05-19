@@ -225,6 +225,8 @@ Implemented:
 - New SSE connections replay persisted terminal chunks before live events.
 - UI can show live terminal logs in the log panel.
 - UI loads historical terminal logs when viewing a completed run.
+- UI exposes ACP session history in the bottom History tab, filtered by workflow, Specflow session, and agent server.
+- UI links session index entries back to run node logs and can start Inspect or Resume restore attempts.
 - ACP permission and elicitation requests can be surfaced to UI and answered through `POST /api/runs/:runId/interactions/:interactionId/respond`.
 - Run records include final ACP invocation metadata after run completion.
 - Server exposes the ACP session index API.
@@ -235,7 +237,6 @@ Implemented:
 
 Not complete:
 
-- There is no UI to browse `.specflow/agent-sessions.json`.
 - Headless command-template agents are reserved but not implemented.
 
 ## Resume Design Direction

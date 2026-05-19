@@ -165,7 +165,7 @@ The agent-proxy boundary now exposes this as a restore operation for an existing
 
 The server exposes that boundary through `POST /api/agent-sessions/:id/restore`. It records a restore attempt in `.specflow/agent-sessions.json` and `.specflow/run-logs/<runId>.jsonl`, starts the ACP CLI, and streams restored ACP `session/update` notifications plus terminal output through `GET /api/agent-session-restores/:restoreId/events`. The streamed ACP updates are live restore-view data, not a durable Specflow transcript copy.
 
-The future UI flow should be:
+The UI flow is:
 
 1. User opens a historical run.
 2. User selects a node log or edge handoff.
@@ -173,3 +173,5 @@ The future UI flow should be:
 4. UI asks server to restore the external session.
 5. Server starts the corresponding ACP CLI and calls `session/load` or `session/resume` depending on advertised capability.
 6. Replayed or resumed updates stream back to the UI over SSE for the active restore view.
+
+The bottom History tab also lists indexed ACP sessions directly, shows load/resume capability badges, disables links for missing run records, and exposes Inspect/Resume actions.

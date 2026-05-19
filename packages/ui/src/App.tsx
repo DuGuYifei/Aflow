@@ -4,9 +4,14 @@ import {
   fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
+  fetchAgentSessions, restoreAgentSession, subscribeToRestore,
   apiRunToUiRun, apiRunLogsToLogLines, summaryToWorkflow, respondToRunInteraction,
   type SseEventType,
   type RunInteraction,
+  type AgentSessionRecord,
+  type RestoreMode,
+  type RestoreSseEventType,
+  type RestoreStreamEvent,
 } from './api';
 import { TopBar } from './components/top-bar';
 import { Sidebar } from './components/sidebar';
@@ -43,6 +48,8 @@ export function App() {
   const runState = useMemo<RunStateMap>(() => ({ ...historicNodeStates, ...liveNodeStates }), [historicNodeStates, liveNodeStates]);
 
   const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [agentSessions, setAgentSessions] = useState<AgentSessionRecord[]>([]);
+  const [restoreStatusBySession, setRestoreStatusBySession] = useState<Record<string, string>>({});
 
   const [selection, setSelection]             = useState<Selection | null>(null);
   const [zoom, setZoom]                       = useState(1);
@@ -117,10 +124,12 @@ export function App() {
       const uiRuns = records.map(apiRunToUiRun);
       setRuns(uiRuns);
     }).catch(console.error);
+    fetchAgentSessions({ workflowId: activeWorkflow }).then(setAgentSessions).catch(console.error);
     // Clicking a workflow always returns to workflow-edit (no run selected).
     setActiveRunId('');
     setHistoricNodeStates({});
     setLiveNodeStates({});
+    setRestoreStatusBySession({});
     setPendingInteractions([]);
   }, [activeWorkflow]);
 
@@ -430,6 +439,10 @@ export function App() {
 
   // ── run management ────────────────────────────────────────────────────────
 
+  const refreshAgentSessions = useCallback(() => {
+    fetchAgentSessions({ workflowId: activeWorkflow }).then(setAgentSessions).catch(console.error);
+  }, [activeWorkflow]);
+
   const onSelectRun = useCallback((id: string) => {
     setActiveRunId(id);
     setLiveNodeStates({});
@@ -546,13 +559,14 @@ export function App() {
                 setLiveNodeStates({});
               }
             }).catch(console.error);
+            refreshAgentSessions();
           }
         }
       });
     } catch (err) {
       console.error('Failed to start run', err);
     }
-  }, [activeWorkflow, onRunInteractionEvent]);
+  }, [activeWorkflow, onRunInteractionEvent, refreshAgentSessions]);
 
   const onStartConfiguredRun = useCallback(async () => {
     setRunConfigBusy(true);
@@ -599,13 +613,14 @@ export function App() {
                 setLiveNodeStates({});
               }
             }).catch(console.error);
+            refreshAgentSessions();
           }
         }
       });
     } catch (err) {
       console.error('Failed to re-run', err);
     }
-  }, [activeWorkflow, onRunInteractionEvent]);
+  }, [activeWorkflow, onRunInteractionEvent, refreshAgentSessions]);
 
   const onDeleteRun = useCallback(async (id: string) => {
     if (!window.confirm('Delete this run?')) return;
@@ -618,10 +633,66 @@ export function App() {
         setLiveNodeStates({});
         setPendingInteractions([]);
       }
+      refreshAgentSessions();
     } catch (err) {
       console.error('Failed to delete run', err);
     }
-  }, [activeRunId]);
+  }, [activeRunId, refreshAgentSessions]);
+
+  const onOpenInvocationLog = useCallback((runId: string, nodeId?: string, specflowSessionId?: string) => {
+    if (specflowSessionId) setActiveSessionId(specflowSessionId);
+    if (nodeId) setSelection({ kind: 'node', id: nodeId });
+    setBarExpanded(true);
+    onSelectRun(runId);
+  }, [onSelectRun]);
+
+  const onRestoreHistoricalSession = useCallback(async (session: AgentSessionRecord, mode: RestoreMode) => {
+    setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: 'starting' }));
+    if (session.specflowSessionId) setActiveSessionId(session.specflowSessionId);
+    setBarExpanded(true);
+    setLogLines((prev) => [
+      ...prev.slice(-500),
+      {
+        stream: 'system',
+        chunk: `[restore] ${mode} ${session.agentServerId} ${session.acpSessionId}\n`,
+      },
+    ]);
+
+    try {
+      const started = await restoreAgentSession(session.id, mode);
+      let unsubscribe: (() => void) | undefined;
+      unsubscribe = subscribeToRestore(started.restoreId, (type: RestoreSseEventType, event: RestoreStreamEvent) => {
+        if (type === 'terminal' && event.type === 'terminal') {
+          setLogLines((prev) => [...prev.slice(-500), { stream: event.stream, chunk: event.chunk }]);
+          return;
+        }
+
+        if (type === 'session-update' && event.type === 'session-update') {
+          const text = textFromSessionUpdate(event.update);
+          if (text) setLogLines((prev) => [...prev.slice(-500), { stream: 'stdout', chunk: text }]);
+          return;
+        }
+
+        if (type === 'restore-status' && event.type === 'restore-status') {
+          const label = event.status === 'success'
+            ? `[restore:${event.selectedPrimitive}] done\n`
+            : event.status === 'failure'
+              ? `[restore] failed: ${event.error ?? 'unknown error'}\n`
+              : `[restore] requested\n`;
+          setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: event.status }));
+          setLogLines((prev) => [...prev.slice(-500), { stream: event.status === 'failure' ? 'stderr' : 'system', chunk: label }]);
+          if (event.status !== 'requested') {
+            refreshAgentSessions();
+            unsubscribe?.();
+          }
+        }
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: 'failure' }));
+      setLogLines((prev) => [...prev.slice(-500), { stream: 'stderr', chunk: `[restore] failed: ${message}\n` }]);
+    }
+  }, [refreshAgentSessions]);
 
   // ── workflow management ───────────────────────────────────────────────────
 
@@ -789,9 +860,22 @@ export function App() {
           onClearLogs={onClearLogs}
           variables={displayVariables}
           onEditVariable={onEditVariable}
+          agentSessions={agentSessions}
+          runs={runs}
+          onOpenInvocationLog={onOpenInvocationLog}
+          onRestoreSession={onRestoreHistoricalSession}
+          restoreStatusBySession={restoreStatusBySession}
           readonly={view === 'run'}
         />
       </div>
     </div>
   );
+}
+
+function textFromSessionUpdate(update: unknown): string | undefined {
+  if (!update || typeof update !== 'object') return undefined;
+  const maybe = update as { sessionUpdate?: string; content?: unknown };
+  if (maybe.sessionUpdate !== 'agent_message_chunk') return undefined;
+  const content = maybe.content as { type?: string; text?: unknown } | undefined;
+  return content?.type === 'text' && typeof content.text === 'string' ? content.text : undefined;
 }

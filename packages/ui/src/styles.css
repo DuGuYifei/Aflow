@@ -821,6 +821,130 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   flex: 1;
   align-items: stretch;
 }
+.sessions-body.history {
+  flex-direction: column;
+  padding: 10px 14px 14px;
+  gap: 10px;
+  overflow: hidden;
+  min-height: 0;
+  flex: 1;
+}
+.history-filters {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.history-empty {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.history-card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.history-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.history-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mono-id {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  margin-top: 4px;
+}
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.cap-badge {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-4);
+}
+.cap-badge.on {
+  color: var(--ok);
+  border-color: color-mix(in oklch, var(--ok) 35%, var(--line));
+  background: var(--ok-soft);
+}
+.history-restore-status,
+.history-warning {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.history-restore-status.failed,
+.history-warning { color: var(--err); }
+.history-invocations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.history-invocation {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  font-size: 11px;
+}
+.history-invocation:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.history-invocation:not(:disabled):hover {
+  border-color: var(--ink-4);
+  color: var(--ink);
+}
 .term-pane {
   flex: 1;
   display: flex;

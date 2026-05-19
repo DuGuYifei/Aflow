@@ -55,13 +55,13 @@ Implementation order is intentional. Each phase should finish with tests and doc
 
 ### 4. Session Browser UI
 
-- [ ] Add API client methods for `/api/agent-sessions`.
-- [ ] Add a session browser view filtered by workflow, agent server, and Specflow session.
-- [ ] Link run node logs to their `AgentInvocation` and ACP session index entry.
-- [ ] Add "Inspect session" action for historical replay.
-- [ ] Add "Resume session" action for continuing work.
-- [ ] Show capability badges: load, resume, unavailable.
-- [ ] Handle missing/deleted run references gracefully.
+- [x] Add API client methods for `/api/agent-sessions`.
+- [x] Add a session browser view filtered by workflow, agent server, and Specflow session.
+- [x] Link run node logs to their `AgentInvocation` and ACP session index entry.
+- [x] Add "Inspect session" action for historical replay.
+- [x] Add "Resume session" action for continuing work.
+- [x] Show capability badges: load, resume, unavailable.
+- [x] Handle missing/deleted run references gracefully.
 
 ### 5. Agent Server Management UI
 

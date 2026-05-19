@@ -47,6 +47,88 @@ export interface ApiRunRecord {
   variableValues?: Record<string, string>;
 }
 
+export interface AgentSessionInvocationRef {
+  runId: string;
+  invocationId: string;
+  nodeRunId?: string;
+  nodeId?: string;
+  edgeId?: string;
+  status: 'running' | 'done' | 'failed';
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface AgentSessionRestoreAttempt {
+  id: string;
+  requestedMode: 'inspect' | 'continue';
+  selectedPrimitive?: 'load' | 'resume';
+  status: 'requested' | 'success' | 'failure';
+  startedAt: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface AgentSessionRecord {
+  id: string;
+  workflowId: string;
+  specflowSessionId?: string;
+  agentId: string;
+  agentServerId: string;
+  acpSessionId: string;
+  acpSupportsLoadSession: boolean;
+  acpSupportsResumeSession: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  latestRunId: string;
+  latestInvocationId: string;
+  latestStatus: 'running' | 'done' | 'failed';
+  runIds: string[];
+  invocationIds: string[];
+  invocations: AgentSessionInvocationRef[];
+  restoreAttempts?: AgentSessionRestoreAttempt[];
+}
+
+export type RestoreMode = 'inspect' | 'continue';
+
+export interface RestoreStartResponse {
+  restoreId: string;
+  agentSessionId: string;
+  runId: string;
+  status: 'running';
+  requestedMode: RestoreMode;
+}
+
+export type RestoreSseEventType = 'restore-status' | 'session-update' | 'terminal';
+
+export type RestoreStreamEvent =
+  | {
+      type: 'restore-status';
+      restoreId: string;
+      agentSessionId: string;
+      runId: string;
+      requestedMode: RestoreMode;
+      selectedPrimitive?: 'load' | 'resume';
+      status: 'requested' | 'success' | 'failure';
+      error?: string;
+      at: string;
+    }
+  | {
+      type: 'session-update';
+      restoreId: string;
+      agentSessionId: string;
+      sessionId: string;
+      update: unknown;
+      at: string;
+    }
+  | {
+      type: 'terminal';
+      restoreId: string;
+      agentSessionId: string;
+      stream: LogLine['stream'];
+      chunk: string;
+      at: string;
+    };
+
 export type RunInteractionStatus = 'pending' | 'resolved' | 'cancelled';
 
 export interface RunInteraction {
@@ -157,6 +239,32 @@ export async function fetchRunLogs(id: string): Promise<ApiRunLogEvent[]> {
   return res.json();
 }
 
+export async function fetchAgentSessions(filter: { workflowId?: string; agentServerId?: string } = {}): Promise<AgentSessionRecord[]> {
+  const params = new URLSearchParams();
+  if (filter.workflowId) params.set('workflowId', filter.workflowId);
+  if (filter.agentServerId) params.set('agentServerId', filter.agentServerId);
+  const qs = params.toString();
+  const res = await fetch(`/api/agent-sessions${qs ? `?${qs}` : ''}`);
+  if (!res.ok) throw new Error(`Failed to fetch agent sessions: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAgentSession(id: string): Promise<AgentSessionRecord> {
+  const res = await fetch(`/api/agent-sessions/${id}`);
+  if (!res.ok) throw new Error(`Agent session ${id} not found`);
+  return res.json();
+}
+
+export async function restoreAgentSession(id: string, mode: RestoreMode): Promise<RestoreStartResponse> {
+  const res = await fetch(`/api/agent-sessions/${id}/restore`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) throw new Error(`Failed to restore agent session: ${res.status}`);
+  return res.json();
+}
+
 export async function deleteRun(id: string): Promise<void> {
   await fetch(`/api/runs/${id}`, { method: 'DELETE' });
 }
@@ -206,6 +314,25 @@ export function subscribeToRun(
   source.addEventListener('terminal',    handle('terminal'));
   source.addEventListener('run-status',  handle('run-status'));
   source.addEventListener('interaction-requested', handle('interaction-requested'));
+
+  return () => source.close();
+}
+
+export function subscribeToRestore(
+  restoreId: string,
+  onEvent: (type: RestoreSseEventType, data: RestoreStreamEvent) => void,
+): () => void {
+  const source = new EventSource(`/api/agent-session-restores/${restoreId}/events`);
+
+  const handle = (type: RestoreSseEventType) => (e: MessageEvent) => {
+    try {
+      onEvent(type, JSON.parse(e.data) as RestoreStreamEvent);
+    } catch { /* ignore bad json */ }
+  };
+
+  source.addEventListener('restore-status', handle('restore-status'));
+  source.addEventListener('session-update', handle('session-update'));
+  source.addEventListener('terminal', handle('terminal'));
 
   return () => source.close();
 }
