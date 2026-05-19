@@ -4,8 +4,9 @@ import {
   fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
   fetchRuns, fetchRun, subscribeToRun,
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
-  apiRunToUiRun, summaryToWorkflow,
+  apiRunToUiRun, summaryToWorkflow, respondToRunInteraction,
   type SseEventType,
+  type RunInteraction,
 } from './api';
 import { TopBar } from './components/top-bar';
 import { Sidebar } from './components/sidebar';
@@ -14,6 +15,7 @@ import { NodePanel } from './components/node-panel';
 import { ConnectionPanel } from './components/connection-panel';
 import { SessionsBar } from './components/sessions-bar';
 import { RunConfigPanel } from './components/run-config-panel';
+import { InteractionModal } from './components/interaction-modal';
 
 const SESSION_COLORS = [
   'oklch(0.7 0.13 250)',
@@ -60,6 +62,7 @@ export function App() {
   const [runConfigOpen, setRunConfigOpen]     = useState(false);
   const [runConfigVars, setRunConfigVars]     = useState<Record<string, string>>({});
   const [runConfigBusy, setRunConfigBusy]     = useState(false);
+  const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
 
   // viewMode is derived from selection: viewing a run → run view (readonly).
   const view: 'edit' | 'run' = activeRunId ? 'run' : 'edit';
@@ -118,6 +121,7 @@ export function App() {
     setActiveRunId('');
     setHistoricNodeStates({});
     setLiveNodeStates({});
+    setPendingInteractions([]);
   }, [activeWorkflow]);
 
   // ── debounced save ────────────────────────────────────────────────────────
@@ -444,6 +448,7 @@ export function App() {
     setHistoricNodeStates({});
     setLiveNodeStates({});
     setSelection(null);
+    setPendingInteractions([]);
   }, []);
 
   const onOpenNewRun = useCallback(() => {
@@ -457,7 +462,30 @@ export function App() {
     setHistoricNodeStates({});
     setLiveNodeStates({});
     setSelection(null);
+    setPendingInteractions([]);
     setRunConfigOpen(true);
+  }, []);
+
+  const onRunInteractionEvent = useCallback((interaction: RunInteraction) => {
+    setPendingInteractions((prev) => {
+      if (interaction.status !== 'pending') {
+        return prev.filter((item) => item.id !== interaction.id);
+      }
+      const index = prev.findIndex((item) => item.id === interaction.id);
+      if (index < 0) return [...prev, interaction];
+      const next = [...prev];
+      next[index] = interaction;
+      return next;
+    });
+  }, []);
+
+  const onRespondToInteraction = useCallback(async (interaction: RunInteraction, response: unknown) => {
+    try {
+      await respondToRunInteraction(interaction.runId, interaction.id, response);
+      setPendingInteractions((prev) => prev.filter((item) => item.id !== interaction.id));
+    } catch (err) {
+      console.error('Failed to respond to interaction', err);
+    }
   }, []);
 
   const startRun = useCallback(async (initialInput: string, variableValues: Record<string, string>) => {
@@ -469,6 +497,7 @@ export function App() {
       setLiveNodeStates(pending);
       setHistoricNodeStates({});
       setLogLines([]);
+      setPendingInteractions([]);
 
       let placeholder: Run;
       try {
@@ -496,6 +525,8 @@ export function App() {
         } else if (type === 'terminal') {
           const ev = data as { chunk: string; nodeId?: string; stream?: LogLine['stream'] };
           setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId, stream: ev.stream }]);
+        } else if (type === 'interaction-requested') {
+          onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
           const ev = data as { status: string };
           const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';
@@ -518,7 +549,7 @@ export function App() {
     } catch (err) {
       console.error('Failed to start run', err);
     }
-  }, [activeWorkflow]);
+  }, [activeWorkflow, onRunInteractionEvent]);
 
   const onStartConfiguredRun = useCallback(async () => {
     setRunConfigBusy(true);
@@ -537,6 +568,7 @@ export function App() {
       setLiveNodeStates(initial.nodeStates ?? {});
       setHistoricNodeStates({});
       setLogLines([]);
+      setPendingInteractions([]);
       setBarExpanded(true);
 
       const unsub = subscribeToRun(newRunId, (type: SseEventType, data: unknown) => {
@@ -546,6 +578,8 @@ export function App() {
         } else if (type === 'terminal') {
           const ev = data as { chunk: string; nodeId?: string; stream?: LogLine['stream'] };
           setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId, stream: ev.stream }]);
+        } else if (type === 'interaction-requested') {
+          onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
           const ev = data as { status: string };
           const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';
@@ -568,7 +602,7 @@ export function App() {
     } catch (err) {
       console.error('Failed to re-run', err);
     }
-  }, [activeWorkflow]);
+  }, [activeWorkflow, onRunInteractionEvent]);
 
   const onDeleteRun = useCallback(async (id: string) => {
     if (!window.confirm('Delete this run?')) return;
@@ -579,6 +613,7 @@ export function App() {
         setActiveRunId('');
         setHistoricNodeStates({});
         setLiveNodeStates({});
+        setPendingInteractions([]);
       }
     } catch (err) {
       console.error('Failed to delete run', err);
@@ -684,6 +719,13 @@ export function App() {
           onCancel={() => setRunConfigOpen(false)}
           onStart={onStartConfiguredRun}
           busy={runConfigBusy}
+        />
+      )}
+
+      {!runConfigOpen && pendingInteractions[0] && (
+        <InteractionModal
+          interaction={pendingInteractions[0]}
+          onRespond={onRespondToInteraction}
         />
       )}
 

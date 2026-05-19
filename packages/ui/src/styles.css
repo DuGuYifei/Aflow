@@ -1511,6 +1511,44 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-top: 1px solid var(--line);
   background: var(--bg-elev);
 }
+.interaction-modal {
+  width: min(520px, calc(100vw - 32px));
+}
+.interaction-message {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.interaction-muted {
+  margin: 0 0 10px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.interaction-option-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.interaction-url {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+.interaction-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.interaction-checkbox input {
+  width: 14px;
+  height: 14px;
+}
 
 .field { margin-bottom: 14px; }
 .field-label {

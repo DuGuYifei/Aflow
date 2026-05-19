@@ -59,6 +59,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
   function sseResponse(runId: string): Response {
     const encoder = new TextEncoder();
+    let cleanup = () => {};
 
     const stream = new ReadableStream({
       start(controller) {
@@ -68,6 +69,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         enqueue("hello", { runId });
 
         const offNode = bus.on(`${runId}:node`, (e) => enqueue("node-status", e));
+        const offInteraction = bridge.interactions.subscribe(runId, (interaction) => {
+          enqueue("interaction-requested", interaction);
+        });
         const offRun  = bus.on(`${runId}:run`,  (e) => {
           enqueue("run-status", e);
           const ev = e as { status: string };
@@ -79,10 +83,16 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         });
         const offTerm = bus.on(`${runId}:term`, (e) => enqueue("terminal", e));
 
-        void (async () => {
-          await stream.cancel;
-          offNode(); offRun(); offTerm();
-        })();
+        for (const interaction of bridge.interactions.list({ runId, status: "pending" })) {
+          enqueue("interaction-requested", interaction);
+        }
+
+        cleanup = () => {
+          offNode(); offRun(); offTerm(); offInteraction();
+        };
+      },
+      cancel() {
+        cleanup();
       },
     });
 
@@ -201,6 +211,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         record.errorMsg = e.error;
       }
       flushTerminalEvents();
+      if (record.status !== "running") {
+        bridge.interactions.cancelPendingForRun(runId, `run ${record.status}`);
+      }
       void saveRun(record, root);
       bus.emit(`${runId}:run`, { runId, status: record.status, workflowId });
     };
@@ -210,6 +223,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       terminalEvents: bridge.terminalEvents,
       onNodeStatus,
       onRunStatus,
+      interactions: bridge.interactions,
     });
 
     void executor.run(workflow, prepared.initialInput, { runId })
@@ -331,6 +345,34 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         return Response.json(await loadAgentSession(root, agentSessionMatch[1]));
       } catch {
         return Response.json({ error: "Agent session not found" }, { status: 404 });
+      }
+    }
+
+    // POST /api/runs/:id/interactions/:interactionId/respond
+    const interactionRespondMatch = pathname.match(/^\/api\/runs\/([^/]+)\/interactions\/([^/]+)\/respond$/);
+    if (interactionRespondMatch && request.method === "POST") {
+      const runId = interactionRespondMatch[1];
+      const interactionId = interactionRespondMatch[2];
+      let body: unknown = {};
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      try {
+        const existing = bridge.interactions.get(interactionId);
+        if (!existing) {
+          return Response.json({ error: "Interaction not found" }, { status: 404 });
+        }
+        if (existing.runId !== runId) {
+          return Response.json({ error: "Interaction belongs to another run" }, { status: 409 });
+        }
+        const interaction = bridge.interactions.resolve(interactionId, body);
+        return Response.json({ ok: true, interaction });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const status = message.includes("Unknown interaction") ? 404 : 409;
+        return Response.json({ error: message }, { status });
       }
     }
 

@@ -26,6 +26,7 @@ import {
 } from "./prompt-renderer";
 import { DeterministicGateEvaluator, type GateEvaluator } from "./gate-evaluator";
 import { TerminalEventStore } from "./terminal-store";
+import { RunInteractionStore, type RunInteractionContext } from "./interaction-store";
 
 export interface NodeStatusEvent {
   runId: string;
@@ -47,6 +48,7 @@ export interface WorkflowExecutorOptions {
   cwd?: string;
   gateEvaluator?: GateEvaluator;
   terminalEvents?: TerminalEventStore;
+  interactions?: RunInteractionStore;
   agentRunner?: AgentRunner;
   onNodeStatus?: (event: NodeStatusEvent) => void;
   onRunStatus?: (event: RunStatusEvent) => void;
@@ -73,6 +75,7 @@ export class WorkflowExecutor {
   readonly #cwd: string;
   readonly #gateEvaluator: GateEvaluator;
   readonly #terminalEvents: TerminalEventStore;
+  readonly #interactions: RunInteractionStore;
   readonly #agentRunnerOverride: AgentRunner | undefined;
   readonly #onNodeStatus: ((event: NodeStatusEvent) => void) | undefined;
   readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
@@ -81,6 +84,7 @@ export class WorkflowExecutor {
     this.#cwd = options.cwd ?? process.cwd();
     this.#gateEvaluator = options.gateEvaluator ?? new DeterministicGateEvaluator();
     this.#terminalEvents = options.terminalEvents ?? new TerminalEventStore();
+    this.#interactions = options.interactions ?? new RunInteractionStore();
     this.#agentRunnerOverride = options.agentRunner;
     this.#onNodeStatus = options.onNodeStatus;
     this.#onRunStatus = options.onRunStatus;
@@ -88,6 +92,10 @@ export class WorkflowExecutor {
 
   get terminalEvents(): TerminalEventStore {
     return this.#terminalEvents;
+  }
+
+  get interactions(): RunInteractionStore {
+    return this.#interactions;
   }
 
   async run(workflow: Workflow, initialInput = "", options: WorkflowRunOptions = {}): Promise<WorkflowRun> {
@@ -379,6 +387,24 @@ export class WorkflowExecutor {
           event,
         });
       },
+      onPermissionRequest: (request) => {
+        return this.#interactions.requestPermission(
+          this.#interactionContext(input, resolveAgentServerId(agent)),
+          request,
+        );
+      },
+      onElicitationRequest: (request) => {
+        return this.#interactions.requestElicitation(
+          this.#interactionContext(input, resolveAgentServerId(agent)),
+          request,
+        );
+      },
+      onElicitationComplete: (notification) => {
+        this.#interactions.recordElicitationComplete(
+          this.#interactionContext(input, resolveAgentServerId(agent)),
+          notification,
+        );
+      },
     });
 
     input.invocation.agentServerId = result.agentServerId;
@@ -412,6 +438,25 @@ export class WorkflowExecutor {
       stream: input.event.stream as TerminalStream,
       chunk: input.event.chunk,
     });
+  }
+
+  #interactionContext(input: {
+    run: WorkflowRun;
+    nodeRun?: NodeRun;
+    invocation: AgentInvocation;
+    agentId: string;
+  }, agentServerId: string): RunInteractionContext {
+    return {
+      runId: input.run.id,
+      nodeRunId: input.nodeRun?.id,
+      nodeId: input.invocation.nodeId,
+      edgeId: input.invocation.edgeId,
+      agentInvocationId: input.invocation.id,
+      agentId: input.agentId,
+      agentServerId,
+      specflowSessionId: input.invocation.sessionId,
+      acpSessionId: input.invocation.acpSessionId,
+    };
   }
 }
 

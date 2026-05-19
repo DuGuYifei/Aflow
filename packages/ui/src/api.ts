@@ -47,6 +47,28 @@ export interface ApiRunRecord {
   variableValues?: Record<string, string>;
 }
 
+export type RunInteractionStatus = 'pending' | 'resolved' | 'cancelled';
+
+export interface RunInteraction {
+  id: string;
+  runId: string;
+  kind: 'permission' | 'elicitation';
+  status: RunInteractionStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  nodeId?: string;
+  edgeId?: string;
+  agentInvocationId: string;
+  agentId: string;
+  agentServerId: string;
+  specflowSessionId?: string;
+  acpSessionId?: string;
+  toolCall?: unknown;
+  options?: Array<{ optionId: string; name?: string; kind?: string }>;
+  request?: unknown;
+  resolution?: unknown;
+}
+
 export interface CanvasSummary {
   id: string;
   name: string;
@@ -129,7 +151,20 @@ export async function rerunRun(
   return res.json();
 }
 
-export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'run-status';
+export async function respondToRunInteraction(
+  runId: string,
+  interactionId: string,
+  response: unknown,
+): Promise<void> {
+  const res = await fetch(`/api/runs/${runId}/interactions/${interactionId}/respond`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(response),
+  });
+  if (!res.ok) throw new Error(`Failed to respond to interaction: ${res.status}`);
+}
+
+export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'run-status' | 'interaction-requested';
 
 export function subscribeToRun(
   runId: string,
@@ -147,6 +182,7 @@ export function subscribeToRun(
   source.addEventListener('node-status', handle('node-status'));
   source.addEventListener('terminal',    handle('terminal'));
   source.addEventListener('run-status',  handle('run-status'));
+  source.addEventListener('interaction-requested', handle('interaction-requested'));
 
   return () => source.close();
 }

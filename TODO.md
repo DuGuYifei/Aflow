@@ -18,15 +18,15 @@ Implementation order is intentional. Each phase should finish with tests and doc
 
 ### 1. Interaction Driver: Permission and Ask-User
 
-- [ ] Add a bridge-level `RunInteractionStore`.
-- [ ] Define interaction records for ACP permission requests and ACP elicitation requests.
-- [ ] Pass `onPermissionRequest`, `onElicitationRequest`, and `onElicitationComplete` callbacks from bridge into `AgentProxySessionPool.run`.
-- [ ] Add server SSE event `interaction-requested`.
-- [ ] Add server API `POST /api/runs/:runId/interactions/:interactionId/respond`.
-- [ ] Add timeout/cancel handling when a run finishes before the UI answers.
-- [ ] Add UI modal/form for permission choices.
-- [ ] Add UI modal/form for ACP elicitation fields and URL requests.
-- [ ] Test default cancellation, explicit allow/deny, and run-finished cancellation.
+- [x] Add a bridge-level `RunInteractionStore`.
+- [x] Define interaction records for ACP permission requests and ACP elicitation requests.
+- [x] Pass `onPermissionRequest`, `onElicitationRequest`, and `onElicitationComplete` callbacks from bridge into `AgentProxySessionPool.run`.
+- [x] Add server SSE event `interaction-requested`.
+- [x] Add server API `POST /api/runs/:runId/interactions/:interactionId/respond`.
+- [x] Add timeout/cancel handling when a run finishes before the UI answers.
+- [x] Add UI modal/form for permission choices.
+- [x] Add UI modal/form for ACP elicitation fields and URL requests.
+- [x] Test default cancellation, explicit allow/deny, and run-finished cancellation.
 
 ### 2. Durable Workflow Runtime Logs
 

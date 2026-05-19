@@ -1,4 +1,4 @@
-import { TerminalEventStore, WorkflowExecutor } from "./execution";
+import { RunInteractionStore, TerminalEventStore, WorkflowExecutor } from "./execution";
 import { createBridgeRuntime, type BridgeRuntime } from "./runtime";
 import { SessionRegistry } from "./sessions";
 
@@ -6,17 +6,20 @@ export interface SpecflowBridge {
   runtime: BridgeRuntime;
   sessions: SessionRegistry;
   terminalEvents: TerminalEventStore;
+  interactions: RunInteractionStore;
   executor: WorkflowExecutor;
 }
 
 export function createSpecflowBridge(): SpecflowBridge {
   const terminalEvents = new TerminalEventStore();
-  const executor = new WorkflowExecutor({ terminalEvents });
+  const interactions = new RunInteractionStore();
+  const executor = new WorkflowExecutor({ terminalEvents, interactions });
 
   return {
     runtime: createBridgeRuntime(),
     sessions: new SessionRegistry(),
     terminalEvents,
+    interactions,
     executor,
   };
 }

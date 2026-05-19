@@ -278,6 +278,46 @@ describe("WorkflowExecutor", () => {
     });
   });
 
+  test("routes permission requests through the interaction store", async () => {
+    const executor = new WorkflowExecutor({
+      agentRunner: async (request) => {
+        const permission = await request.onPermissionRequest?.({
+          sessionId: "acp-session",
+          toolCall: { toolCallId: "tool-1", title: "Edit file" },
+          options: [{ optionId: "allow", name: "Allow" }],
+          raw: {},
+        });
+        return {
+          agentServerId: request.agentServerId,
+          sessionId: "acp-session",
+          exitCode: 0,
+          output: permission?.outcome === "selected" ? permission.optionId : "cancelled",
+        };
+      },
+    });
+
+    const runPromise = executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source")],
+        edges: [],
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const interaction = executor.interactions.list({ status: "pending" })[0]!;
+    expect(interaction).toMatchObject({
+      kind: "permission",
+      runId: expect.any(String),
+      nodeId: "source",
+      agentServerId: "codex-acp",
+    });
+    executor.interactions.resolve(interaction.id, { outcome: "selected", optionId: "allow" });
+
+    const run = await runPromise;
+    expect(run.status).toBe("done");
+    expect(run.agentInvocations[0]?.output).toBe("allow");
+  });
+
   test("fails an agent node when its session belongs to another agent", async () => {
     const workflow = createWorkflow({
       nodes: [agentNode("source", "source")],

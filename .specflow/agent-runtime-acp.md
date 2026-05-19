@@ -217,13 +217,12 @@ Implemented:
 - UI can start a workflow run.
 - Server streams run/node/terminal events over SSE.
 - UI can show live terminal logs in the log panel.
+- ACP permission and elicitation requests can be surfaced to UI and answered through `POST /api/runs/:runId/interactions/:interactionId/respond`.
 - Run records include final ACP invocation metadata after run completion.
 - Server exposes the ACP session index API.
 
 Not complete:
 
-- Permission and elicitation requests are not surfaced to UI.
-- There is no interaction response API.
 - Historical workflow-side runtime logs are not durably persisted.
 - There is no UI to browse `.specflow/agent-sessions.json`.
 - There is no restore API that starts an ACP CLI and calls `session/load` or `session/resume`.
@@ -261,6 +260,8 @@ Current test coverage includes:
 - ACP session pool reuse by Specflow workflow session.
 - Bridge propagation of workflow session ids to agent-proxy.
 - Bridge recording of ACP session metadata on invocations.
+- Bridge interaction store resolve/cancel behavior.
+- Server interaction SSE and response endpoint.
 - Server run-store migration/defaulting for `agentInvocations`.
 - Server ACP session index create/merge/delete behavior.
 
@@ -268,5 +269,4 @@ Coverage still needed:
 
 - Server API integration test proving terminal SSE uses the same run id as the persisted run record.
 - End-to-end UI test for run start and live log display.
-- Interaction request/response tests once permission and elicitation UI are implemented.
 - Restore API tests against fake ACP agents that advertise load and resume.
