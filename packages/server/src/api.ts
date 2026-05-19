@@ -1,6 +1,6 @@
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge } from "@specflow/bridge";
-import type { AgentRestoreMode, AgentRestorePrimitive, NodeStatusEvent, RunStatusEvent } from "@specflow/bridge";
+import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerSettings, NodeStatusEvent, RunStatusEvent } from "@specflow/bridge";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import {
   listCanvases,
@@ -22,6 +22,10 @@ import { appendRunLogEvent, deleteRunLog, listRunLogEvents } from "./run-log-sto
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
 import type { CanvasSession } from "./canvas-doc";
+import {
+  removeLocalAgentServer,
+  upsertLocalAgentServer,
+} from "./agent-server-config";
 
 // ── simple in-process event bus ───────────────────────────────────────────────
 
@@ -81,6 +85,69 @@ type RestoreStreamEvent =
 interface RestoreStreamState {
   events: RestoreStreamEvent[];
   done: boolean;
+}
+
+function parseAgentServerSettings(input: unknown): AgentServerSettings | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const env = recordOfStrings(raw.env);
+  const defaultMode = typeof raw.defaultMode === "string" ? raw.defaultMode : undefined;
+  const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
+  const defaultConfigOptions = recordOfConfigValues(raw.defaultConfigOptions);
+
+  if (raw.type === "registry" && typeof raw.registryId === "string" && raw.registryId.trim()) {
+    return {
+      type: "registry",
+      registryId: raw.registryId.trim(),
+      env,
+      defaultMode,
+      defaultModel,
+      defaultConfigOptions,
+    };
+  }
+  if (raw.type === "custom" && typeof raw.command === "string" && raw.command.trim()) {
+    return {
+      type: "custom",
+      command: raw.command.trim(),
+      args: arrayOfStrings(raw.args),
+      env,
+      defaultMode,
+      defaultModel,
+      defaultConfigOptions,
+    };
+  }
+  if (raw.type === "headless" && typeof raw.command === "string" && raw.command.trim()) {
+    return {
+      type: "headless",
+      command: raw.command.trim(),
+      argsTemplate: arrayOfStrings(raw.argsTemplate),
+      env,
+      defaultMode,
+      defaultModel,
+      defaultConfigOptions,
+    };
+  }
+  return undefined;
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function recordOfStrings(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
+function recordOfConfigValues(value: unknown): Record<string, string | boolean> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string | boolean] =>
+      typeof entry[1] === "string" || typeof entry[1] === "boolean",
+    ),
+  );
 }
 
 // ── API handler factory ───────────────────────────────────────────────────────
@@ -534,6 +601,39 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
   return async function handleApiRequest(request: Request): Promise<Response | null> {
     const url = new URL(request.url);
     const { pathname } = url;
+
+    // GET /api/agent-servers
+    if (request.method === "GET" && pathname === "/api/agent-servers") {
+      return Response.json(await bridge.listAgentServers(root));
+    }
+
+    // GET /api/agent-servers/registry
+    if (request.method === "GET" && pathname === "/api/agent-servers/registry") {
+      return Response.json(await bridge.listAgentRegistry(root));
+    }
+
+    // PUT /api/agent-servers/:id
+    const agentServerMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)$/);
+    if (agentServerMatch && request.method === "PUT") {
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      const settings = parseAgentServerSettings(body);
+      if (!settings) {
+        return Response.json({ error: "Invalid agent server settings" }, { status: 400 });
+      }
+      await upsertLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]), settings);
+      return Response.json(await bridge.listAgentServers(root));
+    }
+
+    // DELETE /api/agent-servers/:id
+    if (agentServerMatch && request.method === "DELETE") {
+      await removeLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]));
+      return Response.json(await bridge.listAgentServers(root));
+    }
 
     // GET /api/canvases
     if (request.method === "GET" && pathname === "/api/canvases") {

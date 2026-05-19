@@ -4,11 +4,12 @@ import {
   fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
-  fetchAgentSessions, restoreAgentSession, subscribeToRestore,
+  fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
   apiRunToUiRun, apiRunLogsToLogLines, summaryToWorkflow, respondToRunInteraction,
   type SseEventType,
   type RunInteraction,
   type AgentSessionRecord,
+  type AgentServerEntry,
   type RestoreMode,
   type RestoreSseEventType,
   type RestoreStreamEvent,
@@ -21,6 +22,7 @@ import { ConnectionPanel } from './components/connection-panel';
 import { SessionsBar } from './components/sessions-bar';
 import { RunConfigPanel } from './components/run-config-panel';
 import { InteractionModal } from './components/interaction-modal';
+import { AgentServerManager } from './components/agent-server-manager';
 
 const SESSION_COLORS = [
   'oklch(0.7 0.13 250)',
@@ -49,6 +51,7 @@ export function App() {
 
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [agentSessions, setAgentSessions] = useState<AgentSessionRecord[]>([]);
+  const [agentServers, setAgentServers] = useState<AgentServerEntry[]>([]);
   const [restoreStatusBySession, setRestoreStatusBySession] = useState<Record<string, string>>({});
 
   const [selection, setSelection]             = useState<Selection | null>(null);
@@ -70,6 +73,7 @@ export function App() {
   const [runConfigVars, setRunConfigVars]     = useState<Record<string, string>>({});
   const [runConfigBusy, setRunConfigBusy]     = useState(false);
   const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
+  const [agentServerManagerOpen, setAgentServerManagerOpen] = useState(false);
 
   // viewMode is derived from selection: viewing a run → run view (readonly).
   const view: 'edit' | 'run' = activeRunId ? 'run' : 'edit';
@@ -125,6 +129,7 @@ export function App() {
       setRuns(uiRuns);
     }).catch(console.error);
     fetchAgentSessions({ workflowId: activeWorkflow }).then(setAgentSessions).catch(console.error);
+    fetchAgentServers().then(setAgentServers).catch(console.error);
     // Clicking a workflow always returns to workflow-edit (no run selected).
     setActiveRunId('');
     setHistoricNodeStates({});
@@ -443,6 +448,10 @@ export function App() {
     fetchAgentSessions({ workflowId: activeWorkflow }).then(setAgentSessions).catch(console.error);
   }, [activeWorkflow]);
 
+  const refreshAgentServers = useCallback(() => {
+    fetchAgentServers().then(setAgentServers).catch(console.error);
+  }, []);
+
   const onSelectRun = useCallback((id: string) => {
     setActiveRunId(id);
     setLiveNodeStates({});
@@ -734,6 +743,7 @@ export function App() {
         workflowName={activeCanvasName}
         onNewRun={onOpenNewRun}
         onRerun={activeRunId ? () => handleRerun(activeRunId) : undefined}
+        onAgentServers={() => setAgentServerManagerOpen(true)}
         view={view}
         onExitRunView={onExitRunView}
       />
@@ -803,6 +813,10 @@ export function App() {
         />
       )}
 
+      {!runConfigOpen && agentServerManagerOpen && (
+        <AgentServerManager onClose={() => setAgentServerManagerOpen(false)} onChanged={refreshAgentServers} />
+      )}
+
       {!runConfigOpen && selection?.kind === 'node' && selectedNodeWithState && (
         <NodePanel
           node={selectedNodeWithState}
@@ -861,6 +875,7 @@ export function App() {
           variables={displayVariables}
           onEditVariable={onEditVariable}
           agentSessions={agentSessions}
+          agentServers={agentServers}
           runs={runs}
           onOpenInvocationLog={onOpenInvocationLog}
           onRestoreSession={onRestoreHistoricalSession}

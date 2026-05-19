@@ -88,6 +88,59 @@ export interface AgentSessionRecord {
   restoreAttempts?: AgentSessionRestoreAttempt[];
 }
 
+export type AgentServerSettings =
+  | {
+      type: 'registry';
+      registryId: string;
+      defaultMode?: string;
+      defaultModel?: string;
+      defaultConfigOptions?: Record<string, string | boolean>;
+      env?: Record<string, string>;
+    }
+  | {
+      type: 'custom';
+      command: string;
+      args?: string[];
+      defaultMode?: string;
+      defaultModel?: string;
+      defaultConfigOptions?: Record<string, string | boolean>;
+      env?: Record<string, string>;
+    }
+  | {
+      type: 'headless';
+      command: string;
+      argsTemplate: string[];
+      defaultMode?: string;
+      defaultModel?: string;
+      defaultConfigOptions?: Record<string, string | boolean>;
+      env?: Record<string, string>;
+    };
+
+export interface AgentServerEntry {
+  id: string;
+  settings: AgentServerSettings;
+}
+
+export interface RegistryAgent {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  repository?: string;
+  website?: string;
+  icon?: string;
+  distribution: {
+    binary?: Record<string, unknown>;
+    npx?: unknown;
+    uvx?: unknown;
+  };
+}
+
+export interface RegistryIndex {
+  version: string;
+  agents: RegistryAgent[];
+}
+
 export type RestoreMode = 'inspect' | 'continue';
 
 export interface RestoreStartResponse {
@@ -246,6 +299,34 @@ export async function fetchAgentSessions(filter: { workflowId?: string; agentSer
   const qs = params.toString();
   const res = await fetch(`/api/agent-sessions${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to fetch agent sessions: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAgentServers(): Promise<AgentServerEntry[]> {
+  const res = await fetch('/api/agent-servers');
+  if (!res.ok) throw new Error(`Failed to fetch agent servers: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAgentRegistry(): Promise<RegistryIndex> {
+  const res = await fetch('/api/agent-servers/registry');
+  if (!res.ok) throw new Error(`Failed to fetch ACP registry: ${res.status}`);
+  return res.json();
+}
+
+export async function saveAgentServer(id: string, settings: AgentServerSettings): Promise<AgentServerEntry[]> {
+  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error(`Failed to save agent server: ${res.status}`);
+  return res.json();
+}
+
+export async function removeAgentServer(id: string): Promise<AgentServerEntry[]> {
+  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to remove agent server: ${res.status}`);
   return res.json();
 }
 

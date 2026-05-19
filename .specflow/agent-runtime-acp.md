@@ -227,6 +227,8 @@ Implemented:
 - UI loads historical terminal logs when viewing a completed run.
 - UI exposes ACP session history in the bottom History tab, filtered by workflow, Specflow session, and agent server.
 - UI links session index entries back to run node logs and can start Inspect or Resume restore attempts.
+- UI exposes an Agent Servers manager for registry install/remove and custom ACP command registration.
+- New workflow sessions choose from configured agent servers instead of hardcoded Codex/Claude options.
 - ACP permission and elicitation requests can be surfaced to UI and answered through `POST /api/runs/:runId/interactions/:interactionId/respond`.
 - Run records include final ACP invocation metadata after run completion.
 - Server exposes the ACP session index API.
@@ -237,6 +239,7 @@ Implemented:
 
 Not complete:
 
+- Configured default modes/models/options are not validated against initialized ACP capabilities from the management UI yet.
 - Headless command-template agents are reserved but not implemented.
 
 ## Resume Design Direction

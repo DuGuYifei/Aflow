@@ -65,12 +65,12 @@ Implementation order is intentional. Each phase should finish with tests and doc
 
 ### 5. Agent Server Management UI
 
-- [ ] Add registry browser using the ACP registry metadata.
-- [ ] Add install/update/remove actions for registry agents.
-- [ ] Add custom ACP agent form for command, args, env, defaults, and config options.
-- [ ] Store user-local overrides in `.specflow/agent-servers.local.json`.
+- [x] Add registry browser using the ACP registry metadata.
+- [x] Add install/update/remove actions for registry agents.
+- [x] Add custom ACP agent form for command, args, env, defaults, and config options.
+- [x] Store user-local overrides in `.specflow/agent-servers.local.json`.
 - [ ] Validate configured default modes/models/options against initialized ACP agent capabilities.
-- [ ] Add UI for per-session agent server selection without hardcoding Codex/Claude only.
+- [x] Add UI for per-session agent server selection without hardcoding Codex/Claude only.
 
 ### 6. Headless Agent Runtime
 

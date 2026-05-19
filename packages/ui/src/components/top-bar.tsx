@@ -8,11 +8,12 @@ interface TopBarProps {
   workflowName?: string;
   onNewRun?: () => void;
   onRerun?: () => void;
+  onAgentServers?: () => void;
   view: 'edit' | 'run';
   onExitRunView: () => void;
 }
 
-export function TopBar({ theme, onThemeChange, runLabel, workflowName, onNewRun, onRerun, view, onExitRunView }: TopBarProps) {
+export function TopBar({ theme, onThemeChange, runLabel, workflowName, onNewRun, onRerun, onAgentServers, view, onExitRunView }: TopBarProps) {
   return (
     <div className="topbar">
       <div className="brand">
@@ -43,6 +44,9 @@ export function TopBar({ theme, onThemeChange, runLabel, workflowName, onNewRun,
       )}
 
       <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' }} />
+      <button className="btn sm" onClick={onAgentServers} title="Manage ACP agent servers">
+        <Icon name="settings" size={11} />Agents
+      </button>
       <div className="theme-toggle">
         <button
           className={theme === 'light' ? 'active' : ''}

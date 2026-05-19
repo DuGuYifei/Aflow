@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Session, WorkflowNode, LogLine, Variable } from '../types';
-import type { AgentSessionRecord, RestoreMode } from '../api';
+import type { AgentServerEntry, AgentSessionRecord, RestoreMode } from '../api';
 import { Icon } from './icon';
 
 interface SessionsBarProps {
@@ -21,6 +21,7 @@ interface SessionsBarProps {
   variables: Variable[];
   onEditVariable: (name: string, patch: Partial<Variable>) => void;
   agentSessions?: AgentSessionRecord[];
+  agentServers?: AgentServerEntry[];
   runs?: Array<{ id: string; label: string }>;
   onOpenInvocationLog?: (runId: string, nodeId?: string, specflowSessionId?: string) => void;
   onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
@@ -37,7 +38,7 @@ export function SessionsBar({
   logLines,
   onAddSession, onDeleteSession, onClearLogs,
   variables, onEditVariable,
-  agentSessions = [], runs = [],
+  agentSessions = [], agentServers = [], runs = [],
   onOpenInvocationLog, onRestoreSession,
   restoreStatusBySession = {},
   readonly,
@@ -161,6 +162,7 @@ export function SessionsBar({
           addSessionPing={addSessionPing}
           onAddSession={onAddSession}
           onDeleteSession={onDeleteSession}
+          agentServers={agentServers}
         />
       )}
       {tab === 'vars' && (
@@ -465,6 +467,7 @@ interface SettingsTabProps {
   addSessionPing: number;
   onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
   onDeleteSession: (id: string) => void;
+  agentServers: AgentServerEntry[];
 }
 
 // ── variables tab ─────────────────────────────────────────────────────────────
@@ -523,7 +526,7 @@ function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps
   );
 }
 
-function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onDeleteSession }: SettingsTabProps) {
+function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onDeleteSession, agentServers }: SettingsTabProps) {
   const [draftName, setDraftName] = useState('');
   const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('codex-acp');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -534,6 +537,12 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
       return () => clearTimeout(t);
     }
   }, [addSessionPing]);
+
+  useEffect(() => {
+    if (agentServers.length > 0 && !agentServers.some((server) => server.id === draftAgent)) {
+      setDraftAgent(agentServers[0]!.id);
+    }
+  }, [agentServers, draftAgent]);
 
   const handleAdd = () => {
     const name = draftName.trim();
@@ -557,10 +566,11 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           style={{ width: 180, height: 26 }}
         />
-        <div className="seg" style={{ height: 26 }}>
-          <button className={draftAgent === 'codex-acp'  ? 'active' : ''} onClick={() => setDraftAgent('codex-acp')}>Codex ACP</button>
-          <button className={draftAgent === 'claude-acp' ? 'active' : ''} onClick={() => setDraftAgent('claude-acp')}>Claude ACP</button>
-        </div>
+        <select className="input sm" value={draftAgent} onChange={(e) => setDraftAgent(e.target.value)} style={{ height: 26, width: 180 }}>
+          {agentServers.map((server) => (
+            <option key={server.id} value={server.id}>{server.id}</option>
+          ))}
+        </select>
         <button className="btn sm primary" onClick={handleAdd}><Icon name="plus" size={11} />Add</button>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>{sessions.length} sessions</span>
