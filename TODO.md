@@ -101,7 +101,7 @@ Implementation order is intentional. Each phase should finish with tests and doc
 ### 9. Verification Gates
 
 - [x] Add server API integration tests for run start, SSE terminal logs, and final invocation persistence.
-- [ ] Add UI integration test for run start and live log panel updates.
+- [x] Add UI integration test for run start and live log panel updates.
 - [x] Add fake ACP fixtures for permission, elicitation, load, resume, and active restore update streaming.
 - [x] Run `bun run typecheck` before every ACP runtime merge.
 - [x] Run `bun test` before every ACP runtime merge.
