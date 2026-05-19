@@ -2,6 +2,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
+  AgentRestoreMode,
+  AgentRestorePrimitive,
+  AgentRestoreRequest,
+  AgentRestoreResult,
   AgentRunRequest,
   AgentRunResult,
   AgentTerminalEvent,
@@ -422,6 +426,91 @@ export async function runAcpAgent(
       sessionId,
       initializeResponse,
     };
+  } finally {
+    request.signal?.removeEventListener("abort", abort);
+  }
+}
+
+export function selectAcpRestorePrimitive(
+  mode: AgentRestoreMode,
+  initializeResponse: acp.InitializeResponse,
+): AgentRestorePrimitive {
+  const supportsLoad = Boolean(initializeResponse.agentCapabilities?.loadSession);
+  const supportsResume = Boolean(initializeResponse.agentCapabilities?.sessionCapabilities?.resume);
+
+  if (mode === "inspect") {
+    if (supportsLoad) return "load";
+    if (supportsResume) return "resume";
+  } else {
+    if (supportsResume) return "resume";
+    if (supportsLoad) return "load";
+  }
+
+  throw new Error(
+    `ACP agent does not support session restore. loadSession=${supportsLoad}, resume=${supportsResume}`,
+  );
+}
+
+export async function restoreAcpAgentSession(
+  resolved: ResolvedAgentServer,
+  request: AgentRestoreRequest,
+): Promise<AgentRestoreResult> {
+  const client = new AcpAgentClient({
+    resolved,
+    cwd: request.cwd,
+    additionalDirectories: request.additionalDirectories,
+    onTerminalEvent: request.onTerminalEvent,
+    request,
+    appendOutput() {},
+  });
+  const abort = () => {
+    client.kill();
+  };
+  request.signal?.addEventListener("abort", abort);
+
+  try {
+    const initializeResponse = await client.initialize();
+    if (initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
+      throw new Error(`Unsupported ACP protocol version: ${initializeResponse.protocolVersion}`);
+    }
+
+    const selectedPrimitive = selectAcpRestorePrimitive(request.mode, initializeResponse);
+    if (selectedPrimitive === "load") {
+      const loadResponse = await client.connection.loadSession({
+        sessionId: request.sessionId,
+        cwd: request.cwd,
+        additionalDirectories: request.additionalDirectories,
+        mcpServers: request.mcpServers ?? [],
+      });
+      await client.connection.closeSession({ sessionId: request.sessionId }).catch(() => {});
+      await client.close();
+      return {
+        agentServerId: request.agentServerId,
+        sessionId: request.sessionId,
+        selectedPrimitive,
+        initializeResponse,
+        loadResponse,
+      };
+    }
+
+    const resumeResponse = await client.connection.resumeSession({
+      sessionId: request.sessionId,
+      cwd: request.cwd,
+      additionalDirectories: request.additionalDirectories,
+      mcpServers: request.mcpServers ?? [],
+    });
+    await client.connection.closeSession({ sessionId: request.sessionId }).catch(() => {});
+    await client.close();
+    return {
+      agentServerId: request.agentServerId,
+      sessionId: request.sessionId,
+      selectedPrimitive,
+      initializeResponse,
+      resumeResponse,
+    };
+  } catch (error) {
+    client.kill();
+    throw error;
   } finally {
     request.signal?.removeEventListener("abort", abort);
   }

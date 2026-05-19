@@ -4,6 +4,10 @@ import { Readable, Writable } from "node:stream";
 class FakeAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
   readonly #sessions = new Map<string, { promptCount: number }>();
+  readonly #restoreCapabilities = new Set((process.env.SPECFLOW_FAKE_ACP_RESTORE ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean));
 
   constructor(connection: acp.AgentSideConnection) {
     this.#connection = connection;
@@ -13,8 +17,10 @@ class FakeAgent implements acp.Agent {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
       agentCapabilities: {
+        loadSession: this.#restoreCapabilities.has("load"),
         sessionCapabilities: {
           close: {},
+          ...(this.#restoreCapabilities.has("resume") ? { resume: {} } : {}),
         },
       },
     };
@@ -27,6 +33,21 @@ class FakeAgent implements acp.Agent {
   async newSession(): Promise<acp.NewSessionResponse> {
     const sessionId = crypto.randomUUID();
     this.#sessions.set(sessionId, { promptCount: 0 });
+    return this.#sessionResponse(sessionId);
+  }
+
+  async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
+    this.#sessions.set(params.sessionId, { promptCount: 0 });
+    await this.#sendText(params.sessionId, `loaded:${params.sessionId}\n`);
+    return this.#sessionResponse(params.sessionId);
+  }
+
+  async resumeSession(params: acp.ResumeSessionRequest): Promise<acp.ResumeSessionResponse> {
+    this.#sessions.set(params.sessionId, { promptCount: 0 });
+    return this.#sessionResponse(params.sessionId);
+  }
+
+  #sessionResponse(sessionId: string): acp.NewSessionResponse {
     return {
       sessionId,
       modes: {

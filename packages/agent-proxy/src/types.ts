@@ -4,8 +4,10 @@ import type {
   CreateElicitationRequest,
   CreateElicitationResponse,
   InitializeResponse,
+  LoadSessionResponse,
   McpServer,
   PromptResponse,
+  ResumeSessionResponse,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
 
@@ -121,6 +123,35 @@ export interface AgentRunResult {
   sessionId?: string;
   stopReason?: PromptResponse["stopReason"];
   initializeResponse?: InitializeResponse;
+}
+
+export type AgentRestoreMode = "inspect" | "continue";
+export type AgentRestorePrimitive = "load" | "resume";
+
+export interface AgentRestoreRequest {
+  agentServerId: AgentServerId;
+  sessionId: string;
+  mode: AgentRestoreMode;
+  cwd: string;
+  additionalDirectories?: string[];
+  mcpServers?: McpServer[];
+  signal?: AbortSignal;
+  onTerminalEvent?: (event: AgentTerminalEvent) => void;
+  onSessionUpdate?: (event: AgentSessionUpdateEvent) => void;
+  onPermissionRequest?: (request: AgentPermissionRequest) => Promise<AgentPermissionResult>;
+  onElicitationRequest?: (request: CreateElicitationRequest) => Promise<CreateElicitationResponse>;
+  onElicitationComplete?: (notification: CompleteElicitationNotification) => void | Promise<void>;
+  onExtMethod?: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  onExtNotification?: (method: string, params: Record<string, unknown>) => void | Promise<void>;
+}
+
+export interface AgentRestoreResult {
+  agentServerId: AgentServerId;
+  sessionId: string;
+  selectedPrimitive: AgentRestorePrimitive;
+  initializeResponse: InitializeResponse;
+  loadResponse?: LoadSessionResponse;
+  resumeResponse?: ResumeSessionResponse;
 }
 
 export interface ResolvedAgentServer {

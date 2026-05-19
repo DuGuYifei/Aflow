@@ -161,6 +161,8 @@ For historical inspection, `session/load` is preferable because it asks the agen
 
 For continuing work without replaying history, `session/resume` is the stable primitive. If an agent supports only resume, Specflow can still show workflow-side runtime logs from its own run log store, but those logs are not a full ACP transcript.
 
+The agent-proxy boundary now exposes this as a restore operation for an existing `agentServerId` and ACP `sessionId`. `inspect` prefers `session/load`; `continue` prefers `session/resume`; both modes fall back to the other primitive when it is the only advertised option.
+
 The future UI flow should be:
 
 1. User opens a historical run.

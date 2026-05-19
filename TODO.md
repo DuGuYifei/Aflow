@@ -43,15 +43,15 @@ Implementation order is intentional. Each phase should finish with tests and doc
 
 ### 3. ACP Session Restore API
 
-- [ ] Add agent-proxy API to start an ACP CLI for an existing `agentServerId` without creating a new Specflow workflow run.
-- [ ] Add support for ACP `session/load` gated by `InitializeResponse.agentCapabilities.loadSession`.
-- [ ] Add support for ACP `session/resume` gated by `InitializeResponse.agentCapabilities.sessionCapabilities.resume`.
-- [ ] Define restore modes: `inspect` prefers load, `continue` prefers resume.
+- [x] Add agent-proxy API to start an ACP CLI for an existing `agentServerId` without creating a new Specflow workflow run.
+- [x] Add support for ACP `session/load` gated by `InitializeResponse.agentCapabilities.loadSession`.
+- [x] Add support for ACP `session/resume` gated by `InitializeResponse.agentCapabilities.sessionCapabilities.resume`.
+- [x] Define restore modes: `inspect` prefers load, `continue` prefers resume.
 - [ ] Add server API `POST /api/agent-sessions/:id/restore`.
 - [ ] Stream restored ACP updates and terminal output through a restore SSE channel for the active restore view.
 - [ ] Treat ACP agent session history as authoritative; use Specflow run logs only as workflow-side fallback context.
 - [ ] Write restore attempts and results back into `.specflow/agent-sessions.json`.
-- [ ] Test restore against fake ACP agents with load-only, resume-only, both, and neither capability.
+- [x] Test restore against fake ACP agents with load-only, resume-only, both, and neither capability.
 
 ### 4. Session Browser UI
 
