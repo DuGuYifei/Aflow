@@ -1,10 +1,10 @@
 import {
-  runAgentCommand,
+  AgentProxySessionPool,
   type AgentCommandRequest,
   type AgentCommandResult,
   type AgentTerminalEvent,
 } from "@specflow/agent-proxy";
-import type { AgentProvider, NodeStatus } from "@specflow/shared";
+import type { NodeStatus } from "@specflow/shared";
 import {
   assertValidAgentNodeSession,
   type AgentDefinition,
@@ -69,7 +69,7 @@ export class WorkflowExecutor {
   readonly #cwd: string;
   readonly #gateEvaluator: GateEvaluator;
   readonly #terminalEvents: TerminalEventStore;
-  readonly #agentRunner: AgentRunner;
+  readonly #agentRunnerOverride: AgentRunner | undefined;
   readonly #onNodeStatus: ((event: NodeStatusEvent) => void) | undefined;
   readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
 
@@ -77,7 +77,7 @@ export class WorkflowExecutor {
     this.#cwd = options.cwd ?? process.cwd();
     this.#gateEvaluator = options.gateEvaluator ?? new DeterministicGateEvaluator();
     this.#terminalEvents = options.terminalEvents ?? new TerminalEventStore();
-    this.#agentRunner = options.agentRunner ?? runAgentCommand;
+    this.#agentRunnerOverride = options.agentRunner;
     this.#onNodeStatus = options.onNodeStatus;
     this.#onRunStatus = options.onRunStatus;
   }
@@ -87,6 +87,10 @@ export class WorkflowExecutor {
   }
 
   async run(workflow: Workflow, initialInput = ""): Promise<WorkflowRun> {
+    const sessionPool = this.#agentRunnerOverride
+      ? undefined
+      : new AgentProxySessionPool({ root: this.#cwd });
+    const agentRunner = this.#agentRunnerOverride ?? ((request: AgentCommandRequest) => sessionPool!.run(request));
     const run: WorkflowRun = {
       id: crypto.randomUUID(),
       workflowId: workflow.id,
@@ -129,6 +133,7 @@ export class WorkflowExecutor {
         const pendingInput = pendingInputs.get(node.id) ?? { passthrough: [initialInput], edgeValues: {} };
         const nodeInput = pendingInput.passthrough.filter(Boolean).join("\n\n");
         const nodeResult = await this.#executeNode({
+          agentRunner,
           workflow,
           run,
           node,
@@ -153,6 +158,7 @@ export class WorkflowExecutor {
           } else {
             const taggedContent = await this.#resolveTaggedEdgeContent({
               workflow,
+              agentRunner,
               run,
               edge,
               input: nodeResult.output,
@@ -176,10 +182,13 @@ export class WorkflowExecutor {
       this.#terminalEvents.append({ runId: run.id, stream: "system", chunk: errMsg });
       this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "failed", at: run.completedAt, error: errMsg });
       return run;
+    } finally {
+      await sessionPool?.closeAll();
     }
   }
 
   async #executeNode(input: {
+    agentRunner: AgentRunner;
     workflow: Workflow;
     run: WorkflowRun;
     node: WorkflowNode;
@@ -200,6 +209,7 @@ export class WorkflowExecutor {
       if (input.node.kind === "agent") {
         const output = await this.#executeAgentNode({
           workflow: input.workflow,
+          agentRunner: input.agentRunner,
           run: input.run,
           nodeRun,
           node: input.node,
@@ -239,6 +249,7 @@ export class WorkflowExecutor {
   }
 
   async #executeAgentNode(input: {
+    agentRunner: AgentRunner;
     workflow: Workflow;
     run: WorkflowRun;
     nodeRun: NodeRun;
@@ -265,6 +276,7 @@ export class WorkflowExecutor {
 
     const output = await this.#invokeAgent({
       workflow: input.workflow,
+      agentRunner: input.agentRunner,
       run: input.run,
       nodeRun: input.nodeRun,
       invocation,
@@ -276,6 +288,7 @@ export class WorkflowExecutor {
   }
 
   async #resolveTaggedEdgeContent(input: {
+    agentRunner: AgentRunner;
     workflow: Workflow;
     run: WorkflowRun;
     edge: WorkflowEdge;
@@ -301,6 +314,7 @@ export class WorkflowExecutor {
 
     return this.#invokeAgent({
       workflow: input.workflow,
+      agentRunner: input.agentRunner,
       run: input.run,
       invocation,
       agentId: input.edge.handoff.agentId,
@@ -330,6 +344,7 @@ export class WorkflowExecutor {
   }
 
   async #invokeAgent(input: {
+    agentRunner: AgentRunner;
     workflow: Workflow;
     run: WorkflowRun;
     nodeRun?: NodeRun;
@@ -342,11 +357,12 @@ export class WorkflowExecutor {
       throw new Error(`Missing agent "${input.agentId}".`);
     }
 
-    const provider = resolveAgentProvider(agent);
-    const result = await this.#agentRunner({
-      provider,
+    const result = await input.agentRunner({
+      agentServerId: resolveAgentServerId(agent),
       prompt: input.prompt,
       cwd: this.#cwd,
+      runId: input.run.id,
+      workflowSessionId: input.invocation.sessionId,
       onTerminalEvent: (event) => {
         this.#appendAgentTerminalEvent({
           runId: input.run.id,
@@ -386,12 +402,12 @@ export class WorkflowExecutor {
   }
 }
 
-function resolveAgentProvider(agent: AgentDefinition): AgentProvider {
-  if (agent.kind === "provider") {
-    return agent.provider;
+function resolveAgentServerId(agent: AgentDefinition): string {
+  if (agent.kind === "external") {
+    return agent.agentServerId;
   }
 
-  return "mock";
+  return "codex-acp";
 }
 
 function assertSessionBelongsToAgent(

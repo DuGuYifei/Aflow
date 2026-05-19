@@ -58,7 +58,7 @@ describe("agentflow/canvas storage", () => {
     const doc: CanvasDoc = {
       id: "regen",
       name: "Regenerate",
-      sessions: [{ id: "s1", name: "main", color: "blue", agent: "mock" }],
+      sessions: [{ id: "s1", name: "main", color: "blue", agentServerId: "codex-acp" }],
       nodes: [
         { kind: "step", id: "a", num: "01", x: 10, y: 20, w: 220, title: "A", desc: "A", sessionId: "s1", updateDoc: false },
         { kind: "end", id: "done", num: "END", x: 300, y: 20, w: 140, title: "Done", sessionId: null },
@@ -103,7 +103,7 @@ sessions:
   - id: s1
     name: main
     color: blue
-    agent: mock
+    agentServerId: codex-acp
 nodes:
   - kind: input
     id: in

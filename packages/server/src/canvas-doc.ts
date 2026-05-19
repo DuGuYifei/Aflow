@@ -1,5 +1,3 @@
-import type { AgentProvider } from "@specflow/shared";
-
 export interface CanvasBranch {
   id: string;
   label: string;
@@ -10,7 +8,8 @@ export interface CanvasSession {
   id: string;
   name: string;
   color: string;
-  agent: AgentProvider;
+  agentServerId: string;
+  agent?: string;
 }
 
 export interface CanvasStepNode {

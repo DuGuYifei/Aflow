@@ -225,7 +225,7 @@ function StepOverview({ node, run, sessions, nodes, edges, readonly, onEditNode,
           >
             <span style={{ width: 7, height: 7, borderRadius: 2, background: s.color }} />
             {s.name}
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>{s.agent}</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>{s.agentServerId ?? s.agent}</span>
           </button>
         ))}
         {!readonly && (

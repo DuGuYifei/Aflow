@@ -7,10 +7,20 @@ import type {
 } from "@specflow/workflow";
 import type { AgentFlowDoc, AgentFlowStepNode, CanvasEdge, CanvasSession } from "./canvas-doc";
 
-export const MOCK_AGENT_ID = "agent-mock";
+export const DEFAULT_AGENT_SERVER_ID = "codex-acp";
 
-function agentIdForProvider(provider: CanvasSession["agent"]): string {
-  return `agent-${provider}`;
+function agentServerIdForSession(session: CanvasSession): string {
+  return session.agentServerId ?? legacyAgentServerId(session.agent);
+}
+
+function legacyAgentServerId(agent: string | undefined): string {
+  if (agent === "claude-code") return "claude-acp";
+  if (agent === "codex") return "codex-acp";
+  return agent ?? DEFAULT_AGENT_SERVER_ID;
+}
+
+function agentIdForServer(agentServerId: string): string {
+  return `agent-server-${agentServerId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
 export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
@@ -26,20 +36,19 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
     doc.edges.filter((e) => e.loopback).map((e) => e.id),
   );
 
-  const providers = new Set<CanvasSession["agent"]>(doc.sessions.map((s) => s.agent));
-  providers.add("mock");
+  const agentServerIds = new Set<string>(doc.sessions.map(agentServerIdForSession));
 
-  const agents: Workflow["agents"] = [...providers].map((provider) => ({
-    id: agentIdForProvider(provider),
-    kind: "provider",
-    name: provider === "claude-code" ? "Claude" : provider === "codex" ? "Codex" : "Mock",
-    provider,
+  const agents: Workflow["agents"] = [...agentServerIds].map((agentServerId) => ({
+    id: agentIdForServer(agentServerId),
+    kind: "external",
+    name: agentServerId,
+    agentServerId,
   }));
 
   const sessions: Workflow["sessions"] = doc.sessions.map((s) => ({
     id: s.id,
     name: s.name,
-    agentId: agentIdForProvider(s.agent),
+    agentId: agentIdForServer(agentServerIdForSession(s)),
     createdAt: new Date().toISOString(),
   }));
 
@@ -89,7 +98,7 @@ function buildAgentNode(n: AgentFlowStepNode, doc: AgentFlowDoc): AgentNode {
     title: n.title,
     description: n.desc,
     promptTemplate: { template: n.desc ?? "" },
-    agentId: session ? agentIdForProvider(session.agent) : MOCK_AGENT_ID,
+    agentId: session ? agentIdForServer(agentServerIdForSession(session)) : agentIdForServer(DEFAULT_AGENT_SERVER_ID),
     sessionId: n.sessionId ?? "",
     updateSpecDoc: n.updateDoc,
     attachments: (n.attachments ?? []).map((a) => ({
@@ -136,7 +145,7 @@ function buildEdge(e: CanvasEdge, doc: AgentFlowDoc): PassthroughEdge | TaggedOu
     },
     handoff: e.prompt
       ? {
-          agentId: toSession ? agentIdForProvider(toSession.agent) : MOCK_AGENT_ID,
+          agentId: toSession ? agentIdForServer(agentServerIdForSession(toSession)) : agentIdForServer(DEFAULT_AGENT_SERVER_ID),
           sessionId: toSessionId ?? undefined,
           promptTemplate: { template: e.prompt },
         }

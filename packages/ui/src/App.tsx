@@ -352,11 +352,11 @@ export function App() {
 
   // ── session management ────────────────────────────────────────────────────
 
-  const onAddSession = useCallback((name: string, agent: Session['agent']) => {
+  const onAddSession = useCallback((name: string, agentServerId: Session['agentServerId']) => {
     setSessions((ss) => {
       const id = `s${Date.now()}`;
       const color = SESSION_COLORS[ss.length % SESSION_COLORS.length];
-      const updated = [...ss, { id, name, color, agent }];
+      const updated = [...ss, { id, name, color, agentServerId }];
       sessionsRef.current = updated;
       scheduleSave();
       return updated;
@@ -482,7 +482,7 @@ export function App() {
           status: 'running',
           time: 'just now',
           duration: '—',
-          agent: sessionsRef.current[0]?.agent ?? 'mock',
+          agent: sessionsRef.current[0]?.agentServerId ?? 'codex-acp',
         };
       }
       setRuns((prev) => [placeholder, ...prev]);

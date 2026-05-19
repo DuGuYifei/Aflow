@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentCommandRequest, AgentCommandResult } from "@specflow/agent-proxy";
-import { runAgentCommand } from "@specflow/agent-proxy";
 import type {
   AgentNode,
   GateNode,
@@ -11,7 +10,7 @@ import type {
 import { WorkflowExecutor, type AgentRunner } from "./executor";
 import { TerminalEventStore } from "./terminal-store";
 
-const agentId = "agent-codex";
+const agentId = "agent-server-codex-acp";
 const sessionId = "session-codex";
 
 describe("WorkflowExecutor", () => {
@@ -175,7 +174,7 @@ describe("WorkflowExecutor", () => {
       agentRunner: async (request) => {
         request.onTerminalEvent?.({ stream: "stderr", chunk: "failure details" });
         return {
-          provider: request.provider,
+          agentServerId: request.agentServerId,
           exitCode: 1,
           output: "failed",
         };
@@ -194,6 +193,46 @@ describe("WorkflowExecutor", () => {
     expect(terminalEvents.list({ runId: run.id }).map((event) => event.chunk)).toContain(
       "failure details",
     );
+  });
+
+  test("passes the workflow session id to agent-proxy for nodes and edge handoffs", async () => {
+    const seen: Array<string | undefined> = [];
+    const executor = new WorkflowExecutor({
+      agentRunner: createAgentRunner((request) => {
+        seen.push(request.workflowSessionId);
+        return request.prompt.startsWith("handoff") ? "handled" : "done";
+      }),
+    });
+
+    const run = await executor.run(
+      createWorkflow({
+        nodes: [
+          agentNode("source", "source"),
+          agentNode("target", "target <specflow_component_tree>"),
+        ],
+        edges: [
+          {
+            id: "edge-handoff",
+            kind: "tagged-output",
+            sourceNodeId: "source",
+            targetNodeId: "target",
+            outputTag: {
+              identifier: "component_tree",
+              promptReference: "specflow_component_tree",
+              xmlTagName: "component_tree",
+            },
+            handoff: {
+              agentId,
+              sessionId,
+              promptTemplate: { template: "handoff <specflow_input>" },
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(run.status).toBe("done");
+    expect(seen).toEqual([sessionId, sessionId, sessionId]);
   });
 
   test("fails an agent node when its session belongs to another agent", async () => {
@@ -216,45 +255,6 @@ describe("WorkflowExecutor", () => {
     expect(run.nodeRuns[0]?.status).toBe("failed");
     expect(run.nodeRuns[0]?.error).toContain("belongs to agent");
   });
-
-  test("can run with the mock provider without injecting a custom agent runner", async () => {
-    const workflow = createWorkflow({
-      nodes: [agentNode("source", "mock <specflow_input>")],
-      edges: [],
-    });
-    workflow.agents[0] = {
-      id: agentId,
-      kind: "provider",
-      name: "Mock",
-      provider: "mock",
-    };
-
-    const run = await new WorkflowExecutor().run(workflow, "input");
-
-    expect(run.status).toBe("done");
-    expect(run.nodeRuns[0]?.output).toBe("Mock agent response:\nmock input");
-  });
-});
-
-describe("runAgentCommand", () => {
-  test("returns stable mock output and emits terminal output", async () => {
-    const chunks: string[] = [];
-    const result = await runAgentCommand({
-      provider: "mock",
-      prompt: "hello",
-      cwd: ".",
-      onTerminalEvent(event) {
-        chunks.push(event.chunk);
-      },
-    });
-
-    expect(result).toEqual({
-      provider: "mock",
-      exitCode: 0,
-      output: "Mock agent response:\nhello",
-    });
-    expect(chunks).toEqual(["Mock agent response:\nhello"]);
-  });
 });
 
 function createWorkflow(input: {
@@ -267,9 +267,9 @@ function createWorkflow(input: {
     agents: [
       {
         id: agentId,
-        kind: "provider",
-        name: "Mock",
-        provider: "mock",
+        kind: "external",
+        name: "Codex ACP",
+        agentServerId: "codex-acp",
       },
     ],
     sessions: [
@@ -332,7 +332,7 @@ function createAgentRunner(handler: (request: AgentCommandRequest) => string): A
     const output = handler(request);
     request.onTerminalEvent?.({ stream: "stdout", chunk: output });
     return {
-      provider: request.provider,
+      agentServerId: request.agentServerId,
       exitCode: 0,
       output,
     };

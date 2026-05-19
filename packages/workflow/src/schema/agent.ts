@@ -1,6 +1,4 @@
-import type { AgentProvider } from "@specflow/shared";
-
-export type AgentDefinitionKind = "provider" | "workflow" | "specflow";
+export type AgentDefinitionKind = "external" | "workflow" | "specflow";
 
 interface BaseAgentDefinition {
   id: string;
@@ -9,10 +7,9 @@ interface BaseAgentDefinition {
   description?: string;
 }
 
-export interface ProviderAgentDefinition extends BaseAgentDefinition {
-  kind: "provider";
-  provider: AgentProvider;
-  providerAgentId?: string;
+export interface ExternalAgentDefinition extends BaseAgentDefinition {
+  kind: "external";
+  agentServerId: string;
 }
 
 export interface WorkflowAgentDefinition extends BaseAgentDefinition {
@@ -26,6 +23,6 @@ export interface SpecflowAgentDefinition extends BaseAgentDefinition {
 }
 
 export type AgentDefinition =
-  | ProviderAgentDefinition
+  | ExternalAgentDefinition
   | WorkflowAgentDefinition
   | SpecflowAgentDefinition;

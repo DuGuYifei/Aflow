@@ -188,7 +188,7 @@ function printRunPlan(filePath: string, doc: AgentFlowDoc, variables: RunInputVa
   console.log(`File: ${filePath}`);
   console.log(`Sessions: ${doc.sessions.length}`);
   for (const s of doc.sessions) {
-    console.log(`  - ${s.name} [${s.agent}]`);
+    console.log(`  - ${s.name} [${s.agentServerId ?? s.agent ?? "codex-acp"}]`);
   }
   console.log(`Nodes: ${runtimeNodes.length}`);
   for (const n of runtimeNodes) {

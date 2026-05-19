@@ -1,73 +1,28 @@
-import type { AgentProvider } from "@specflow/shared";
+import { AgentServerStore } from "./store/agent-server-store";
+import type { AgentRunRequest, AgentRunResult } from "./types";
+import { runAcpAgent } from "./runtimes/acp/connection";
+export { AgentProxySessionPool } from "./session-pool";
 
-export type { AgentProvider };
+export type AgentCommandRequest = AgentRunRequest;
+export type AgentCommandResult = AgentRunResult;
+export type { AgentRunRequest, AgentRunResult };
+export type {
+  AgentPermissionRequest,
+  AgentPermissionResult,
+  AgentServerCommand,
+  AgentServerConfigFile,
+  AgentServerSettings,
+  AgentSessionUpdateEvent,
+  AgentTerminalEvent,
+  AgentTerminalStream,
+} from "./types";
+export { AgentServerStore };
 
-export interface AgentCommandRequest {
-  provider: AgentProvider;
-  prompt: string;
-  cwd: string;
-  onTerminalEvent?: (event: AgentTerminalEvent) => void;
-}
-
-export interface AgentCommandResult {
-  provider: AgentProvider;
-  exitCode: number;
-  output: string;
-}
-
-export type AgentTerminalStream = "stdout" | "stderr" | "system";
-
-export interface AgentTerminalEvent {
-  stream: AgentTerminalStream;
-  chunk: string;
-}
-
-export async function runAgentCommand(
-  request: AgentCommandRequest,
-): Promise<AgentCommandResult> {
-  if (request.provider === "mock") {
-    const output = createMockAgentOutput(request.prompt);
-    request.onTerminalEvent?.({
-      stream: "stdout",
-      chunk: output,
-    });
-
-    return {
-      provider: request.provider,
-      exitCode: 0,
-      output,
-    };
+export async function runAgentCommand(request: AgentRunRequest): Promise<AgentRunResult> {
+  const store = new AgentServerStore({ root: request.cwd });
+  const resolved = await store.resolve(request.agentServerId);
+  if (resolved.source === "headless") {
+    throw new Error(`Headless agent runtime is not implemented: ${request.agentServerId}`);
   }
-
-  const command = request.provider === "claude-code" ? "claude" : "codex";
-  const proc = Bun.spawn([command, request.prompt], {
-    cwd: request.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  let output = "";
-  const readStream = async (
-    stream: ReadableStream<Uint8Array>,
-    name: AgentTerminalStream,
-  ) => {
-    const decoder = new TextDecoder();
-    for await (const chunk of stream) {
-      const text = decoder.decode(chunk, { stream: true });
-      output += text;
-      request.onTerminalEvent?.({ stream: name, chunk: text });
-    }
-  };
-
-  await Promise.all([
-    readStream(proc.stdout, "stdout"),
-    readStream(proc.stderr, "stderr"),
-  ]);
-
-  const exitCode = await proc.exited;
-  return { provider: request.provider, exitCode, output };
-}
-
-function createMockAgentOutput(prompt: string): string {
-  return `Mock agent response:\n${prompt}`;
+  return runAcpAgent(resolved, request);
 }

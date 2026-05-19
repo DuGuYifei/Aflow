@@ -1,0 +1,17 @@
+{
+  "agent_servers": {
+    "codex-acp": {
+      "type": "registry",
+      "registry_id": "codex-acp",
+      "default_mode": "auto",
+      "default_config_options": {},
+      "env": {}
+    },
+    "claude-acp": {
+      "type": "registry",
+      "registry_id": "claude-acp",
+      "default_config_options": {},
+      "env": {}
+    }
+  }
+}

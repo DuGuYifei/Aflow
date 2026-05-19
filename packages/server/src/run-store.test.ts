@@ -18,7 +18,7 @@ describe("run store snapshots", () => {
       label: "Run #1",
       status: "running",
       startedAt: new Date().toISOString(),
-      agent: "mock",
+      agent: "codex-acp",
       nodeStates: { n1: "pending" },
       nodeOutputs: {},
       agentflowSnapshot: agentflow,
@@ -41,7 +41,7 @@ describe("run store snapshots", () => {
       label: "Legacy",
       status: "success",
       startedAt: new Date().toISOString(),
-      agent: "mock",
+      agent: "codex-acp",
       nodeStates: {},
       nodeOutputs: {},
       canvasSnapshot: sampleCanvas(),
@@ -67,7 +67,7 @@ function sampleCanvas(): CanvasDoc {
   return {
     id: "wf",
     name: "Workflow",
-    sessions: [{ id: "s1", name: "main", color: "blue", agent: "mock" }],
+    sessions: [{ id: "s1", name: "main", color: "blue", agentServerId: "codex-acp" }],
     nodes: [
       { kind: "step", id: "n1", num: "01", x: 10, y: 20, w: 220, title: "Step", desc: "Do it", sessionId: "s1", updateDoc: false },
       { kind: "end", id: "done", num: "END", x: 300, y: 20, w: 140, title: "Done", sessionId: null },

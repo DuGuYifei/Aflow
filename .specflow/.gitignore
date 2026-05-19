@@ -1,2 +1,4 @@
 runs/
 canvas/
+cache/
+agent-servers.local.json

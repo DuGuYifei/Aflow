@@ -48,7 +48,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     id: "s1",
     name: "main",
     color: "oklch(0.7 0.13 250)",
-    agent: "claude-code",
+    agentServerId: "codex-acp",
   };
 
   function sseResponse(runId: string): Response {
@@ -136,7 +136,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       label,
       status: "running",
       startedAt: new Date().toISOString(),
-      agent: agentflow.sessions[0]?.agent ?? "mock",
+      agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "codex-acp",
       nodeStates: initialNodeStates,
       nodeOutputs: {},
       agentflowSnapshot: agentflow, // store pre-substitution snapshots

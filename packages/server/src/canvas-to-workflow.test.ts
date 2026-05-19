@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { canvasToWorkflow, MOCK_AGENT_ID } from "./canvas-to-workflow";
+import { canvasToWorkflow } from "./canvas-to-workflow";
 import type { CanvasDoc } from "./canvas-doc";
 
 // Minimal seed canvas matching the data.ts shape (wf1)
@@ -7,11 +7,11 @@ const wf1Canvas: CanvasDoc = {
   id: "wf1",
   name: "Frontend ticket flow",
   sessions: [
-    { id: "s1", name: "parser",   color: "oklch(0.78 0.13 45)",  agent: "claude-code" },
-    { id: "s2", name: "builder",  color: "oklch(0.74 0.13 145)", agent: "claude-code" },
-    { id: "s3", name: "reviewer", color: "oklch(0.74 0.13 230)", agent: "codex" },
-    { id: "s4", name: "interview",color: "oklch(0.74 0.13 300)", agent: "claude-code" },
-    { id: "s5", name: "plan-code",color: "oklch(0.78 0.13 80)",  agent: "claude-code" },
+    { id: "s1", name: "parser",   color: "oklch(0.78 0.13 45)",  agentServerId: "claude-acp" },
+    { id: "s2", name: "builder",  color: "oklch(0.74 0.13 145)", agentServerId: "claude-acp" },
+    { id: "s3", name: "reviewer", color: "oklch(0.74 0.13 230)", agentServerId: "codex-acp" },
+    { id: "s4", name: "interview",color: "oklch(0.74 0.13 300)", agentServerId: "claude-acp" },
+    { id: "s5", name: "plan-code",color: "oklch(0.78 0.13 80)",  agentServerId: "claude-acp" },
   ],
   nodes: [
     { kind: "step", id: "n1",  num: "01",   x: 60,   y: 240, w: 230, title: "Ticket",  desc: "Capture ticket.", sessionId: "s1", updateDoc: false, locked: true },
@@ -51,20 +51,19 @@ const wf1Canvas: CanvasDoc = {
 };
 
 describe("canvasToWorkflow", () => {
-  it("creates provider agents from canvas sessions plus mock fallback", () => {
+  it("creates external agents from canvas sessions plus default fallback", () => {
     const wf = canvasToWorkflow(wf1Canvas);
     expect(wf.agents.map((a) => a.id).sort()).toEqual([
-      "agent-claude-code",
-      "agent-codex",
-      MOCK_AGENT_ID,
+      "agent-server-claude-acp",
+      "agent-server-codex-acp",
     ]);
   });
 
-  it("preserves all 5 sessions bound to their selected provider agent", () => {
+  it("preserves all 5 sessions bound to their selected agent server", () => {
     const wf = canvasToWorkflow(wf1Canvas);
     expect(wf.sessions).toHaveLength(5);
-    expect(wf.sessions.find((s) => s.id === "s1")?.agentId).toBe("agent-claude-code");
-    expect(wf.sessions.find((s) => s.id === "s3")?.agentId).toBe("agent-codex");
+    expect(wf.sessions.find((s) => s.id === "s1")?.agentId).toBe("agent-server-claude-acp");
+    expect(wf.sessions.find((s) => s.id === "s3")?.agentId).toBe("agent-server-codex-acp");
   });
 
   it("drops the end node, keeps 12 runtime nodes", () => {
@@ -90,17 +89,17 @@ describe("canvasToWorkflow", () => {
     expect(e2?.kind).toBe("tagged-output");
     if (e2?.kind === "tagged-output") {
       expect(e2.outputTag.identifier).toBe("component_tree");
-      expect(e2.handoff?.agentId).toBe("agent-claude-code");
+      expect(e2.handoff?.agentId).toBe("agent-server-claude-acp");
       expect(e2.handoff?.sessionId).toBe("s2");
     }
   });
 
-  it("agent nodes use the provider selected on their session", () => {
+  it("agent nodes use the agent server selected on their session", () => {
     const wf = canvasToWorkflow(wf1Canvas);
     const review = wf.nodes.find((n) => n.id === "n2c");
     expect(review?.kind).toBe("agent");
     if (review?.kind === "agent") {
-      expect(review.agentId).toBe("agent-codex");
+      expect(review.agentId).toBe("agent-server-codex-acp");
       expect(review.sessionId).toBe("s3");
     }
   });

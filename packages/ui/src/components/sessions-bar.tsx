@@ -14,7 +14,7 @@ interface SessionsBarProps {
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
   logLines?: LogLine[];
-  onAddSession: (name: string, agent: Session['agent']) => void;
+  onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
   onDeleteSession: (id: string) => void;
   onClearLogs: () => void;
   variables: Variable[];
@@ -215,7 +215,7 @@ function LogsTab({ sessions, activeSession, setActiveSessionId, stepNodes, logLi
           <span className="ses-dot" style={{ width: 8, height: 8, borderRadius: 2, background: activeSession?.color }} />
           <strong style={{ fontSize: 11.5 }}>{activeSession?.name}</strong>
           <span className="agent-badge">
-            <span className="dot" style={{ background: activeSession?.color }} />{activeSession?.agent}
+            <span className="dot" style={{ background: activeSession?.color }} />{activeSession?.agentServerId ?? activeSession?.agent}
           </span>
           <span style={{ color: 'var(--ink-3)', fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
             · {stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).length} nodes
@@ -291,7 +291,7 @@ interface SettingsTabProps {
   stepNodes: WorkflowNode[];
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
-  onAddSession: (name: string, agent: Session['agent']) => void;
+  onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
   onDeleteSession: (id: string) => void;
 }
 
@@ -353,7 +353,7 @@ function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps
 
 function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onDeleteSession }: SettingsTabProps) {
   const [draftName, setDraftName] = useState('');
-  const [draftAgent, setDraftAgent] = useState<Session['agent']>('claude-code');
+  const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('codex-acp');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -386,9 +386,8 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           style={{ width: 180, height: 26 }}
         />
         <div className="seg" style={{ height: 26 }}>
-          <button className={draftAgent === 'claude-code' ? 'active' : ''} onClick={() => setDraftAgent('claude-code')}>Claude</button>
-          <button className={draftAgent === 'codex'       ? 'active' : ''} onClick={() => setDraftAgent('codex')}>Codex</button>
-          <button className={draftAgent === 'mock'        ? 'active' : ''} onClick={() => setDraftAgent('mock')}>Mock</button>
+          <button className={draftAgent === 'codex-acp'  ? 'active' : ''} onClick={() => setDraftAgent('codex-acp')}>Codex ACP</button>
+          <button className={draftAgent === 'claude-acp' ? 'active' : ''} onClick={() => setDraftAgent('claude-acp')}>Claude ACP</button>
         </div>
         <button className="btn sm primary" onClick={handleAdd}><Icon name="plus" size={11} />Add</button>
         <div style={{ flex: 1 }} />
@@ -401,7 +400,7 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           <span key={s.id} className="session-chip">
             <span className="ses-dot" style={{ background: s.color }} />
             {s.name}
-            <span className="agent">{s.agent}</span>
+            <span className="agent">{s.agentServerId ?? s.agent}</span>
             <button className="ses-x" title={`Delete ${s.name}`} onClick={() => onDeleteSession(s.id)}>
               <Icon name="x" size={10} />
             </button>

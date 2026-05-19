@@ -4,7 +4,7 @@ sessions:
   - id: s1
     name: mock-main
     color: oklch(0.7 0.13 250)
-    agent: mock
+    agentServerId: codex-acp
 nodes:
   - kind: input
     id: in1
@@ -20,6 +20,7 @@ nodes:
     desc: 1 + <specflow_value> = ?
     sessionId: s1
     updateDoc: false
+    paths: []
   - kind: step
     id: n2
     num: "02"
@@ -38,6 +39,7 @@ edges:
   - id: e-input-1
     from: in1
     to: n1
+    sameSession: false
   - id: e1
     from: n1
     to: n2

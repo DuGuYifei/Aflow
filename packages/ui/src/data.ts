@@ -9,11 +9,11 @@ export interface SpecflowData {
 }
 
 const sessions: Session[] = [
-  { id: 's1', name: 'parser',    color: 'oklch(0.78 0.13 45)',  agent: 'claude-code' },
-  { id: 's2', name: 'builder',   color: 'oklch(0.74 0.13 145)', agent: 'claude-code' },
-  { id: 's3', name: 'reviewer',  color: 'oklch(0.74 0.13 230)', agent: 'codex' },
-  { id: 's4', name: 'interview', color: 'oklch(0.74 0.13 300)', agent: 'claude-code' },
-  { id: 's5', name: 'plan-code', color: 'oklch(0.78 0.13 80)',  agent: 'claude-code' },
+  { id: 's1', name: 'parser',    color: 'oklch(0.78 0.13 45)',  agentServerId: 'claude-acp' },
+  { id: 's2', name: 'builder',   color: 'oklch(0.74 0.13 145)', agentServerId: 'claude-acp' },
+  { id: 's3', name: 'reviewer',  color: 'oklch(0.74 0.13 230)', agentServerId: 'codex-acp' },
+  { id: 's4', name: 'interview', color: 'oklch(0.74 0.13 300)', agentServerId: 'claude-acp' },
+  { id: 's5', name: 'plan-code', color: 'oklch(0.78 0.13 80)',  agentServerId: 'claude-acp' },
 ];
 
 const nodes: WorkflowNode[] = [

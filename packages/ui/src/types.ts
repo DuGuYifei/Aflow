@@ -15,7 +15,8 @@ export interface Session {
   id: string;
   name: string;
   color: string;
-  agent: 'mock' | 'claude-code' | 'codex';
+  agentServerId: string;
+  agent?: string;
 }
 
 export interface Workflow {
