@@ -9,6 +9,7 @@ export type { AgentRunRequest, AgentRunResult };
 export type {
   AgentPermissionRequest,
   AgentPermissionResult,
+  AgentLifecycleEvent,
   AgentServerCommand,
   AgentServerConfigFile,
   AgentServerSettings,

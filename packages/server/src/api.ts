@@ -264,6 +264,29 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       terminalEvents: bridge.terminalEvents,
       onNodeStatus,
       onRunStatus,
+      onAgentLifecycle: (event) => {
+        const {
+          runId,
+          nodeRunId,
+          nodeId,
+          edgeId,
+          agentInvocationId,
+          agentId,
+          agentServerId,
+          ...lifecycle
+        } = event;
+        appendLog({
+          type: "agent_lifecycle",
+          runId,
+          nodeRunId,
+          nodeId,
+          edgeId,
+          agentInvocationId,
+          agentId,
+          agentServerId,
+          lifecycle,
+        });
+      },
       interactions: bridge.interactions,
     });
 

@@ -1,12 +1,33 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { TerminalOutputEvent } from "@specflow/workflow";
-import type { NodeStatusEvent, RunInteraction, RunStatusEvent } from "@specflow/bridge";
+import type {
+  NodeStatusEvent,
+  RunInteraction,
+  RunStatusEvent,
+} from "@specflow/bridge";
+
+export type AgentLifecycleLogPayload = {
+  type: string;
+  at: string;
+  [key: string]: unknown;
+};
 
 export type RunLogEvent =
   | ({ type: "terminal" } & TerminalOutputEvent & { nodeId?: string })
   | ({ type: "node_status" } & NodeStatusEvent)
   | ({ type: "run_status" } & RunStatusEvent)
+  | {
+      type: "agent_lifecycle";
+      runId: string;
+      nodeRunId?: string;
+      nodeId?: string;
+      edgeId?: string;
+      agentInvocationId: string;
+      agentId: string;
+      agentServerId: string;
+      lifecycle: AgentLifecycleLogPayload;
+    }
   | ({ type: "interaction" } & RunInteraction);
 
 export function runLogsDir(root: string): string {

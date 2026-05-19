@@ -15,7 +15,7 @@ The architecture must support:
 - Real-time terminal logging to the UI.
 - Recording both Specflow session ids and real ACP CLI session ids.
 - Future session restore through ACP `session/load` or `session/resume`.
-- Future interactive UI handling for ACP permission and elicitation requests.
+- Interactive UI handling for ACP permission and elicitation requests.
 - ACP agent-owned session history as the authoritative transcript source.
 
 ## Package Ownership
@@ -184,7 +184,7 @@ Deleting a run removes that run's invocation references from the session index. 
 
 ### Runtime Logs
 
-Future durable runtime logs should be workflow-side event logs, not a duplicate ACP transcript database.
+Durable runtime logs are workflow-side event logs, not a duplicate ACP transcript database.
 
 Recommended path:
 
@@ -192,15 +192,18 @@ Recommended path:
 .specflow/run-logs/<runId>.jsonl
 ```
 
-These logs should persist:
+These logs persist:
 
 - terminal chunks emitted during the run: `stdout`, `stderr`, and `system`
-- current workflow-side lifecycle events: node status and run status
-- future ACP lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled
+- workflow-side lifecycle events: node status and run status
+- ACP lifecycle events: process started, initialized, session created, prompt started/stopped/failed/cancelled, and session closed where applicable
 - permission and elicitation audit records: requested, resolved, cancelled, timed out
+
+These logs should persist in the next restore phase:
+
 - restore attempts: requested mode, selected ACP primitive, success/failure
 
-These logs should not persist as primary data:
+These logs do not persist as primary data:
 
 - full ACP conversation transcript
 - full ACP `session/update` history solely to reconstruct agent memory
@@ -217,7 +220,7 @@ Implemented:
 
 - UI can start a workflow run.
 - Server streams run/node/terminal events over SSE.
-- Server persists terminal logs and workflow-side status logs under `.specflow/run-logs/<runId>.jsonl`.
+- Server persists terminal logs, workflow-side status logs, ACP lifecycle events, and interaction audit events under `.specflow/run-logs/<runId>.jsonl`.
 - `GET /api/runs/:id/logs` returns historical run log events.
 - New SSE connections replay persisted terminal chunks before live events.
 - UI can show live terminal logs in the log panel.
@@ -228,7 +231,6 @@ Implemented:
 
 Not complete:
 
-- Detailed ACP process/prompt lifecycle events are not durably persisted yet.
 - Restore attempts are not durably persisted yet.
 - There is no UI to browse `.specflow/agent-sessions.json`.
 - There is no restore API that starts an ACP CLI and calls `session/load` or `session/resume`.
@@ -266,9 +268,10 @@ Current test coverage includes:
 - ACP session pool reuse by Specflow workflow session.
 - Bridge propagation of workflow session ids to agent-proxy.
 - Bridge recording of ACP session metadata on invocations.
+- Bridge propagation of ACP lifecycle events with workflow context.
 - Bridge interaction store resolve/cancel behavior.
 - Server interaction SSE and response endpoint.
-- Server run log JSONL append/list/delete behavior.
+- Server run log JSONL append/list/delete behavior, including ACP lifecycle entries.
 - Server run-store migration/defaulting for `agentInvocations`.
 - Server ACP session index create/merge/delete behavior.
 

@@ -83,6 +83,16 @@ export interface AgentSessionUpdateEvent {
   update: SessionNotification["update"];
 }
 
+export type AgentLifecycleEvent =
+  | { type: "process_started"; agentServerId: AgentServerId; command: string; args: string[]; at: string }
+  | { type: "initialized"; agentServerId: AgentServerId; protocolVersion: number; at: string }
+  | { type: "session_created"; agentServerId: AgentServerId; sessionId: string; at: string }
+  | { type: "prompt_started"; agentServerId: AgentServerId; sessionId: string; messageId?: string; at: string }
+  | { type: "prompt_stopped"; agentServerId: AgentServerId; sessionId: string; stopReason?: PromptResponse["stopReason"]; at: string }
+  | { type: "prompt_failed"; agentServerId: AgentServerId; sessionId?: string; error: string; at: string }
+  | { type: "prompt_cancelled"; agentServerId: AgentServerId; sessionId?: string; at: string }
+  | { type: "session_closed"; agentServerId: AgentServerId; sessionId: string; at: string };
+
 export interface AgentRunRequest {
   agentServerId: AgentServerId;
   prompt: string;
@@ -95,6 +105,7 @@ export interface AgentRunRequest {
   workflowSessionId?: string;
   signal?: AbortSignal;
   onTerminalEvent?: (event: AgentTerminalEvent) => void;
+  onLifecycleEvent?: (event: AgentLifecycleEvent) => void;
   onPermissionRequest?: (request: AgentPermissionRequest) => Promise<AgentPermissionResult>;
   onSessionUpdate?: (event: AgentSessionUpdateEvent) => void;
   onElicitationRequest?: (request: CreateElicitationRequest) => Promise<CreateElicitationResponse>;

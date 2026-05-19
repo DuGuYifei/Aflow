@@ -11,6 +11,7 @@ describe("runAcpAgent", () => {
     const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
     await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
     const terminalEvents: string[] = [];
+    const lifecycleEvents: string[] = [];
 
     const fakeAgentPath = fileURLToPath(new URL("./test-fixtures/fake-agent.ts", import.meta.url));
     const resolved: ResolvedAgentServer = {
@@ -36,6 +37,7 @@ describe("runAcpAgent", () => {
       prompt: "hello",
       onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
       onTerminalEvent: (event) => terminalEvents.push(`${event.stream}:${event.chunk}`),
+      onLifecycleEvent: (event) => lifecycleEvents.push(event.type),
     });
 
     expect(result.exitCode).toBe(0);
@@ -46,5 +48,13 @@ describe("runAcpAgent", () => {
     expect(result.output).toContain("permission:allow");
     expect(await readFile(join(cwd, "out.txt"), "utf8")).toBe("written-by-agent");
     expect(terminalEvents.some((event) => event.includes("[acp:stop] end_turn"))).toBe(true);
+    expect(lifecycleEvents).toEqual([
+      "process_started",
+      "initialized",
+      "session_created",
+      "prompt_started",
+      "prompt_stopped",
+      "session_closed",
+    ]);
   });
 });

@@ -2,6 +2,7 @@ import {
   AgentProxySessionPool,
   type AgentCommandRequest,
   type AgentCommandResult,
+  type AgentLifecycleEvent,
   type AgentTerminalEvent,
 } from "@specflow/agent-proxy";
 import type { NodeStatus } from "@specflow/shared";
@@ -44,6 +45,15 @@ export interface RunStatusEvent {
   error?: string;
 }
 
+export type AgentLifecycleStatusEvent = AgentLifecycleEvent & {
+  runId: string;
+  nodeRunId?: string;
+  nodeId?: string;
+  edgeId?: string;
+  agentInvocationId: string;
+  agentId: string;
+};
+
 export interface WorkflowExecutorOptions {
   cwd?: string;
   gateEvaluator?: GateEvaluator;
@@ -52,6 +62,7 @@ export interface WorkflowExecutorOptions {
   agentRunner?: AgentRunner;
   onNodeStatus?: (event: NodeStatusEvent) => void;
   onRunStatus?: (event: RunStatusEvent) => void;
+  onAgentLifecycle?: (event: AgentLifecycleStatusEvent) => void;
 }
 
 export type AgentRunner = (request: AgentCommandRequest) => Promise<AgentCommandResult>;
@@ -79,6 +90,7 @@ export class WorkflowExecutor {
   readonly #agentRunnerOverride: AgentRunner | undefined;
   readonly #onNodeStatus: ((event: NodeStatusEvent) => void) | undefined;
   readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
+  readonly #onAgentLifecycle: ((event: AgentLifecycleStatusEvent) => void) | undefined;
 
   constructor(options: WorkflowExecutorOptions = {}) {
     this.#cwd = options.cwd ?? process.cwd();
@@ -88,6 +100,7 @@ export class WorkflowExecutor {
     this.#agentRunnerOverride = options.agentRunner;
     this.#onNodeStatus = options.onNodeStatus;
     this.#onRunStatus = options.onRunStatus;
+    this.#onAgentLifecycle = options.onAgentLifecycle;
   }
 
   get terminalEvents(): TerminalEventStore {
@@ -385,6 +398,17 @@ export class WorkflowExecutor {
           nodeRunId: input.nodeRun?.id,
           agentInvocationId: input.invocation.id,
           event,
+        });
+      },
+      onLifecycleEvent: (event) => {
+        this.#onAgentLifecycle?.({
+          ...event,
+          runId: input.run.id,
+          nodeRunId: input.nodeRun?.id,
+          nodeId: input.invocation.nodeId,
+          edgeId: input.invocation.edgeId,
+          agentInvocationId: input.invocation.id,
+          agentId: input.agentId,
         });
       },
       onPermissionRequest: (request) => {

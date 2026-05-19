@@ -318,6 +318,40 @@ describe("WorkflowExecutor", () => {
     expect(run.agentInvocations[0]?.output).toBe("allow");
   });
 
+  test("adds workflow context to agent lifecycle events", async () => {
+    const lifecycleEvents: string[] = [];
+    const executor = new WorkflowExecutor({
+      onAgentLifecycle(event) {
+        lifecycleEvents.push(`${event.type}:${event.nodeId}:${event.agentInvocationId}`);
+      },
+      agentRunner: async (request) => {
+        request.onLifecycleEvent?.({
+          type: "prompt_started",
+          agentServerId: request.agentServerId,
+          sessionId: "acp-session",
+          at: "2026-05-19T00:00:00.000Z",
+        });
+        return {
+          agentServerId: request.agentServerId,
+          sessionId: "acp-session",
+          exitCode: 0,
+          output: "done",
+        };
+      },
+    });
+
+    const run = await executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source")],
+        edges: [],
+      }),
+    );
+
+    expect(run.status).toBe("done");
+    expect(lifecycleEvents).toHaveLength(1);
+    expect(lifecycleEvents[0]).toContain("prompt_started:source:");
+  });
+
   test("fails an agent node when its session belongs to another agent", async () => {
     const workflow = createWorkflow({
       nodes: [agentNode("source", "source")],

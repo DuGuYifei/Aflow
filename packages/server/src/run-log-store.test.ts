@@ -31,13 +31,27 @@ describe("run log store", () => {
       status: "done",
       at: "2026-05-19T00:00:01.000Z",
     });
+    await appendRunLogEvent(root, {
+      type: "agent_lifecycle",
+      runId: "run1",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      agentId: "agent-1",
+      agentServerId: "codex-acp",
+      lifecycle: {
+        type: "prompt_started",
+        sessionId: "acp-session",
+        at: "2026-05-19T00:00:02.000Z",
+      },
+    });
 
     await writeFile(runLogPath(root, "run1"), "not-json\n", { flag: "a" });
 
     const events = await listRunLogEvents(root, "run1");
-    expect(events).toHaveLength(2);
+    expect(events).toHaveLength(3);
     expect(events[0]).toMatchObject({ type: "terminal", chunk: "hello" });
     expect(events[1]).toMatchObject({ type: "run_status", status: "done" });
+    expect(events[2]).toMatchObject({ type: "agent_lifecycle", lifecycle: { type: "prompt_started" } });
 
     await deleteRunLog(root, "run1");
     await expect(readFile(runLogPath(root, "run1"), "utf8")).rejects.toThrow();

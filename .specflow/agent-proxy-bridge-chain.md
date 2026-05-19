@@ -21,6 +21,8 @@ This document records how workflow execution reaches ACP agent CLIs.
    - `cwd`: the project root.
    - `prompt`: the rendered node or edge prompt.
    - `onTerminalEvent`: callback that stores terminal output with run/node/invocation metadata.
+   - `onLifecycleEvent`: callback that stores ACP process/session/prompt lifecycle metadata with the same workflow context.
+   - `onPermissionRequest`, `onElicitationRequest`, and `onElicitationComplete`: callbacks that route ACP user interactions through bridge and server.
 6. The default runner is `AgentProxySessionPool.run(request)`.
 7. The pool resolves the configured agent server through `AgentServerStore`.
 8. For ACP agent servers, the pool starts or reuses an ACP session backed by `AcpAgentSession`.
@@ -120,7 +122,26 @@ The implemented client handlers support:
 - `elicitation/complete`
 - extension requests and notifications
 
-Permission and elicitation requests default to cancelled when no UI hook is installed. Future UI work should attach callbacks to surface these decisions to the user.
+Permission and elicitation requests default to cancelled when no UI hook is installed.
+
+In the server-backed path, bridge installs those callbacks through `RunInteractionStore`. The server emits `interaction-requested` over run SSE and resolves user choices through `POST /api/runs/:runId/interactions/:interactionId/respond`.
+
+## Runtime Log Persistence
+
+The server persists workflow-side runtime logs under:
+
+```text
+.specflow/run-logs/<runId>.jsonl
+```
+
+Persisted events include:
+
+- terminal chunks from ACP terminal handlers
+- run and node status changes
+- ACP lifecycle metadata: process started, initialized, session created, prompt started/stopped/failed/cancelled, and session closed where applicable
+- permission and elicitation audit events
+
+These records are operational/audit logs. They intentionally do not copy full ACP `session/update` history as Specflow's canonical transcript. Historical transcript inspection should use ACP `session/load` or `session/resume` when the agent advertises those capabilities.
 
 ## Error Behavior
 

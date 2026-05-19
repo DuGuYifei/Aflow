@@ -166,7 +166,20 @@ export class AcpAgentSession {
   }
 
   async start(request: AgentRunRequest): Promise<void> {
+    request.onLifecycleEvent?.({
+      type: "process_started",
+      agentServerId: request.agentServerId,
+      command: this.#resolved.command.command,
+      args: this.#resolved.command.args,
+      at: new Date().toISOString(),
+    });
     this.#initializeResponse = await this.#client.initialize();
+    request.onLifecycleEvent?.({
+      type: "initialized",
+      agentServerId: request.agentServerId,
+      protocolVersion: this.#initializeResponse.protocolVersion,
+      at: new Date().toISOString(),
+    });
     if (this.#initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
       throw new Error(`Unsupported ACP protocol version: ${this.#initializeResponse.protocolVersion}`);
     }
@@ -176,6 +189,12 @@ export class AcpAgentSession {
       mcpServers: request.mcpServers ?? [],
     });
     this.#sessionId = session.sessionId;
+    request.onLifecycleEvent?.({
+      type: "session_created",
+      agentServerId: request.agentServerId,
+      sessionId: this.#sessionId,
+      at: new Date().toISOString(),
+    });
     await applySessionDefaults(this.#client.connection, this.#sessionId, session, this.#resolved);
   }
 
@@ -213,10 +232,24 @@ export class AcpAgentSession {
         throw new Error("ACP prompt cancelled before start.");
       }
 
+      request.onLifecycleEvent?.({
+        type: "prompt_started",
+        agentServerId: request.agentServerId,
+        sessionId,
+        messageId: request.messageId,
+        at: new Date().toISOString(),
+      });
       const promptResult = await this.#client.connection.prompt({
         sessionId,
         messageId: request.messageId,
         prompt: request.promptBlocks ?? [{ type: "text", text: request.prompt }],
+      });
+      request.onLifecycleEvent?.({
+        type: "prompt_stopped",
+        agentServerId: request.agentServerId,
+        sessionId,
+        stopReason: promptResult.stopReason,
+        at: new Date().toISOString(),
       });
       request.onTerminalEvent?.({
         stream: "system",
@@ -232,6 +265,22 @@ export class AcpAgentSession {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (request.signal?.aborted) {
+        request.onLifecycleEvent?.({
+          type: "prompt_cancelled",
+          agentServerId: request.agentServerId,
+          sessionId,
+          at: new Date().toISOString(),
+        });
+      } else {
+        request.onLifecycleEvent?.({
+          type: "prompt_failed",
+          agentServerId: request.agentServerId,
+          sessionId,
+          error: message,
+          at: new Date().toISOString(),
+        });
+      }
       request.onTerminalEvent?.({ stream: "system", chunk: `${message}\n` });
       return {
         agentServerId: request.agentServerId,
@@ -269,7 +318,20 @@ export async function runAcpAgent(
   request.signal?.addEventListener("abort", abort);
 
   try {
+    request.onLifecycleEvent?.({
+      type: "process_started",
+      agentServerId: request.agentServerId,
+      command: resolved.command.command,
+      args: resolved.command.args,
+      at: new Date().toISOString(),
+    });
     initializeResponse = await client.initialize();
+    request.onLifecycleEvent?.({
+      type: "initialized",
+      agentServerId: request.agentServerId,
+      protocolVersion: initializeResponse.protocolVersion,
+      at: new Date().toISOString(),
+    });
     if (initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
       throw new Error(`Unsupported ACP protocol version: ${initializeResponse.protocolVersion}`);
     }
@@ -280,6 +342,12 @@ export async function runAcpAgent(
       mcpServers: request.mcpServers ?? [],
     });
     sessionId = session.sessionId;
+    request.onLifecycleEvent?.({
+      type: "session_created",
+      agentServerId: request.agentServerId,
+      sessionId,
+      at: new Date().toISOString(),
+    });
     await applySessionDefaults(client.connection, sessionId, session, resolved);
 
     if (request.signal?.aborted) {
@@ -287,16 +355,36 @@ export async function runAcpAgent(
       throw new Error("ACP prompt cancelled before start.");
     }
 
+    request.onLifecycleEvent?.({
+      type: "prompt_started",
+      agentServerId: request.agentServerId,
+      sessionId,
+      messageId: request.messageId,
+      at: new Date().toISOString(),
+    });
     const promptResult = await client.connection.prompt({
       sessionId,
       messageId: request.messageId,
       prompt: request.promptBlocks ?? [{ type: "text", text: request.prompt }],
+    });
+    request.onLifecycleEvent?.({
+      type: "prompt_stopped",
+      agentServerId: request.agentServerId,
+      sessionId,
+      stopReason: promptResult.stopReason,
+      at: new Date().toISOString(),
     });
     request.onTerminalEvent?.({
       stream: "system",
       chunk: `[acp:stop] ${promptResult.stopReason}\n`,
     });
     await client.connection.closeSession({ sessionId }).catch(() => {});
+    request.onLifecycleEvent?.({
+      type: "session_closed",
+      agentServerId: request.agentServerId,
+      sessionId,
+      at: new Date().toISOString(),
+    });
     await client.close();
     return {
       agentServerId: request.agentServerId,
@@ -310,6 +398,22 @@ export async function runAcpAgent(
     if (sessionId) await client.connection.closeSession({ sessionId }).catch(() => {});
     client.kill();
     const message = error instanceof Error ? error.message : String(error);
+    if (request.signal?.aborted) {
+      request.onLifecycleEvent?.({
+        type: "prompt_cancelled",
+        agentServerId: request.agentServerId,
+        sessionId,
+        at: new Date().toISOString(),
+      });
+    } else {
+      request.onLifecycleEvent?.({
+        type: "prompt_failed",
+        agentServerId: request.agentServerId,
+        sessionId,
+        error: message,
+        at: new Date().toISOString(),
+      });
+    }
     request.onTerminalEvent?.({ stream: "system", chunk: `${message}\n` });
     return {
       agentServerId: request.agentServerId,
