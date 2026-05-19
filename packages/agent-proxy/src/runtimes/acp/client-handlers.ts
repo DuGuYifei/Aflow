@@ -22,6 +22,7 @@ interface TerminalRecord {
 export class AcpClientHandlers implements acp.Client {
   readonly #cwd: string;
   readonly #allowedRoots: string[];
+  readonly #terminalEnabled: boolean;
   readonly #terminals = new Map<string, TerminalRecord>();
   readonly #appendOutput: (text: string) => void;
   readonly #onTerminalEvent: ((event: AgentTerminalEvent) => void) | undefined;
@@ -35,6 +36,7 @@ export class AcpClientHandlers implements acp.Client {
   constructor(input: {
     cwd: string;
     additionalDirectories?: string[];
+    terminalEnabled?: boolean;
     appendOutput: (text: string) => void;
     onTerminalEvent?: (event: AgentTerminalEvent) => void;
     onPermissionRequest?: (request: AgentPermissionRequest) => Promise<AgentPermissionResult>;
@@ -46,6 +48,7 @@ export class AcpClientHandlers implements acp.Client {
   }) {
     this.#cwd = input.cwd;
     this.#allowedRoots = [input.cwd, ...(input.additionalDirectories ?? [])];
+    this.#terminalEnabled = input.terminalEnabled ?? true;
     this.#appendOutput = input.appendOutput;
     this.#onTerminalEvent = input.onTerminalEvent;
     this.#onPermissionRequest = input.onPermissionRequest;
@@ -100,6 +103,9 @@ export class AcpClientHandlers implements acp.Client {
   }
 
   async createTerminal(params: acp.CreateTerminalRequest): Promise<acp.CreateTerminalResponse> {
+    if (!this.#terminalEnabled) {
+      throw acp.RequestError.methodNotFound("terminal/create");
+    }
     const terminalId = crypto.randomUUID();
     const cwd = params.cwd ? assertInsideAllowedRoots(this.#allowedRoots, params.cwd) : this.#cwd;
     const proc = Bun.spawn([params.command, ...(params.args ?? [])], {

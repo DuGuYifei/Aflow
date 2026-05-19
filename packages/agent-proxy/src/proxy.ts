@@ -2,6 +2,7 @@ import { AgentServerStore } from "./store/agent-server-store";
 import type { AgentRestoreRequest, AgentRestoreResult, AgentRunRequest, AgentRunResult } from "./types";
 import { restoreAcpAgentSession, runAcpAgent } from "./runtimes/acp/connection";
 import { runHeadlessAgent } from "./runtimes/headless/command";
+import { withPolicyDirectories } from "./runtime-policy";
 export { AgentProxySessionPool } from "./session-pool";
 
 export type AgentCommandRequest = AgentRunRequest;
@@ -28,7 +29,7 @@ export async function runAgentCommand(request: AgentRunRequest): Promise<AgentRu
   if (resolved.source === "headless") {
     return runHeadlessAgent(resolved, request);
   }
-  return runAcpAgent(resolved, request);
+  return runAcpAgent(resolved, withPolicyDirectories(resolved, request));
 }
 
 export async function restoreAgentSession(request: AgentRestoreRequest): Promise<AgentRestoreResult> {
@@ -37,5 +38,5 @@ export async function restoreAgentSession(request: AgentRestoreRequest): Promise
   if (resolved.source === "headless") {
     throw new Error(`Headless agent runtime is not implemented: ${request.agentServerId}`);
   }
-  return restoreAcpAgentSession(resolved, request);
+  return restoreAcpAgentSession(resolved, withPolicyDirectories(resolved, request));
 }

@@ -70,9 +70,36 @@ describe("agent session restore API", () => {
     const eventText = await readUntil(eventResponse!, ["\"status\":\"success\""]);
     expect(eventText).toContain("\"selectedPrimitive\":\"resume\"");
   });
+
+  test("cancels an active restore attempt", async () => {
+    const root = await setupProject("load,resume", { SPECFLOW_FAKE_ACP_RESTORE_DELAY_MS: "5000" });
+    await upsertAgentSessionsFromRun(sampleRun("run1"), root);
+    const [session] = await listAgentSessions(root);
+    expect(session).toBeDefined();
+
+    const handle = createApiHandler(createSpecflowBridge(), root);
+    const response = await handle(new Request(`http://specflow.test/api/agent-sessions/${session!.id}/restore`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "inspect" }),
+    }));
+    const body = await response?.json() as { restoreId: string; status: string };
+    expect(response?.status).toBe(200);
+    expect(body.status).toBe("running");
+
+    const cancel = await handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/cancel`, {
+      method: "POST",
+    }));
+    expect(cancel?.status).toBe(200);
+
+    const eventResponse = await handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/events`));
+    expect(eventResponse?.status).toBe(200);
+    const eventText = await readUntil(eventResponse!, ["\"status\":\"failure\""]);
+    expect(eventText).toContain("\"status\":\"failure\"");
+  });
 });
 
-async function setupProject(restoreCapabilities: string): Promise<string> {
+async function setupProject(restoreCapabilities: string, extraEnv: Record<string, string> = {}): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "specflow-restore-"));
   await mkdir(join(root, ".specflow"), { recursive: true });
   const fakeAgentPath = fileURLToPath(new URL("../../agent-proxy/src/runtimes/acp/test-fixtures/fake-agent.ts", import.meta.url));
@@ -82,7 +109,7 @@ async function setupProject(restoreCapabilities: string): Promise<string> {
         type: "custom",
         command: "bun",
         args: [fakeAgentPath],
-        env: { SPECFLOW_FAKE_ACP_RESTORE: restoreCapabilities },
+        env: { SPECFLOW_FAKE_ACP_RESTORE: restoreCapabilities, ...extraEnv },
       },
     },
   }), "utf8");

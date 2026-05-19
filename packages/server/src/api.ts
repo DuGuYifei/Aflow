@@ -1,6 +1,6 @@
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge } from "@specflow/bridge";
-import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerSettings, NodeStatusEvent, RunStatusEvent } from "@specflow/bridge";
+import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerSettings, NodeStatusEvent, RunInteraction, RunStatusEvent } from "@specflow/bridge";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import {
   listCanvases,
@@ -23,6 +23,7 @@ import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
 import type { CanvasSession } from "./canvas-doc";
 import {
+  loadLocalAgentServerConfig,
   removeLocalAgentServer,
   upsertLocalAgentServer,
 } from "./agent-server-config";
@@ -52,6 +53,7 @@ class EventBus {
 }
 
 type RestoreStatus = "requested" | "success" | "failure";
+const REDACTED_ENV_VALUE = "[redacted]";
 
 type RestoreStreamEvent =
   | {
@@ -91,6 +93,8 @@ function parseAgentServerSettings(input: unknown): AgentServerSettings | undefin
   if (!input || typeof input !== "object") return undefined;
   const raw = input as Record<string, unknown>;
   const env = recordOfStrings(raw.env);
+  const additionalDirectories = arrayOfStrings(raw.additionalDirectories ?? raw.additional_directories);
+  const terminal = terminalPolicy(raw.terminal);
   const defaultMode = typeof raw.defaultMode === "string" ? raw.defaultMode : undefined;
   const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
   const defaultConfigOptions = recordOfConfigValues(raw.defaultConfigOptions);
@@ -100,6 +104,8 @@ function parseAgentServerSettings(input: unknown): AgentServerSettings | undefin
       type: "registry",
       registryId: raw.registryId.trim(),
       env,
+      additionalDirectories,
+      terminal,
       defaultMode,
       defaultModel,
       defaultConfigOptions,
@@ -111,6 +117,8 @@ function parseAgentServerSettings(input: unknown): AgentServerSettings | undefin
       command: raw.command.trim(),
       args: arrayOfStrings(raw.args),
       env,
+      additionalDirectories,
+      terminal,
       defaultMode,
       defaultModel,
       defaultConfigOptions,
@@ -122,6 +130,8 @@ function parseAgentServerSettings(input: unknown): AgentServerSettings | undefin
       command: raw.command.trim(),
       argsTemplate: arrayOfStrings(raw.argsTemplate),
       env,
+      additionalDirectories,
+      terminal,
       defaultMode,
       defaultModel,
       defaultConfigOptions,
@@ -150,11 +160,91 @@ function recordOfConfigValues(value: unknown): Record<string, string | boolean> 
   );
 }
 
+function terminalPolicy(value: unknown): AgentServerSettings["terminal"] {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  return {
+    ...(typeof raw.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(typeof raw.auth === "boolean" ? { auth: raw.auth } : {}),
+  };
+}
+
+function redactAgentServerEntries(entries: Array<{ id: string; settings: AgentServerSettings }>): Array<{ id: string; settings: AgentServerSettings }> {
+  return entries.map((entry) => ({
+    ...entry,
+    settings: redactAgentServerSettings(entry.settings),
+  }));
+}
+
+function redactAgentServerSettings(settings: AgentServerSettings): AgentServerSettings {
+  if (!settings.env) return settings;
+  return {
+    ...settings,
+    env: Object.fromEntries(Object.entries(settings.env).map(([key, value]) => [
+      key,
+      isSensitiveEnvKey(key) ? REDACTED_ENV_VALUE : value,
+    ])),
+  } as AgentServerSettings;
+}
+
+function isSensitiveEnvKey(key: string): boolean {
+  return /(?:TOKEN|SECRET|PASSWORD|PASS|AUTH|CREDENTIAL|API[_-]?KEY|PRIVATE[_-]?KEY)/i.test(key);
+}
+
+async function preserveRedactedEnvValues(
+  root: string,
+  id: string,
+  settings: AgentServerSettings,
+): Promise<AgentServerSettings> {
+  if (!settings.env || !Object.values(settings.env).includes(REDACTED_ENV_VALUE)) {
+    return settings;
+  }
+  const current = (await loadLocalAgentServerConfig(root)).agent_servers[id]?.env ?? {};
+  return {
+    ...settings,
+    env: Object.fromEntries(Object.entries(settings.env).map(([key, value]) => [
+      key,
+      value === REDACTED_ENV_VALUE && current[key] !== undefined ? current[key] : value,
+    ])),
+  } as AgentServerSettings;
+}
+
+function interactionAuditRecord(interaction: RunInteraction): RunInteraction {
+  if (interaction.kind === "permission") {
+    return interaction;
+  }
+  return {
+    ...interaction,
+    request: summarizeElicitationRequest(interaction.request),
+    resolution: summarizeElicitationResolution(interaction.resolution),
+  };
+}
+
+function summarizeElicitationRequest(request: unknown): unknown {
+  if (!request || typeof request !== "object") return request;
+  const raw = request as Record<string, unknown>;
+  return {
+    ...(typeof raw.sessionId === "string" ? { sessionId: raw.sessionId } : {}),
+    ...(typeof raw.mode === "string" ? { mode: raw.mode } : {}),
+    ...(typeof raw.message === "string" ? { message: raw.message } : {}),
+    ...(raw.requestedSchema ? { requestedSchema: raw.requestedSchema } : {}),
+  };
+}
+
+function summarizeElicitationResolution(resolution: unknown): unknown {
+  if (!resolution || typeof resolution !== "object") return resolution;
+  const raw = resolution as Record<string, unknown>;
+  return {
+    ...(typeof raw.action === "string" ? { action: raw.action } : {}),
+  };
+}
+
 // ── API handler factory ───────────────────────────────────────────────────────
 
 export function createApiHandler(bridge: SpecflowBridge, root: string) {
   const bus = new EventBus();
   const restoreStreams = new Map<string, RestoreStreamState>();
+  const restoreControllers = new Map<string, AbortController>();
   const runControllers = new Map<string, AbortController>();
 
   const DEFAULT_SESSION: CanvasSession = {
@@ -361,7 +451,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         });
     };
     const offInteractionLog = bridge.interactions.subscribe(runId, (interaction) => {
-      appendLog({ type: "interaction", ...interaction });
+      appendLog({ type: "interaction", ...interactionAuditRecord(interaction) });
     });
 
     const flushTerminalEvents = () => {
@@ -488,6 +578,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     const restoreId = crypto.randomUUID();
+    const restoreController = new AbortController();
+    restoreControllers.set(restoreId, restoreController);
     const startedAt = new Date().toISOString();
     const requestedAttempt = {
       id: restoreId,
@@ -522,6 +614,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       sessionId: session.acpSessionId,
       mode,
       cwd: root,
+      signal: restoreController.signal,
       onTerminalEvent: (event) => {
         publishRestoreEvent({
           type: "terminal",
@@ -601,6 +694,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         error: message,
         at: completedAt,
       });
+    }).finally(() => {
+      restoreControllers.delete(restoreId);
     });
 
     return Response.json({
@@ -618,7 +713,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     // GET /api/agent-servers
     if (request.method === "GET" && pathname === "/api/agent-servers") {
-      return Response.json(await bridge.listAgentServers(root));
+      return Response.json(redactAgentServerEntries(await bridge.listAgentServers(root)));
     }
 
     // GET /api/agent-servers/registry
@@ -635,18 +730,19 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch {
         return Response.json({ error: "Invalid JSON" }, { status: 400 });
       }
-      const settings = parseAgentServerSettings(body);
+      let settings = parseAgentServerSettings(body);
       if (!settings) {
         return Response.json({ error: "Invalid agent server settings" }, { status: 400 });
       }
+      settings = await preserveRedactedEnvValues(root, decodeURIComponent(agentServerMatch[1]), settings);
       await upsertLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]), settings);
-      return Response.json(await bridge.listAgentServers(root));
+      return Response.json(redactAgentServerEntries(await bridge.listAgentServers(root)));
     }
 
     // DELETE /api/agent-servers/:id
     if (agentServerMatch && request.method === "DELETE") {
       await removeLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]));
-      return Response.json(await bridge.listAgentServers(root));
+      return Response.json(redactAgentServerEntries(await bridge.listAgentServers(root)));
     }
 
     // GET /api/canvases
@@ -813,6 +909,20 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     const restoreEventsMatch = pathname.match(/^\/api\/agent-session-restores\/([^/]+)\/events$/);
     if (restoreEventsMatch && request.method === "GET") {
       return restoreSseResponse(restoreEventsMatch[1]);
+    }
+
+    // POST /api/agent-session-restores/:id/cancel
+    const restoreCancelMatch = pathname.match(/^\/api\/agent-session-restores\/([^/]+)\/cancel$/);
+    if (restoreCancelMatch && request.method === "POST") {
+      const restoreId = restoreCancelMatch[1];
+      const controller = restoreControllers.get(restoreId);
+      if (!controller) {
+        const state = restoreStreams.get(restoreId);
+        if (!state) return Response.json({ error: "Restore not found" }, { status: 404 });
+        return Response.json({ ok: true, status: state.done ? "done" : "inactive" });
+      }
+      controller.abort();
+      return Response.json({ ok: true, status: "cancelling" });
     }
 
     // POST /api/runs/:id/interactions/:interactionId/respond

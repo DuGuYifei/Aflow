@@ -29,7 +29,12 @@ describe("run event API", () => {
     expect(start?.status).toBe(200);
     const { runId } = await start!.json() as { runId: string };
 
-    await eventuallyLoadRun(root, runId, "success");
+    const record = await eventuallyLoadRun(root, runId, "success");
+    expect(record.agentInvocations[0]).toMatchObject({
+      runId,
+      agentServerId: "echo-headless",
+      status: "done",
+    });
     const terminalLog = await eventuallyFindTerminalLog(root, runId, "run-id-check");
     expect(terminalLog?.runId).toBe(runId);
 

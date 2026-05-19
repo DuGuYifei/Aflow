@@ -83,6 +83,8 @@ function normalizeConfig(config: AgentServerConfigFile): AgentServerConfigFile {
             defaultMode: raw.defaultMode ?? raw.default_mode,
             defaultModel: raw.defaultModel ?? raw.default_model,
             defaultConfigOptions: raw.defaultConfigOptions ?? raw.default_config_options,
+            additionalDirectories: raw.additionalDirectories ?? raw.additional_directories,
+            terminal: normalizeTerminalPolicy(raw.terminal),
           } satisfies AgentServerSettings];
         }
         if (value.type === "headless") {
@@ -94,14 +96,18 @@ function normalizeConfig(config: AgentServerConfigFile): AgentServerConfigFile {
             defaultMode: raw.defaultMode ?? raw.default_mode,
             defaultModel: raw.defaultModel ?? raw.default_model,
             defaultConfigOptions: raw.defaultConfigOptions ?? raw.default_config_options,
+            additionalDirectories: raw.additionalDirectories ?? raw.additional_directories,
+            terminal: normalizeTerminalPolicy(raw.terminal),
           } satisfies AgentServerSettings];
         }
-        const raw = value as AgentServerSettings & { default_mode?: string; default_model?: string; default_config_options?: Record<string, string | boolean> };
+        const raw = value as AgentServerSettings & CommonRawSettings;
         return [id, {
           ...value,
           defaultMode: raw.defaultMode ?? raw.default_mode,
           defaultModel: raw.defaultModel ?? raw.default_model,
           defaultConfigOptions: raw.defaultConfigOptions ?? raw.default_config_options,
+          additionalDirectories: raw.additionalDirectories ?? raw.additional_directories,
+          terminal: normalizeTerminalPolicy(raw.terminal),
         } as AgentServerSettings];
       }),
     );
@@ -111,20 +117,30 @@ function normalizeConfig(config: AgentServerConfigFile): AgentServerConfigFile {
   };
 }
 
-type RegistryRawSettings = Extract<AgentServerSettings, { type: "registry" }> & {
-  registry_id?: string;
+function normalizeTerminalPolicy(value: unknown): AgentServerSettings["terminal"] {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as { enabled?: unknown; auth?: unknown };
+  return {
+    ...(typeof raw.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(typeof raw.auth === "boolean" ? { auth: raw.auth } : {}),
+  };
+}
+
+type CommonRawSettings = {
   default_mode?: string;
   default_model?: string;
   default_config_options?: Record<string, string | boolean>;
+  additional_directories?: string[];
 };
+
+type RegistryRawSettings = Extract<AgentServerSettings, { type: "registry" }> & {
+  registry_id?: string;
+} & CommonRawSettings;
 
 type HeadlessRawSettings = Extract<AgentServerSettings, { type: "headless" }> & {
   args_template?: string[];
   timeout_ms?: number;
-  default_mode?: string;
-  default_model?: string;
-  default_config_options?: Record<string, string | boolean>;
-};
+} & CommonRawSettings;
 
 function defaultAgentServers(): Record<string, AgentServerSettings> {
   return {

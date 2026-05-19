@@ -34,9 +34,12 @@ describe("AcpClientHandlers", () => {
 
   it("guards file access to the configured workspace roots", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
+    const additional = await mkdtemp(join(tmpdir(), "specflow-acp-extra-"));
     await writeFile(join(cwd, "input.txt"), "a\nb\nc\n", "utf8");
+    await writeFile(join(additional, "extra.txt"), "extra", "utf8");
     const handler = new AcpClientHandlers({
       cwd,
+      additionalDirectories: [additional],
       appendOutput() {},
     });
 
@@ -55,10 +58,31 @@ describe("AcpClientHandlers", () => {
     });
     expect(await readFile(join(cwd, "nested/out.txt"), "utf8")).toBe("ok");
 
+    const extraRead = await handler.readTextFile({
+      sessionId: "s1",
+      path: join(additional, "extra.txt"),
+    });
+    expect(extraRead.content).toBe("extra");
+
     await expect(handler.readTextFile({
       sessionId: "s1",
       path: join(tmpdir(), "outside.txt"),
     })).rejects.toThrow("Path escapes allowed workspace roots");
+  });
+
+  it("can disable ACP terminal creation by policy", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
+    const handler = new AcpClientHandlers({
+      cwd,
+      terminalEnabled: false,
+      appendOutput() {},
+    });
+
+    await expect(handler.createTerminal({
+      sessionId: "s1",
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+    })).rejects.toThrow("terminal/create");
   });
 
   it("supports extension request and notification hooks", async () => {

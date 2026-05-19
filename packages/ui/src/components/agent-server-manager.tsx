@@ -24,6 +24,9 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
   const [customCommand, setCustomCommand] = useState('');
   const [customArgs, setCustomArgs] = useState('');
   const [customEnv, setCustomEnv] = useState('');
+  const [customAdditionalDirs, setCustomAdditionalDirs] = useState('');
+  const [customTerminalEnabled, setCustomTerminalEnabled] = useState(true);
+  const [customTerminalAuth, setCustomTerminalAuth] = useState(false);
   const [customDefaultMode, setCustomDefaultMode] = useState('');
   const [customDefaultModel, setCustomDefaultModel] = useState('');
   const [customConfigOptions, setCustomConfigOptions] = useState('');
@@ -88,6 +91,8 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
         command,
         args: splitArgs(customArgs),
         env: parseEnv(customEnv),
+        additionalDirectories: splitLines(customAdditionalDirs),
+        terminal: { enabled: customTerminalEnabled, auth: customTerminalAuth },
         defaultMode: customDefaultMode.trim() || undefined,
         defaultModel: customDefaultModel.trim() || undefined,
         defaultConfigOptions: parseConfigOptions(customConfigOptions),
@@ -96,6 +101,9 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
       setCustomCommand('');
       setCustomArgs('');
       setCustomEnv('');
+      setCustomAdditionalDirs('');
+      setCustomTerminalEnabled(true);
+      setCustomTerminalAuth(false);
       setCustomDefaultMode('');
       setCustomDefaultModel('');
       setCustomConfigOptions('');
@@ -182,6 +190,15 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
               <input className="input" value={customDefaultMode} onChange={(e) => setCustomDefaultMode(e.target.value)} placeholder="default mode, optional" />
               <input className="input" value={customDefaultModel} onChange={(e) => setCustomDefaultModel(e.target.value)} placeholder="default model, optional" />
               <textarea className="textarea code" value={customConfigOptions} onChange={(e) => setCustomConfigOptions(e.target.value)} placeholder="config option=value per line" rows={3} />
+              <textarea className="textarea code" value={customAdditionalDirs} onChange={(e) => setCustomAdditionalDirs(e.target.value)} placeholder="additional allowed directory per line" rows={3} />
+              <label className="agent-server-toggle">
+                <input type="checkbox" checked={customTerminalEnabled} onChange={(e) => setCustomTerminalEnabled(e.target.checked)} />
+                <span>Allow ACP terminal creation</span>
+              </label>
+              <label className="agent-server-toggle">
+                <input type="checkbox" checked={customTerminalAuth} onChange={(e) => setCustomTerminalAuth(e.target.checked)} disabled={!customTerminalEnabled} />
+                <span>Advertise terminal auth support</span>
+              </label>
               <textarea className="textarea code" value={customEnv} onChange={(e) => setCustomEnv(e.target.value)} placeholder="ENV=value per line" rows={4} />
               <button className="btn primary" disabled={!customId.trim() || !customCommand.trim() || Boolean(busy)} onClick={saveCustom}>
                 <Icon name="check" size={12} />Save custom ACP
@@ -212,6 +229,10 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
       </div>
     </div>
   );
+}
+
+function splitLines(input: string): string[] {
+  return input.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 function splitArgs(input: string): string[] {

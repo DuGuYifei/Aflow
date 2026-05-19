@@ -37,12 +37,14 @@ class FakeAgent implements acp.Agent {
   }
 
   async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
+    await maybeDelayRestore();
     this.#sessions.set(params.sessionId, { promptCount: 0 });
     await this.#sendText(params.sessionId, `loaded:${params.sessionId}\n`);
     return this.#sessionResponse(params.sessionId);
   }
 
   async resumeSession(params: acp.ResumeSessionRequest): Promise<acp.ResumeSessionResponse> {
+    await maybeDelayRestore();
     this.#sessions.set(params.sessionId, { promptCount: 0 });
     return this.#sessionResponse(params.sessionId);
   }
@@ -150,6 +152,13 @@ class FakeAgent implements acp.Agent {
         content: { type: "text", text },
       },
     });
+  }
+}
+
+async function maybeDelayRestore(): Promise<void> {
+  const delayMs = Number(process.env.SPECFLOW_FAKE_ACP_RESTORE_DELAY_MS ?? 0);
+  if (Number.isFinite(delayMs) && delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 }
 

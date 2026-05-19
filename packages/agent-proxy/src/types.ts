@@ -26,6 +26,11 @@ interface BaseAgentServerSettings {
   defaultModel?: string | null;
   defaultConfigOptions?: Record<string, string | boolean>;
   env?: Record<string, string>;
+  additionalDirectories?: string[];
+  terminal?: {
+    enabled?: boolean;
+    auth?: boolean;
+  };
 }
 
 export interface CustomAcpAgentServerSettings extends BaseAgentServerSettings {

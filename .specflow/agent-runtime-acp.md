@@ -101,7 +101,11 @@ Default behavior without UI hooks:
 
 - Permission requests return cancelled.
 - Elicitation requests return cancel.
-- Terminal and filesystem requests are handled inside the configured workspace roots.
+- Filesystem requests are allowed only inside the workflow `cwd` and configured `additionalDirectories`.
+- `additionalDirectories` can be set on an agent server entry in `.specflow/agent-servers.json` or `.specflow/agent-servers.local.json`; relative paths resolve from the workflow `cwd`, and `~` is expanded.
+- ACP terminal creation is enabled by default but constrained to the same allowed roots for terminal `cwd`.
+- ACP terminal auth is not advertised by default. It is advertised only when the agent server config sets `terminal.auth: true`.
+- Agent server configs can disable terminal creation with `terminal.enabled: false`.
 
 ## Session Model
 
@@ -210,6 +214,7 @@ These logs do not persist as primary data:
 - environment variable values
 - terminal auth secrets
 - MCP server secrets
+- accepted elicitation form values
 - large file contents read or written by tools
 
 If a `session/load` call later replays ACP `session/update` notifications, those notifications can be streamed to the UI for the active restore view. They should not become Specflow's canonical copy of the agent transcript unless a future product decision explicitly makes Specflow a transcript archival system.

@@ -33,9 +33,11 @@ export interface AcpAgentClientOptions {
 export class AcpAgentClient {
   readonly connection: acp.ClientSideConnection;
   readonly process: ChildProcessWithoutNullStreams;
+  readonly #settings: ResolvedAgentServer["settings"];
   #stderr = "";
 
   constructor(options: AcpAgentClientOptions) {
+    this.#settings = options.resolved.settings;
     const { command } = options.resolved.command;
     const args = options.resolved.command.args;
     this.process = spawn(command, args, {
@@ -53,6 +55,7 @@ export class AcpAgentClient {
     const handlers = new AcpClientHandlers({
       cwd: options.cwd,
       additionalDirectories: options.additionalDirectories,
+      terminalEnabled: options.resolved.settings.terminal?.enabled ?? true,
       appendOutput: options.appendOutput,
       onTerminalEvent: options.onTerminalEvent,
       onPermissionRequest: options.request.onPermissionRequest,
@@ -70,17 +73,19 @@ export class AcpAgentClient {
   }
 
   async initialize(): Promise<acp.InitializeResponse> {
+    const terminalEnabled = this.#terminalEnabled();
+    const terminalAuthEnabled = terminalEnabled && (this.#terminalAuthEnabled());
     return this.connection.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
       clientCapabilities: {
         fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
-        auth: { terminal: true },
+        terminal: terminalEnabled,
+        auth: { terminal: terminalAuthEnabled },
         elicitation: { form: {}, url: {} },
         positionEncodings: ["utf-8", "utf-16", "utf-32"],
         _meta: {
-          terminal_output: true,
-          "terminal-auth": true,
+          terminal_output: terminalEnabled,
+          "terminal-auth": terminalAuthEnabled,
         },
       },
       clientInfo: {
@@ -93,6 +98,14 @@ export class AcpAgentClient {
 
   kill(): void {
     this.process.kill();
+  }
+
+  #terminalEnabled(): boolean {
+    return this.#settings.terminal?.enabled ?? true;
+  }
+
+  #terminalAuthEnabled(): boolean {
+    return this.#settings.terminal?.auth ?? false;
   }
 
   async close(): Promise<void> {
@@ -476,12 +489,12 @@ export async function restoreAcpAgentSession(
 
     const selectedPrimitive = selectAcpRestorePrimitive(request.mode, initializeResponse);
     if (selectedPrimitive === "load") {
-      const loadResponse = await client.connection.loadSession({
+      const loadResponse = await raceWithAbort(client.connection.loadSession({
         sessionId: request.sessionId,
         cwd: request.cwd,
         additionalDirectories: request.additionalDirectories,
         mcpServers: request.mcpServers ?? [],
-      });
+      }), request.signal, "ACP restore cancelled.");
       await client.connection.closeSession({ sessionId: request.sessionId }).catch(() => {});
       await client.close();
       return {
@@ -493,12 +506,12 @@ export async function restoreAcpAgentSession(
       };
     }
 
-    const resumeResponse = await client.connection.resumeSession({
+    const resumeResponse = await raceWithAbort(client.connection.resumeSession({
       sessionId: request.sessionId,
       cwd: request.cwd,
       additionalDirectories: request.additionalDirectories,
       mcpServers: request.mcpServers ?? [],
-    });
+    }), request.signal, "ACP restore cancelled.");
     await client.connection.closeSession({ sessionId: request.sessionId }).catch(() => {});
     await client.close();
     return {
@@ -513,7 +526,20 @@ export async function restoreAcpAgentSession(
     throw error;
   } finally {
     request.signal?.removeEventListener("abort", abort);
+    await client.close().catch(() => {});
   }
+}
+
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined, message: string): Promise<T> {
+  if (!signal) return promise;
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (signal?.aborted) {
+      reject(new Error(message));
+      return;
+    }
+    signal?.addEventListener("abort", () => reject(new Error(message)), { once: true });
+  });
+  return Promise.race([promise, abortPromise]);
 }
 
 async function applySessionDefaults(

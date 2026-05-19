@@ -2,6 +2,7 @@ import { AgentServerStore } from "./store/agent-server-store";
 import type { AgentRunRequest, AgentRunResult, AgentServerId } from "./types";
 import { AcpAgentSession, runAcpAgent } from "./runtimes/acp/connection";
 import { runHeadlessAgent } from "./runtimes/headless/command";
+import { withPolicyDirectories } from "./runtime-policy";
 
 export interface AgentProxySessionPoolOptions {
   root: string;
@@ -27,7 +28,7 @@ export class AgentProxySessionPool {
     }
 
     if (!request.workflowSessionId) {
-      return runAcpAgent(resolved, request);
+      return runAcpAgent(resolved, withPolicyDirectories(resolved, request));
     }
 
     const key = sessionKey(request);
@@ -71,7 +72,7 @@ export class AgentProxySessionPool {
     const session = new AcpAgentSession({
       resolved,
       cwd: request.cwd,
-      additionalDirectories: request.additionalDirectories,
+      additionalDirectories: withPolicyDirectories(resolved, request).additionalDirectories,
     });
     try {
       await session.start(request);
@@ -92,5 +93,6 @@ function sessionKey(request: AgentRunRequest): string {
     cwd: request.cwd,
     agentServerId: request.agentServerId,
     workflowSessionId: request.workflowSessionId,
+    additionalDirectories: request.additionalDirectories ?? [],
   });
 }

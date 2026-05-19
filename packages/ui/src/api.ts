@@ -96,6 +96,8 @@ export type AgentServerSettings =
       defaultModel?: string;
       defaultConfigOptions?: Record<string, string | boolean>;
       env?: Record<string, string>;
+      additionalDirectories?: string[];
+      terminal?: { enabled?: boolean; auth?: boolean };
     }
   | {
       type: 'custom';
@@ -105,6 +107,8 @@ export type AgentServerSettings =
       defaultModel?: string;
       defaultConfigOptions?: Record<string, string | boolean>;
       env?: Record<string, string>;
+      additionalDirectories?: string[];
+      terminal?: { enabled?: boolean; auth?: boolean };
     }
   | {
       type: 'headless';
@@ -114,6 +118,8 @@ export type AgentServerSettings =
       defaultModel?: string;
       defaultConfigOptions?: Record<string, string | boolean>;
       env?: Record<string, string>;
+      additionalDirectories?: string[];
+      terminal?: { enabled?: boolean; auth?: boolean };
     };
 
 export interface AgentServerEntry {

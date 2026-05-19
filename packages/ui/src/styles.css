@@ -1048,6 +1048,16 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-radius: 8px;
   padding: 10px;
 }
+.agent-server-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.agent-server-toggle input {
+  margin: 0;
+}
 .term-pane {
   flex: 1;
   display: flex;

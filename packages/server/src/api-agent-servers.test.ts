@@ -23,18 +23,43 @@ describe("agent server API", () => {
         type: "custom",
         command: "node",
         args: ["agent.js", "--acp"],
-        env: { A: "B" },
+        env: { A: "B", API_KEY: "secret" },
+        additionalDirectories: ["../shared"],
+        terminal: { enabled: false, auth: false },
       }),
     }));
     expect(putCustom?.status).toBe(200);
+    const putCustomBody = await putCustom!.json() as Array<{ id: string; settings: { env?: Record<string, string> } }>;
+    expect(putCustomBody.find((entry) => entry.id === "my-custom")?.settings.env).toEqual({
+      A: "B",
+      API_KEY: "[redacted]",
+    });
     expect(await loadLocalAgentServerConfig(root)).toMatchObject({
       agent_servers: {
         "my-custom": {
           type: "custom",
           command: "node",
           args: ["agent.js", "--acp"],
+          env: { API_KEY: "secret" },
+          additionalDirectories: ["../shared"],
+          terminal: { enabled: false, auth: false },
         },
       },
+    });
+
+    const preserveRedacted = await handle(new Request("http://specflow.test/api/agent-servers/my-custom", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "custom",
+        command: "node",
+        args: ["agent.js", "--acp"],
+        env: { API_KEY: "[redacted]" },
+      }),
+    }));
+    expect(preserveRedacted?.status).toBe(200);
+    expect((await loadLocalAgentServerConfig(root)).agent_servers["my-custom"]?.env).toEqual({
+      API_KEY: "secret",
     });
 
     const putRegistry = await handle(new Request("http://specflow.test/api/agent-servers/codex-acp", {

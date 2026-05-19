@@ -83,25 +83,25 @@ Implementation order is intentional. Each phase should finish with tests and doc
 
 ### 7. Run Control
 
-- [ ] Add run cancellation API.
-- [ ] Propagate cancellation to bridge, agent-proxy, ACP `session/cancel`, and child process cleanup.
-- [ ] Persist cancelled run status.
-- [ ] Surface cancellation in UI run status and logs.
-- [ ] Test cancellation during prompt, permission wait, elicitation wait, and restore.
+- [x] Add run cancellation API.
+- [x] Propagate cancellation to bridge, agent-proxy, ACP `session/cancel`, and child process cleanup.
+- [x] Persist cancelled run status.
+- [x] Surface cancellation in UI run status and logs.
+- [x] Test cancellation during prompt, permission wait, elicitation wait, and restore.
 
 ### 8. Security and Policy
 
-- [ ] Define workspace root policy for ACP filesystem operations.
-- [ ] Add configurable allowlist for additional directories.
-- [ ] Decide default behavior for terminal creation and terminal auth.
-- [ ] Add audit records for permission decisions.
-- [ ] Redact sensitive env values from logs and API responses.
-- [ ] Document security expectations in `.specflow`.
+- [x] Define workspace root policy for ACP filesystem operations.
+- [x] Add configurable allowlist for additional directories.
+- [x] Decide default behavior for terminal creation and terminal auth.
+- [x] Add audit records for permission decisions.
+- [x] Redact sensitive env values from logs and API responses.
+- [x] Document security expectations in `.specflow`.
 
 ### 9. Verification Gates
 
-- [ ] Add server API integration tests for run start, SSE terminal logs, and final invocation persistence.
+- [x] Add server API integration tests for run start, SSE terminal logs, and final invocation persistence.
 - [ ] Add UI integration test for run start and live log panel updates.
-- [ ] Add fake ACP fixtures for permission, elicitation, load, resume, and active restore update streaming.
-- [ ] Run `bun run typecheck` before every ACP runtime merge.
-- [ ] Run `bun test` before every ACP runtime merge.
+- [x] Add fake ACP fixtures for permission, elicitation, load, resume, and active restore update streaming.
+- [x] Run `bun run typecheck` before every ACP runtime merge.
+- [x] Run `bun test` before every ACP runtime merge.
