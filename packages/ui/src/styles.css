@@ -185,6 +185,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .status-dot.success { background: var(--ok); }
 .status-dot.error { background: var(--err); }
+.status-dot.cancelled { background: var(--warn); }
 .status-dot.running { background: var(--running); box-shadow: 0 0 0 0 var(--running); animation: pulse 1.6s ease-out infinite; }
 .status-dot.pending { background: var(--ink-4); }
 .status-dot.idle { background: transparent; border: 1.5px solid var(--ink-4); }

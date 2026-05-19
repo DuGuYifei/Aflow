@@ -1,18 +1,18 @@
-import { readdir, readFile, writeFile, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
 import { splitCanvasDoc } from "./canvas-store";
 import type { AgentInvocation } from "@specflow/workflow";
 
-export type RunState = "running" | "success" | "error" | "pending";
+export type RunState = "running" | "success" | "error" | "pending" | "cancelled";
 
 export interface RunRecord {
   id: string;
   workflowId: string;
   label: string;
   ticket?: string;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "error" | "cancelled";
   activeNode?: string;
   startedAt: string;
   completedAt?: string;
@@ -69,7 +69,9 @@ export async function loadRun(id: string, root: string): Promise<RunRecord> {
 }
 
 export async function saveRun(record: RunRecord, root: string): Promise<void> {
-  await writeFile(runPath(record.id, root), stringify(record), "utf8");
+  const path = runPath(record.id, root);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, stringify(record), "utf8");
 }
 
 export async function deleteRun(id: string, root: string): Promise<void> {

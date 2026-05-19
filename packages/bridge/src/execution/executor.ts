@@ -69,6 +69,7 @@ export type AgentRunner = (request: AgentCommandRequest) => Promise<AgentCommand
 
 export interface WorkflowRunOptions {
   runId?: string;
+  signal?: AbortSignal;
 }
 
 interface NodeExecutionResult {
@@ -80,6 +81,19 @@ interface NodeExecutionResult {
 interface PendingNodeInput {
   passthrough: string[];
   edgeValues: Record<string, string>;
+}
+
+class WorkflowCancelledError extends Error {
+  constructor() {
+    super("Workflow run cancelled.");
+    this.name = "WorkflowCancelledError";
+  }
+}
+
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new WorkflowCancelledError();
+  }
 }
 
 export class WorkflowExecutor {
@@ -127,6 +141,7 @@ export class WorkflowExecutor {
     this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "running", at: run.startedAt! });
 
     try {
+      throwIfCancelled(options.signal);
       const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
       const incomingEdgesByTarget = groupEdgesByTarget(workflow.edges);
       const outgoingEdgesBySource = groupEdgesBySource(workflow.edges);
@@ -139,6 +154,7 @@ export class WorkflowExecutor {
       }
 
       while (queue.length > 0) {
+        throwIfCancelled(options.signal);
         const nodeId = queue.shift();
         if (!nodeId || completedNodes.has(nodeId)) {
           continue;
@@ -164,6 +180,7 @@ export class WorkflowExecutor {
           node,
           input: nodeInput,
           edgeValues: pendingInput.edgeValues,
+          signal: options.signal,
         });
 
         completedNodes.add(node.id);
@@ -187,6 +204,7 @@ export class WorkflowExecutor {
               run,
               edge,
               input: nodeResult.output,
+              signal: options.signal,
             });
             Object.assign(targetInput.edgeValues, createTaggedEdgeVariable(edge, taggedContent));
           }
@@ -201,11 +219,12 @@ export class WorkflowExecutor {
       this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "done", at: run.completedAt });
       return run;
     } catch (error) {
-      run.status = "failed";
+      const cancelled = error instanceof WorkflowCancelledError || options.signal?.aborted;
+      run.status = cancelled ? "cancelled" : "failed";
       run.completedAt = new Date().toISOString();
       const errMsg = error instanceof Error ? error.message : String(error);
       this.#terminalEvents.append({ runId: run.id, stream: "system", chunk: errMsg });
-      this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: "failed", at: run.completedAt, error: errMsg });
+      this.#onRunStatus?.({ runId: run.id, workflowId: workflow.id, status: run.status, at: run.completedAt, error: errMsg });
       return run;
     } finally {
       await sessionPool?.closeAll();
@@ -219,7 +238,9 @@ export class WorkflowExecutor {
     node: WorkflowNode;
     input: string;
     edgeValues: Record<string, string>;
+    signal?: AbortSignal;
   }): Promise<NodeExecutionResult> {
+    throwIfCancelled(input.signal);
     const nodeRun: NodeRun = {
       id: crypto.randomUUID(),
       nodeId: input.node.id,
@@ -240,6 +261,7 @@ export class WorkflowExecutor {
           node: input.node,
           input: input.input,
           edgeValues: input.edgeValues,
+          signal: input.signal,
         });
 
         nodeRun.status = "done";
@@ -254,6 +276,7 @@ export class WorkflowExecutor {
         input: input.input,
         prompt: renderGatePrompt(input.node, input.input),
       });
+      throwIfCancelled(input.signal);
       nodeRun.status = "done";
       nodeRun.output = JSON.stringify(decision);
       nodeRun.gateDecision = decision;
@@ -281,7 +304,9 @@ export class WorkflowExecutor {
     node: AgentNode;
     input: string;
     edgeValues: Record<string, string>;
+    signal?: AbortSignal;
   }): Promise<string> {
+    throwIfCancelled(input.signal);
     assertValidAgentNodeSession(input.workflow, input.node);
     const prompt = renderNodePrompt({
       node: input.node,
@@ -307,6 +332,7 @@ export class WorkflowExecutor {
       invocation,
       agentId: input.node.agentId,
       prompt,
+      signal: input.signal,
     });
 
     return output;
@@ -318,7 +344,9 @@ export class WorkflowExecutor {
     run: WorkflowRun;
     edge: WorkflowEdge;
     input: string;
+    signal?: AbortSignal;
   }): Promise<string> {
+    throwIfCancelled(input.signal);
     if (input.edge.kind !== "tagged-output" || !input.edge.handoff) {
       return input.input;
     }
@@ -345,6 +373,7 @@ export class WorkflowExecutor {
       invocation,
       agentId: input.edge.handoff.agentId,
       prompt,
+      signal: input.signal,
     });
   }
 
@@ -380,7 +409,9 @@ export class WorkflowExecutor {
     invocation: AgentInvocation;
     agentId: string;
     prompt: string;
+    signal?: AbortSignal;
   }): Promise<string> {
+    throwIfCancelled(input.signal);
     const agent = input.workflow.agents.find((candidate) => candidate.id === input.agentId);
     if (!agent) {
       throw new Error(`Missing agent "${input.agentId}".`);
@@ -392,6 +423,7 @@ export class WorkflowExecutor {
       cwd: this.#cwd,
       runId: input.run.id,
       workflowSessionId: input.invocation.sessionId,
+      signal: input.signal,
       onTerminalEvent: (event) => {
         this.#appendAgentTerminalEvent({
           runId: input.run.id,
@@ -430,6 +462,13 @@ export class WorkflowExecutor {
         );
       },
     });
+
+    if (input.signal?.aborted) {
+      input.invocation.status = "failed";
+      input.invocation.error = "Workflow run cancelled.";
+      input.invocation.completedAt = new Date().toISOString();
+      throw new WorkflowCancelledError();
+    }
 
     input.invocation.agentServerId = result.agentServerId;
     input.invocation.acpSessionId = result.sessionId;

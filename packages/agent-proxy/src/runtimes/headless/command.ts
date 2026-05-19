@@ -22,6 +22,9 @@ export async function runHeadlessAgent(
     child.kill();
   };
   request.signal?.addEventListener("abort", abort);
+  if (request.signal?.aborted) {
+    abort();
+  }
   const timeout = resolved.settings.timeoutMs && resolved.settings.timeoutMs > 0
     ? setTimeout(() => child.kill(), resolved.settings.timeoutMs)
     : undefined;

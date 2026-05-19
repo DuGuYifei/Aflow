@@ -8,12 +8,26 @@ interface TopBarProps {
   workflowName?: string;
   onNewRun?: () => void;
   onRerun?: () => void;
+  onCancelRun?: () => void;
+  canCancelRun?: boolean;
   onAgentServers?: () => void;
   view: 'edit' | 'run';
   onExitRunView: () => void;
 }
 
-export function TopBar({ theme, onThemeChange, runLabel, workflowName, onNewRun, onRerun, onAgentServers, view, onExitRunView }: TopBarProps) {
+export function TopBar({
+  theme,
+  onThemeChange,
+  runLabel,
+  workflowName,
+  onNewRun,
+  onRerun,
+  onCancelRun,
+  canCancelRun,
+  onAgentServers,
+  view,
+  onExitRunView,
+}: TopBarProps) {
   return (
     <div className="topbar">
       <div className="brand">
@@ -67,6 +81,11 @@ export function TopBar({ theme, onThemeChange, runLabel, workflowName, onNewRun,
       {view === 'run' && onRerun && (
         <button className="btn sm" onClick={onRerun} title="Start a new run from this saved snapshot">
           <Icon name="rotate" size={11} />Run again
+        </button>
+      )}
+      {view === 'run' && canCancelRun && onCancelRun && (
+        <button className="btn sm" onClick={onCancelRun} title="Cancel the active run">
+          <Icon name="x" size={11} />Cancel
         </button>
       )}
       {view === 'edit' && (

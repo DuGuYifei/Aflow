@@ -372,6 +372,128 @@ describe("WorkflowExecutor", () => {
     expect(run.nodeRuns[0]?.status).toBe("failed");
     expect(run.nodeRuns[0]?.error).toContain("belongs to agent");
   });
+
+  test("marks the run cancelled and forwards AbortSignal to the agent runner", async () => {
+    const controller = new AbortController();
+    const runStatuses: string[] = [];
+    let sawSignal = false;
+    let abortSeen: (() => void) | undefined;
+    const abortSeenPromise = new Promise<void>((resolve) => {
+      abortSeen = resolve;
+    });
+
+    const executor = new WorkflowExecutor({
+      onRunStatus(event) {
+        runStatuses.push(event.status);
+      },
+      agentRunner: async (request) => {
+        sawSignal = request.signal === controller.signal;
+        request.signal?.addEventListener("abort", () => abortSeen?.(), { once: true });
+        controller.abort();
+        await abortSeenPromise;
+        return {
+          agentServerId: request.agentServerId,
+          exitCode: 1,
+          output: "cancelled by test",
+        };
+      },
+    });
+
+    const run = await executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source")],
+        edges: [],
+      }),
+      "",
+      { signal: controller.signal },
+    );
+
+    expect(sawSignal).toBe(true);
+    expect(run.status).toBe("cancelled");
+    expect(runStatuses).toEqual(["running", "cancelled"]);
+    expect(run.nodeRuns[0]?.status).toBe("failed");
+  });
+
+  test("cancels a run waiting for a permission decision", async () => {
+    const controller = new AbortController();
+    const executor = new WorkflowExecutor({
+      agentRunner: async (request) => {
+        const permission = await request.onPermissionRequest?.({
+          sessionId: "acp-session",
+          toolCall: { toolCallId: "tool-1", title: "Edit file" },
+          options: [{ optionId: "allow", name: "Allow" }],
+          raw: {},
+        });
+        return {
+          agentServerId: request.agentServerId,
+          sessionId: "acp-session",
+          exitCode: permission?.outcome === "cancelled" ? 1 : 0,
+          output: "permission resolved",
+        };
+      },
+    });
+
+    const runPromise = executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source")],
+        edges: [],
+      }),
+      "",
+      { signal: controller.signal },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(executor.interactions.list({ status: "pending" })).toHaveLength(1);
+    executor.interactions.cancelPendingForRun(executor.interactions.list({ status: "pending" })[0]!.runId, "test cancel");
+    controller.abort();
+
+    const run = await runPromise;
+    expect(run.status).toBe("cancelled");
+    expect(executor.interactions.list({ status: "pending" })).toHaveLength(0);
+  });
+
+  test("cancels a run waiting for an elicitation decision", async () => {
+    const controller = new AbortController();
+    const executor = new WorkflowExecutor({
+      agentRunner: async (request) => {
+        const elicitation = await request.onElicitationRequest?.({
+          sessionId: "acp-session",
+          mode: "form",
+          message: "Pick a value",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              value: { type: "string", title: "Value" },
+            },
+          },
+        });
+        return {
+          agentServerId: request.agentServerId,
+          sessionId: "acp-session",
+          exitCode: elicitation?.action === "cancel" ? 1 : 0,
+          output: "elicitation resolved",
+        };
+      },
+    });
+
+    const runPromise = executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source")],
+        edges: [],
+      }),
+      "",
+      { signal: controller.signal },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(executor.interactions.list({ status: "pending" })).toHaveLength(1);
+    executor.interactions.cancelPendingForRun(executor.interactions.list({ status: "pending" })[0]!.runId, "test cancel");
+    controller.abort();
+
+    const run = await runPromise;
+    expect(run.status).toBe("cancelled");
+    expect(executor.interactions.list({ status: "pending" })).toHaveLength(0);
+  });
 });
 
 function createWorkflow(input: {

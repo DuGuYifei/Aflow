@@ -155,6 +155,7 @@ function recordOfConfigValues(value: unknown): Record<string, string | boolean> 
 export function createApiHandler(bridge: SpecflowBridge, root: string) {
   const bus = new EventBus();
   const restoreStreams = new Map<string, RestoreStreamState>();
+  const runControllers = new Map<string, AbortController>();
 
   const DEFAULT_SESSION: CanvasSession = {
     id: "s1",
@@ -314,6 +315,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     const workflow = canvasToWorkflow(prepared.doc);
     const runId = crypto.randomUUID();
+    const runController = new AbortController();
+    runControllers.set(runId, runController);
     const existingCount = (await listRuns(workflowId, root)).length;
     const label = `Run #${existingCount + 1}`;
 
@@ -402,14 +405,22 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     };
 
     const onRunStatus = (e: RunStatusEvent) => {
-      const completedAt = new Date().toISOString();
-      record.completedAt = completedAt;
-      record.duration = formatDuration(record.startedAt, completedAt);
-
       if (e.status === "done") {
+        const completedAt = new Date().toISOString();
+        record.completedAt = completedAt;
+        record.duration = formatDuration(record.startedAt, completedAt);
         record.status = "success";
       } else if (e.status === "failed") {
+        const completedAt = new Date().toISOString();
+        record.completedAt = completedAt;
+        record.duration = formatDuration(record.startedAt, completedAt);
         record.status = "error";
+        record.errorMsg = e.error;
+      } else if (e.status === "cancelled") {
+        const completedAt = new Date().toISOString();
+        record.completedAt = completedAt;
+        record.duration = formatDuration(record.startedAt, completedAt);
+        record.status = "cancelled";
         record.errorMsg = e.error;
       }
       flushTerminalEvents();
@@ -453,14 +464,17 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       interactions: bridge.interactions,
     });
 
-    void executor.run(workflow, prepared.initialInput, { runId })
+    void executor.run(workflow, prepared.initialInput, { runId, signal: runController.signal })
       .then(async (workflowRun) => {
         await logWrite;
         record.agentInvocations = workflowRun.agentInvocations;
         await saveRun(record, root);
         await upsertAgentSessionsFromRun(record, root);
       })
-      .catch(() => { /* handled via onRunStatus */ });
+      .catch(() => { /* handled via onRunStatus */ })
+      .finally(() => {
+        runControllers.delete(runId);
+      });
 
     return Response.json({ runId });
   }
@@ -724,6 +738,36 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         await deleteRunLog(root, id);
         return Response.json({ ok: true });
       }
+    }
+
+    // POST /api/runs/:id/cancel
+    const runCancelMatch = pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
+    if (runCancelMatch && request.method === "POST") {
+      const id = runCancelMatch[1];
+      const controller = runControllers.get(id);
+      if (!controller) {
+        try {
+          const rec = await loadRun(id, root);
+          if (rec.status === "running") {
+            return Response.json({ error: "Run process is not active" }, { status: 409 });
+          }
+          return Response.json({ ok: true, status: rec.status });
+        } catch {
+          return Response.json({ error: "Run not found" }, { status: 404 });
+        }
+      }
+      bridge.interactions.cancelPendingForRun(id, "run cancelled");
+      bridge.terminalEvents.append({
+        runId: id,
+        stream: "system",
+        chunk: "Run cancellation requested.\n",
+      });
+      controller.abort();
+      bus.emit(`${id}:term`, {
+        chunk: "Run cancellation requested.\n",
+        stream: "system",
+      });
+      return Response.json({ ok: true, status: "cancelling" });
     }
 
     // GET /api/runs/:id/logs

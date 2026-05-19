@@ -236,10 +236,10 @@ Implemented:
 - Restore mode selection is capability-driven: `inspect` prefers `load`, `continue` prefers `resume`, and each mode falls back to the other primitive when only one is available.
 - Server can start a restore attempt for an indexed ACP session and stream restored `session/update` notifications and terminal output over a restore SSE channel.
 - Server records restore attempts and results in both `.specflow/run-logs/<runId>.jsonl` and `.specflow/agent-sessions.json`.
-
-Not complete:
-
-- Run cancellation does not yet have a server/UI control surface.
+- UI can cancel an active run from the run view.
+- Server exposes `POST /api/runs/:id/cancel`.
+- Cancellation aborts the run's `AbortSignal`, releases pending permission/elicitation interactions as cancelled, propagates to agent-proxy, and persists the final run status as `cancelled`.
+- ACP runtime cancellation calls ACP `session/cancel` when a real ACP session exists; headless runtime cancellation kills the child process.
 
 ## Resume Design Direction
 
@@ -267,6 +267,7 @@ If an agent supports only resume and cannot replay history, Specflow can still s
 - The ACP session index must be derived from run records, not replace them.
 - ACP session transcript authority stays with the ACP agent. Specflow stores lookup metadata, workflow audit records, and runtime shell logs.
 - Permission and elicitation decisions must be explicit user or policy decisions. Agent-proxy defaults to cancellation until UI/bridge callbacks are wired.
+- Run cancellation must release any pending interaction before aborting the underlying agent process, otherwise an agent blocked on `request_permission` or `elicitation/create` can keep the workflow pending.
 
 ## Verification Coverage
 
@@ -287,6 +288,8 @@ Current test coverage includes:
 - Server restore API streaming and audit persistence against the fake ACP restore fixture.
 - Agent-proxy rejects configured default modes/models/options that are not advertised by the initialized ACP session.
 - Headless runtime execution for success, non-zero exit, env merge, and cancellation.
+- Bridge run cancellation during active prompts, permission waits, and elicitation waits.
+- Server run cancellation API persistence using a headless child process.
 
 Coverage still needed:
 

@@ -126,6 +126,22 @@ Permission and elicitation requests default to cancelled when no UI hook is inst
 
 In the server-backed path, bridge installs those callbacks through `RunInteractionStore`. The server emits `interaction-requested` over run SSE and resolves user choices through `POST /api/runs/:runId/interactions/:interactionId/respond`.
 
+## Run Cancellation
+
+The cancellation control surface is server-owned:
+
+```text
+UI Cancel
+  -> POST /api/runs/:id/cancel
+  -> RunInteractionStore.cancelPendingForRun(...)
+  -> AbortController.abort()
+  -> bridge AgentRunRequest.signal
+  -> agent-proxy runtime
+  -> ACP session/cancel or headless child kill
+```
+
+The server cancels pending permission and elicitation interactions before aborting the process signal. This ordering is required because an ACP CLI may be blocked waiting for the client's permission or elicitation response. Once the executor observes the aborted signal, the workflow run is finalized as `cancelled`, the run record is saved with that status, and the run SSE stream emits a terminal run-status event.
+
 ## Runtime Log Persistence
 
 The server persists workflow-side runtime logs under:

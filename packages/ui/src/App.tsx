@@ -4,6 +4,7 @@ import {
   fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
+  cancelRun as apiCancelRun,
   fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
   apiRunToUiRun, apiRunLogsToLogLines, summaryToWorkflow, respondToRunInteraction,
   type SseEventType,
@@ -31,6 +32,15 @@ const SESSION_COLORS = [
   'oklch(0.7 0.14 310)',
   'oklch(0.65 0.12 80)',
 ];
+
+function runStatusFromEvent(status: string): RunStatus {
+  if (status === 'success') return 'success';
+  if (status === 'error') return 'error';
+  if (status === 'done') return 'success';
+  if (status === 'failed') return 'error';
+  if (status === 'cancelled') return 'cancelled';
+  return 'running';
+}
 
 export function App() {
   const [activeWorkflow, setActiveWorkflow] = useState('wf1');
@@ -554,9 +564,9 @@ export function App() {
           onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
           const ev = data as { status: string };
-          const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';
+          const uiStatus = runStatusFromEvent(ev.status);
           setRuns((prev) => prev.map((r) =>
-            r.id === runId ? { ...r, status: uiStatus as RunStatus } : r,
+            r.id === runId ? { ...r, status: uiStatus } : r,
           ));
           if (uiStatus !== 'running') {
             unsub();
@@ -608,9 +618,9 @@ export function App() {
           onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
           const ev = data as { status: string };
-          const uiStatus = ev.status === 'done' ? 'success' : ev.status === 'failed' ? 'error' : 'running';
+          const uiStatus = runStatusFromEvent(ev.status);
           setRuns((prev) => prev.map((r) =>
-            r.id === newRunId ? { ...r, status: uiStatus as RunStatus } : r,
+            r.id === newRunId ? { ...r, status: uiStatus } : r,
           ));
           if (uiStatus !== 'running') {
             unsub();
@@ -647,6 +657,18 @@ export function App() {
       console.error('Failed to delete run', err);
     }
   }, [activeRunId, refreshAgentSessions]);
+
+  const onCancelRun = useCallback(async (id: string) => {
+    try {
+      await apiCancelRun(id);
+      setRuns((prev) => prev.map((r) =>
+        r.id === id ? { ...r, status: 'cancelled' } : r,
+      ));
+      setLogLines((prev) => [...prev.slice(-500), { chunk: 'Run cancellation requested.\n', stream: 'system' }]);
+    } catch (err) {
+      console.error('Failed to cancel run', err);
+    }
+  }, []);
 
   const onOpenInvocationLog = useCallback((runId: string, nodeId?: string, specflowSessionId?: string) => {
     if (specflowSessionId) setActiveSessionId(specflowSessionId);
@@ -743,6 +765,8 @@ export function App() {
         workflowName={activeCanvasName}
         onNewRun={onOpenNewRun}
         onRerun={activeRunId ? () => handleRerun(activeRunId) : undefined}
+        onCancelRun={activeRunId ? () => onCancelRun(activeRunId) : undefined}
+        canCancelRun={activeRun?.status === 'running'}
         onAgentServers={() => setAgentServerManagerOpen(true)}
         view={view}
         onExitRunView={onExitRunView}

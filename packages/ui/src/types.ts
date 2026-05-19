@@ -7,8 +7,8 @@ export interface Variable {
 }
 
 export type Density = 'comfortable' | 'compact';
-export type RunStatus = 'running' | 'success' | 'error' | 'idle' | 'pending';
-export type RunState = 'running' | 'success' | 'error' | 'pending';
+export type RunStatus = 'running' | 'success' | 'error' | 'cancelled' | 'idle' | 'pending';
+export type RunState = 'running' | 'success' | 'error' | 'cancelled' | 'pending';
 export type RunStateMap = Record<string, RunState>;
 
 export interface Session {

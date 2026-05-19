@@ -32,7 +32,7 @@ export interface ApiRunRecord {
   workflowId: string;
   label: string;
   ticket?: string;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "error" | "cancelled";
   activeNode?: string;
   startedAt: string;
   completedAt?: string;
@@ -348,6 +348,11 @@ export async function restoreAgentSession(id: string, mode: RestoreMode): Promis
 
 export async function deleteRun(id: string): Promise<void> {
   await fetch(`/api/runs/${id}`, { method: 'DELETE' });
+}
+
+export async function cancelRun(id: string): Promise<void> {
+  const res = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to cancel run: ${res.status}`);
 }
 
 export async function rerunRun(
