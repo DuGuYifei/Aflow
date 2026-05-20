@@ -5,6 +5,7 @@ import {
   restoreAgentSession,
   type AgentRestoreRequest,
   type AgentRestoreResult,
+  type AgentServerEntry,
   type AgentServerSettings,
   type RegistryIndex,
 } from "@specflow/agent-proxy";
@@ -17,6 +18,7 @@ export type {
   AgentRestorePrimitive,
   AgentRestoreRequest,
   AgentRestoreResult,
+  AgentServerEntry,
   AgentServerSettings,
   RegistryAgent,
   RegistryIndex,
@@ -29,7 +31,7 @@ export interface SpecflowBridge {
   interactions: RunInteractionStore;
   executor: WorkflowExecutor;
   restoreAgentSession(request: AgentRestoreRequest): Promise<AgentRestoreResult>;
-  listAgentServers(root: string): Promise<Array<{ id: string; settings: AgentServerSettings }>>;
+  listAgentServers(root: string): Promise<AgentServerEntry[]>;
   listAgentRegistry(root: string): Promise<RegistryIndex>;
 }
 
@@ -50,7 +52,7 @@ export function createSpecflowBridge(): SpecflowBridge {
   };
 }
 
-async function listAgentServers(root: string): Promise<Array<{ id: string; settings: AgentServerSettings }>> {
+async function listAgentServers(root: string): Promise<AgentServerEntry[]> {
   return new AgentServerStore({ root }).listAgentServers();
 }
 

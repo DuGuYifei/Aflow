@@ -104,6 +104,10 @@ export function App() {
                       .map((n) => ({ name: n.variableName, defaultValue: n.defaultValue, description: n.description })),
     [displayNodes],
   );
+  const hasAgentUpdates = useMemo(
+    () => agentServers.some((server) => server.registry?.updateAvailable),
+    [agentServers],
+  );
 
   const nodesRef     = useRef(nodes);
   const edgesRef     = useRef(edges);
@@ -768,6 +772,7 @@ export function App() {
         onCancelRun={activeRunId ? () => onCancelRun(activeRunId) : undefined}
         canCancelRun={activeRun?.status === 'running'}
         onAgentServers={() => setAgentServerManagerOpen(true)}
+        hasAgentUpdates={hasAgentUpdates}
         view={view}
         onExitRunView={onExitRunView}
       />

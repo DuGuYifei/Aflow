@@ -92,6 +92,7 @@ export type AgentServerSettings =
   | {
       type: 'registry';
       registryId: string;
+      installedVersion?: string;
       defaultMode?: string;
       defaultModel?: string;
       defaultConfigOptions?: Record<string, string | boolean>;
@@ -125,6 +126,12 @@ export type AgentServerSettings =
 export interface AgentServerEntry {
   id: string;
   settings: AgentServerSettings;
+  registry?: {
+    registryId: string;
+    installedVersion?: string;
+    latestVersion?: string;
+    updateAvailable: boolean;
+  };
 }
 
 export interface RegistryAgent {

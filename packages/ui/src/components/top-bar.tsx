@@ -11,6 +11,7 @@ interface TopBarProps {
   onCancelRun?: () => void;
   canCancelRun?: boolean;
   onAgentServers?: () => void;
+  hasAgentUpdates?: boolean;
   view: 'edit' | 'run';
   onExitRunView: () => void;
 }
@@ -25,6 +26,7 @@ export function TopBar({
   onCancelRun,
   canCancelRun,
   onAgentServers,
+  hasAgentUpdates,
   view,
   onExitRunView,
 }: TopBarProps) {
@@ -58,8 +60,9 @@ export function TopBar({
       )}
 
       <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' }} />
-      <button className="btn sm" onClick={onAgentServers} title="Manage ACP agent servers">
+      <button className="btn sm agent-update-button" onClick={onAgentServers} title="Manage ACP agent servers">
         <Icon name="settings" size={11} />Agents
+        {hasAgentUpdates && <span className="agent-update-dot" aria-label="Agent updates available" />}
       </button>
       <div className="theme-toggle">
         <button

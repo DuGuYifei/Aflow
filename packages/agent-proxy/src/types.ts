@@ -42,6 +42,7 @@ export interface CustomAcpAgentServerSettings extends BaseAgentServerSettings {
 export interface RegistryAcpAgentServerSettings extends BaseAgentServerSettings {
   type: "registry";
   registryId: string;
+  installedVersion?: string;
 }
 
 export interface HeadlessAgentServerSettings extends BaseAgentServerSettings {
@@ -165,4 +166,17 @@ export interface ResolvedAgentServer {
   source: AgentServerSource;
   command: AgentServerCommand;
   settings: AgentServerSettings;
+}
+
+export interface AgentServerRegistryStatus {
+  registryId: string;
+  installedVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+}
+
+export interface AgentServerEntry {
+  id: AgentServerId;
+  settings: AgentServerSettings;
+  registry?: AgentServerRegistryStatus;
 }

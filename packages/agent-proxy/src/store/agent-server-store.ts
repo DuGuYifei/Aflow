@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type {
   AgentServerConfigFile,
   AgentServerCommand,
+  AgentServerEntry,
   AgentServerId,
   AgentServerSettings,
   ResolvedAgentServer,
@@ -26,7 +27,7 @@ export class AgentServerStore {
     this.#cacheDir = options.cacheDir ?? process.env.SPECFLOW_AGENT_CACHE_DIR ?? join(options.root, ".specflow", "cache", "agents");
   }
 
-  async listAgentServers(): Promise<Array<{ id: AgentServerId; settings: AgentServerSettings }>> {
+  async listAgentServers(): Promise<AgentServerEntry[]> {
     await this.#load();
     return [...this.#settings!.entries()].map(([id, settings]) => ({ id, settings }));
   }
@@ -80,6 +81,7 @@ function normalizeConfig(config: AgentServerConfigFile): AgentServerConfigFile {
           return [id, {
             ...value,
             registryId: raw.registryId ?? raw.registry_id ?? id,
+            installedVersion: raw.installedVersion ?? raw.installed_version,
             defaultMode: raw.defaultMode ?? raw.default_mode,
             defaultModel: raw.defaultModel ?? raw.default_model,
             defaultConfigOptions: raw.defaultConfigOptions ?? raw.default_config_options,
@@ -135,6 +137,7 @@ type CommonRawSettings = {
 
 type RegistryRawSettings = Extract<AgentServerSettings, { type: "registry" }> & {
   registry_id?: string;
+  installed_version?: string;
 } & CommonRawSettings;
 
 type HeadlessRawSettings = Extract<AgentServerSettings, { type: "headless" }> & {

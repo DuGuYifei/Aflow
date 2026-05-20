@@ -232,7 +232,8 @@ Implemented:
 - UI loads historical terminal logs when viewing a completed run.
 - UI exposes ACP session history in the bottom History tab, filtered by workflow, Specflow session, and agent server.
 - UI links session index entries back to run node logs and can start Inspect or Resume restore attempts.
-- UI exposes an Agent Servers manager for registry install/remove and custom ACP command registration.
+- UI exposes an Agent Servers manager for registry install/update/remove and custom ACP command registration.
+- Registry installs record the registry version in local settings. When the current registry version differs, the manager shows an Update action and the top-bar Agents button shows a red update dot. The actual ACP binary/package resolution remains lazy: the next run resolves the current registry metadata and downloads the matching artifact into the versioned cache if needed.
 - New workflow sessions choose from configured agent servers instead of hardcoded Codex/Claude options.
 - ACP permission and elicitation requests can be surfaced to UI and answered through `POST /api/runs/:runId/interactions/:interactionId/respond`.
 - Run records include final ACP invocation metadata after run completion.

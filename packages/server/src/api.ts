@@ -1,6 +1,6 @@
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge } from "@specflow/bridge";
-import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerSettings, NodeStatusEvent, RunInteraction, RunStatusEvent } from "@specflow/bridge";
+import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunStatusEvent, RegistryIndex } from "@specflow/bridge";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import {
   listCanvases,
@@ -103,6 +103,7 @@ function parseAgentServerSettings(input: unknown): AgentServerSettings | undefin
     return {
       type: "registry",
       registryId: raw.registryId.trim(),
+      installedVersion: typeof raw.installedVersion === "string" ? raw.installedVersion : undefined,
       env,
       additionalDirectories,
       terminal,
@@ -169,11 +170,37 @@ function terminalPolicy(value: unknown): AgentServerSettings["terminal"] {
   };
 }
 
-function redactAgentServerEntries(entries: Array<{ id: string; settings: AgentServerSettings }>): Array<{ id: string; settings: AgentServerSettings }> {
+function redactAgentServerEntries(entries: AgentServerEntry[]): AgentServerEntry[] {
   return entries.map((entry) => ({
     ...entry,
     settings: redactAgentServerSettings(entry.settings),
   }));
+}
+
+async function listAgentServerEntries(bridge: SpecflowBridge, root: string): Promise<AgentServerEntry[]> {
+  const entries = await bridge.listAgentServers(root);
+  let registry: RegistryIndex | undefined;
+  try {
+    registry = await bridge.listAgentRegistry(root);
+  } catch {
+    registry = undefined;
+  }
+
+  const registryAgents = new Map((registry?.agents ?? []).map((agent) => [agent.id, agent]));
+  return entries.map((entry) => {
+    if (entry.settings.type !== "registry") return entry;
+    const latestVersion = registryAgents.get(entry.settings.registryId)?.version;
+    const installedVersion = entry.settings.installedVersion;
+    return {
+      ...entry,
+      registry: {
+        registryId: entry.settings.registryId,
+        installedVersion,
+        latestVersion,
+        updateAvailable: Boolean(latestVersion && installedVersion !== latestVersion),
+      },
+    };
+  });
 }
 
 function redactAgentServerSettings(settings: AgentServerSettings): AgentServerSettings {
@@ -713,7 +740,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     // GET /api/agent-servers
     if (request.method === "GET" && pathname === "/api/agent-servers") {
-      return Response.json(redactAgentServerEntries(await bridge.listAgentServers(root)));
+      return Response.json(redactAgentServerEntries(await listAgentServerEntries(bridge, root)));
     }
 
     // GET /api/agent-servers/registry
@@ -736,13 +763,13 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       settings = await preserveRedactedEnvValues(root, decodeURIComponent(agentServerMatch[1]), settings);
       await upsertLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]), settings);
-      return Response.json(redactAgentServerEntries(await bridge.listAgentServers(root)));
+      return Response.json(redactAgentServerEntries(await listAgentServerEntries(bridge, root)));
     }
 
     // DELETE /api/agent-servers/:id
     if (agentServerMatch && request.method === "DELETE") {
       await removeLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]));
-      return Response.json(redactAgentServerEntries(await bridge.listAgentServers(root)));
+      return Response.json(redactAgentServerEntries(await listAgentServerEntries(bridge, root)));
     }
 
     // GET /api/canvases

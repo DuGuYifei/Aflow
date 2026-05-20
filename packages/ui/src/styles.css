@@ -108,6 +108,17 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 
 .topbar-spacer { flex: 1; }
 .topbar-actions { display: flex; align-items: center; gap: 6px; }
+.agent-update-button { position: relative; }
+.agent-update-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--err);
+  border: 2px solid var(--bg-panel);
+}
 
 /* === LEFT RAIL === */
 .left {
@@ -911,6 +922,11 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   color: var(--ok);
   border-color: color-mix(in oklch, var(--ok) 35%, var(--line));
   background: var(--ok-soft);
+}
+.cap-badge.update {
+  color: var(--err);
+  border-color: color-mix(in oklch, var(--err) 35%, var(--line));
+  background: var(--err-soft);
 }
 .history-restore-status,
 .history-warning {

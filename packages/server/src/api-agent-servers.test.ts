@@ -86,4 +86,50 @@ describe("agent server API", () => {
     expect(del?.status).toBe(200);
     expect((await loadLocalAgentServerConfig(root)).agent_servers["my-custom"]).toBeUndefined();
   });
+
+  test("reports registry agent updates from installed version markers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-api-"));
+    const bridge = {
+      ...createSpecflowBridge(),
+      listAgentRegistry: async () => ({
+        version: "1",
+        agents: [{
+          id: "codex-acp",
+          name: "Codex",
+          version: "2.0.0",
+          distribution: { npx: { package: "codex-acp" } },
+        }],
+      }),
+    };
+    const handle = createApiHandler(bridge, root);
+
+    const putOld = await handle(new Request("http://specflow.test/api/agent-servers/codex-acp", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "registry",
+        registryId: "codex-acp",
+        installedVersion: "1.0.0",
+      }),
+    }));
+    expect(putOld?.status).toBe(200);
+    const oldBody = await putOld!.json() as Array<{ id: string; registry?: { updateAvailable: boolean; latestVersion?: string } }>;
+    expect(oldBody.find((entry) => entry.id === "codex-acp")?.registry).toMatchObject({
+      latestVersion: "2.0.0",
+      updateAvailable: true,
+    });
+
+    const putLatest = await handle(new Request("http://specflow.test/api/agent-servers/codex-acp", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "registry",
+        registryId: "codex-acp",
+        installedVersion: "2.0.0",
+      }),
+    }));
+    expect(putLatest?.status).toBe(200);
+    const latestBody = await putLatest!.json() as Array<{ id: string; registry?: { updateAvailable: boolean } }>;
+    expect(latestBody.find((entry) => entry.id === "codex-acp")?.registry?.updateAvailable).toBe(false);
+  });
 });

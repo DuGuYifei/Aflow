@@ -32,6 +32,13 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
   const [customConfigOptions, setCustomConfigOptions] = useState('');
 
   const installed = useMemo(() => new Map(servers.map((server) => [server.id, server])), [servers]);
+  const installedRegistry = useMemo(() => {
+    const byRegistryId = new Map<string, AgentServerEntry>();
+    for (const server of servers) {
+      if (server.settings.type === 'registry') byRegistryId.set(server.settings.registryId, server);
+    }
+    return byRegistryId;
+  }, [servers]);
 
   useEffect(() => {
     void refreshAll();
@@ -57,6 +64,7 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
       setServers(await saveAgentServer(agent.id, {
         type: 'registry',
         registryId: agent.id,
+        installedVersion: agent.version,
       }));
       onChanged?.();
       setError('');
@@ -71,6 +79,23 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
     setBusy(id);
     try {
       setServers(await removeAgentServer(id));
+      onChanged?.();
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function updateRegistry(agent: RegistryAgent, server: AgentServerEntry) {
+    if (server.settings.type !== 'registry') return;
+    setBusy(server.id);
+    try {
+      setServers(await saveAgentServer(server.id, {
+        ...server.settings,
+        installedVersion: agent.version,
+      }));
       onChanged?.();
       setError('');
     } catch (err) {
@@ -143,7 +168,9 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
         {tab === 'registry' && (
           <div className="agent-server-list">
             {registry.map((agent) => {
-              const isInstalled = installed.has(agent.id);
+              const installedServer = installedRegistry.get(agent.id) ?? installed.get(agent.id);
+              const isInstalled = Boolean(installedServer);
+              const hasUpdate = Boolean(installedServer?.registry?.updateAvailable);
               return (
                 <div className="agent-server-row" key={agent.id}>
                   <div className="agent-server-main">
@@ -151,12 +178,16 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
                       <span>{agent.name || agent.id}</span>
                       <span className="mono-id">{agent.version}</span>
                       {isInstalled && <span className="cap-badge on">installed</span>}
+                      {hasUpdate && <span className="cap-badge update">update</span>}
                     </div>
                     <div className="agent-server-desc">{agent.description || agent.id}</div>
                     <div className="history-meta">
                       {Boolean(agent.distribution.binary) && <span>binary</span>}
                       {Boolean(agent.distribution.npx) && <span>npx</span>}
                       {Boolean(agent.distribution.uvx) && <span>uvx</span>}
+                      {installedServer?.registry?.installedVersion && (
+                        <span>installed {installedServer.registry.installedVersion}</span>
+                      )}
                     </div>
                   </div>
                   <div className="agent-server-actions">
@@ -165,10 +196,17 @@ export function AgentServerManager({ onClose, onChanged }: AgentServerManagerPro
                         <Icon name="external" size={10} />Site
                       </a>
                     )}
-                    {isInstalled ? (
-                      <button className="btn sm" disabled={busy === agent.id} onClick={() => remove(agent.id)}>
-                        <Icon name="trash" size={10} />Remove
-                      </button>
+                    {installedServer ? (
+                      <>
+                        {hasUpdate && (
+                          <button className="btn sm primary" disabled={busy === installedServer.id} onClick={() => updateRegistry(agent, installedServer)}>
+                            <Icon name="check" size={10} />Update
+                          </button>
+                        )}
+                        <button className="btn sm" disabled={busy === installedServer.id} onClick={() => remove(installedServer.id)}>
+                          <Icon name="trash" size={10} />Remove
+                        </button>
+                      </>
                     ) : (
                       <button className="btn sm primary" disabled={busy === agent.id} onClick={() => installRegistry(agent)}>
                         <Icon name="plus" size={10} />Install
