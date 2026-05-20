@@ -24,8 +24,7 @@ export async function startSpecflowServer(
 
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
-  const mode =
-    options.mode ?? (process.env.NODE_ENV === "production" ? "production" : "development");
+  const mode = options.mode ?? defaultServerMode();
   const bridge = createSpecflowBridge();
   const devUi = mode === "development" ? await createDevUiProxy() : undefined;
   const handleApi = createApiHandler(bridge, cwd);
@@ -42,6 +41,19 @@ export async function startSpecflowServer(
       server.stop();
     },
   };
+}
+
+function defaultServerMode(): "development" | "production" {
+  const explicitMode = process.env["SPECFLOW_SERVER_MODE"];
+  if (explicitMode === "development" || explicitMode === "production") {
+    return explicitMode;
+  }
+
+  const nodeEnv = process.env["NODE_ENV"];
+  if (nodeEnv === "development") return "development";
+  if (nodeEnv === "production") return "production";
+
+  return "production";
 }
 
 interface HttpServerOptions {

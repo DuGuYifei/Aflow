@@ -1,13 +1,7 @@
 import { extname } from "node:path";
 
-const distPrefix = "../../ui/dist";
-
-// import.meta.glob is a bundler-only transform (bun build --compile).
-// Under `bun run` it is undefined; dev mode never calls serveStaticUi so {} is safe.
-let files: Record<string, string> = {};
-try {
-  files = import.meta.glob<string>("../../ui/dist/**/*", { as: "file", eager: true });
-} catch { /* not in bundled context */ }
+const indexPath = "/index.html";
+let staticUiAssetsPromise: Promise<Record<string, string>> | undefined;
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -20,22 +14,43 @@ const contentTypes = new Map([
   [".webmanifest", "application/manifest+json; charset=utf-8"],
 ]);
 
-export function serveStaticUi(request: Request): Response {
+export async function serveStaticUi(request: Request): Promise<Response> {
+  const staticUiAssets = await loadStaticUiAssets().catch(() => undefined);
+  if (!staticUiAssets) {
+    return missingAssetsResponse();
+  }
+
   const url = new URL(request.url);
   const suffix = decodeURIComponent(url.pathname);
-  const normalized = suffix === "/" ? "/index.html" : suffix;
-  const key = `${distPrefix}${normalized}`;
+  const normalized = suffix === "/" ? indexPath : suffix;
 
-  const embeddedPath = files[key];
-  if (embeddedPath) {
+  const assetPath = staticUiAssets[normalized];
+  if (assetPath) {
     const contentType = contentTypes.get(extname(normalized));
-    return new Response(Bun.file(embeddedPath), {
+    return new Response(Bun.file(assetPath), {
       headers: contentType ? { "content-type": contentType } : undefined,
     });
   }
 
   // SPA fallback: unknown routes serve index.html
-  return new Response(Bun.file(files[`${distPrefix}/index.html`]), {
+  if (!staticUiAssets[indexPath]) {
+    return missingAssetsResponse();
+  }
+
+  return new Response(Bun.file(staticUiAssets[indexPath]), {
     headers: { "content-type": "text/html; charset=utf-8" },
+  });
+}
+
+async function loadStaticUiAssets(): Promise<Record<string, string>> {
+  staticUiAssetsPromise ??= import("./static-ui-assets.generated")
+    .then((module) => module.staticUiAssets);
+  return staticUiAssetsPromise;
+}
+
+function missingAssetsResponse(): Response {
+  return new Response("Specflow UI assets are missing. Run `bun run build` before serving production mode.", {
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    status: 500,
   });
 }

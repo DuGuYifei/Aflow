@@ -4,6 +4,7 @@ dist/
 # compiled binary output
 /specflow
 /specflow.exe
+/specflow.js.map
 .vite/
 .turbo/
 .cache/
