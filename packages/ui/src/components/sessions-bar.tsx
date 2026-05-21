@@ -16,6 +16,7 @@ interface SessionsBarProps {
   addSessionPing: number;
   logLines?: LogLine[];
   onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
+  onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => void;
   onDeleteSession: (id: string) => void;
   onClearLogs: () => void;
   variables: Variable[];
@@ -36,7 +37,7 @@ export function SessionsBar({
   activeSessionId, setActiveSessionId,
   onAssignSession, addSessionPing,
   logLines,
-  onAddSession, onDeleteSession, onClearLogs,
+  onAddSession, onEditSession, onDeleteSession, onClearLogs,
   variables, onEditVariable,
   agentSessions = [], agentServers = [], runs = [],
   onOpenInvocationLog, onRestoreSession,
@@ -161,8 +162,10 @@ export function SessionsBar({
           onAssignSession={onAssignSession}
           addSessionPing={addSessionPing}
           onAddSession={onAddSession}
+          onEditSession={onEditSession}
           onDeleteSession={onDeleteSession}
           agentServers={agentServers}
+          readonly={readonly}
         />
       )}
       {tab === 'vars' && (
@@ -466,8 +469,10 @@ interface SettingsTabProps {
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
   onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
+  onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => void;
   onDeleteSession: (id: string) => void;
   agentServers: AgentServerEntry[];
+  readonly?: boolean;
 }
 
 // ── variables tab ─────────────────────────────────────────────────────────────
@@ -526,9 +531,12 @@ function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps
   );
 }
 
-function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onDeleteSession, agentServers }: SettingsTabProps) {
+function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onEditSession, onDeleteSession, agentServers, readonly }: SettingsTabProps) {
   const [draftName, setDraftName] = useState('');
   const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('codex-acp');
+  const [editingId, setEditingId] = useState('');
+  const [editingName, setEditingName] = useState('');
+  const [editingAgent, setEditingAgent] = useState<Session['agentServerId']>('codex-acp');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -545,10 +553,29 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
   }, [agentServers, draftAgent]);
 
   const handleAdd = () => {
+    if (readonly) return;
     const name = draftName.trim();
     if (!name) return;
     onAddSession(name, draftAgent);
     setDraftName('');
+  };
+
+  const startEdit = (session: Session) => {
+    setEditingId(session.id);
+    setEditingName(session.name);
+    setEditingAgent(session.agentServerId ?? session.agent ?? draftAgent);
+  };
+
+  const cancelEdit = () => {
+    setEditingId('');
+    setEditingName('');
+  };
+
+  const saveEdit = () => {
+    const name = editingName.trim();
+    if (!editingId || !name || readonly) return;
+    onEditSession(editingId, { name, agentServerId: editingAgent });
+    cancelEdit();
   };
 
   return (
@@ -562,32 +589,73 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           className="input sm"
           placeholder="session name"
           value={draftName}
+          disabled={readonly}
           onChange={(e) => setDraftName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           style={{ width: 180, height: 26 }}
         />
-        <select className="input sm" value={draftAgent} onChange={(e) => setDraftAgent(e.target.value)} style={{ height: 26, width: 180 }}>
+        <select className="input sm" value={draftAgent} disabled={readonly} onChange={(e) => setDraftAgent(e.target.value)} style={{ height: 26, width: 180 }}>
           {agentServers.map((server) => (
             <option key={server.id} value={server.id}>{server.id}</option>
           ))}
         </select>
-        <button className="btn sm primary" onClick={handleAdd}><Icon name="plus" size={11} />Add</button>
+        <button className="btn sm primary" disabled={readonly} onClick={handleAdd}><Icon name="plus" size={11} />Add</button>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>{sessions.length} sessions</span>
       </div>
 
       <div className="session-list-row">
         <span className="label">Sessions</span>
-        {sessions.map((s) => (
-          <span key={s.id} className="session-chip">
-            <span className="ses-dot" style={{ background: s.color }} />
-            {s.name}
-            <span className="agent">{s.agentServerId ?? s.agent}</span>
-            <button className="ses-x" title={`Delete ${s.name}`} onClick={() => onDeleteSession(s.id)}>
-              <Icon name="x" size={10} />
-            </button>
-          </span>
-        ))}
+        {sessions.map((s) => {
+          if (editingId === s.id) {
+            return (
+              <span key={s.id} className="session-chip editing">
+                <span className="ses-dot" style={{ background: s.color }} />
+                <input
+                  className="input sm"
+                  value={editingName}
+                  disabled={readonly}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveEdit();
+                    if (e.key === 'Escape') cancelEdit();
+                  }}
+                  style={{ width: 130, height: 20 }}
+                />
+                <select
+                  className="input sm"
+                  value={editingAgent}
+                  disabled={readonly}
+                  onChange={(e) => setEditingAgent(e.target.value)}
+                  style={{ width: 140, height: 20 }}
+                >
+                  {agentServers.map((server) => (
+                    <option key={server.id} value={server.id}>{server.id}</option>
+                  ))}
+                </select>
+                <button className="ses-x save" title={`Save ${s.name}`} disabled={readonly || !editingName.trim()} onClick={saveEdit}>
+                  <Icon name="check" size={10} />
+                </button>
+                <button className="ses-x" title="Cancel" onClick={cancelEdit}>
+                  <Icon name="x" size={10} />
+                </button>
+              </span>
+            );
+          }
+          return (
+            <span key={s.id} className="session-chip">
+              <span className="ses-dot" style={{ background: s.color }} />
+              {s.name}
+              <span className="agent">{s.agentServerId ?? s.agent}</span>
+              <button className="ses-x" title={`Edit ${s.name}`} disabled={readonly} onClick={() => startEdit(s)}>
+                <Icon name="edit" size={10} />
+              </button>
+              <button className="ses-x" title={`Delete ${s.name}`} disabled={readonly} onClick={() => onDeleteSession(s.id)}>
+                <Icon name="x" size={10} />
+              </button>
+            </span>
+          );
+        })}
       </div>
 
       <div className="assn-list">

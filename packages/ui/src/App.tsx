@@ -416,6 +416,15 @@ export function App() {
     scheduleSave();
   }, [scheduleSave]);
 
+  const onEditSession = useCallback((id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => {
+    const updated = sessionsRef.current.map((session) =>
+      session.id === id ? { ...session, ...patch } : session,
+    );
+    sessionsRef.current = updated;
+    setSessions(updated);
+    scheduleSave();
+  }, [scheduleSave]);
+
   // ── variable management (InputNode-derived) ───────────────────────────────
 
   // Variables are declared via InputNodes on the canvas. Editing a variable
@@ -899,6 +908,7 @@ export function App() {
           addSessionPing={addSessionPing}
           logLines={logLines}
           onAddSession={onAddSession}
+          onEditSession={onEditSession}
           onDeleteSession={onDeleteSession}
           onClearLogs={onClearLogs}
           variables={displayVariables}

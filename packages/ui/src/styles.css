@@ -1331,6 +1331,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   height: 26px;
   position: relative;
 }
+.session-chip.editing { height: 28px; padding-right: 6px; }
 .session-chip .ses-dot { width: 8px; height: 8px; border-radius: 2px; }
 .session-chip .agent {
   font-family: var(--font-mono);
@@ -1351,6 +1352,11 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   margin-left: 2px;
 }
 .session-chip .ses-x:hover { color: var(--err); background: var(--err-soft); }
+.session-chip .ses-x.save:hover { color: var(--ok); background: var(--ok-soft); }
+.session-chip .ses-x:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .assn-add { color: var(--ink-3); }
 
 .term-line { display: flex; gap: 6px; align-items: flex-start; }
