@@ -35,6 +35,13 @@ describe("run event API", () => {
       agentServerId: "echo-headless",
       status: "done",
     });
+    expect(record.agentflowSnapshot.nodes[0]).not.toHaveProperty("x");
+    expect(record.canvasSnapshot.nodes[0]).toMatchObject({
+      nodeId: "node-1",
+      x: 80,
+      y: 80,
+      w: 240,
+    });
     const terminalLog = await eventuallyFindTerminalLog(root, runId, "run-id-check");
     expect(terminalLog?.runId).toBe(runId);
 
