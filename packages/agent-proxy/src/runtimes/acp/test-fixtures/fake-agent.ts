@@ -12,6 +12,11 @@ class FakeAgent implements acp.Agent {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean));
+  readonly #authMethods = (process.env.SPECFLOW_FAKE_ACP_AUTH_METHODS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  #authenticated = false;
 
   constructor(connection: acp.AgentSideConnection) {
     this.#connection = connection;
@@ -32,20 +37,28 @@ class FakeAgent implements acp.Agent {
           ...(this.#restoreCapabilities.has("resume") ? { resume: {} } : {}),
         },
       },
+      authMethods: this.#authMethods.map((method) => this.#authMethod(method)),
     };
   }
 
-  async authenticate(): Promise<acp.AuthenticateResponse> {
+  async authenticate(params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
+    const methodIds = new Set(this.#authMethods.map((method) => this.#authMethod(method).id));
+    if (methodIds.size > 0 && !methodIds.has(params.methodId)) {
+      throw new Error(`Unknown auth method ${params.methodId}`);
+    }
+    this.#authenticated = true;
     return {};
   }
 
   async newSession(): Promise<acp.NewSessionResponse> {
+    this.#assertAuthenticated();
     const sessionId = crypto.randomUUID();
     this.#sessions.set(sessionId, { promptCount: 0 });
     return this.#sessionResponse(sessionId);
   }
 
   async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
+    this.#assertAuthenticated();
     await maybeDelayRestore();
     this.#sessions.set(params.sessionId, { promptCount: 0 });
     await this.#sendText(params.sessionId, `loaded:${params.sessionId}\n`);
@@ -53,6 +66,7 @@ class FakeAgent implements acp.Agent {
   }
 
   async resumeSession(params: acp.ResumeSessionRequest): Promise<acp.ResumeSessionResponse> {
+    this.#assertAuthenticated();
     await maybeDelayRestore();
     this.#sessions.set(params.sessionId, { promptCount: 0 });
     return this.#sessionResponse(params.sessionId);
@@ -101,6 +115,7 @@ class FakeAgent implements acp.Agent {
     const text = params.prompt.find((block) => block.type === "text")?.text ?? "";
 
     await this.#sendText(sessionId, `turn:${session.promptCount}\n`);
+    await this.#sendText(sessionId, `authenticated:${this.#isAuthenticated()}\n`);
     await this.#sendText(sessionId, `prompt:${text}\n`);
     await this.#sendText(sessionId, `blocks:${params.prompt.map((block) => block.type).join(",")}\n`);
 
@@ -162,6 +177,39 @@ class FakeAgent implements acp.Agent {
         content: { type: "text", text },
       },
     });
+  }
+
+  #assertAuthenticated(): void {
+    if (!this.#isAuthenticated()) {
+      throw new Error("auth_required");
+    }
+  }
+
+  #isAuthenticated(): boolean {
+    return this.#authMethods.length === 0 || this.#authenticated;
+  }
+
+  #authMethod(method: string): acp.AuthMethod {
+    if (method === "env_var") {
+      return {
+        type: "env_var",
+        id: "env",
+        name: "Environment",
+        vars: [{ name: "SPECFLOW_FAKE_TOKEN", optional: false, secret: true }],
+      };
+    }
+    if (method === "terminal") {
+      return {
+        type: "terminal",
+        id: "terminal",
+        name: "Terminal",
+        args: ["--fake-auth"],
+      };
+    }
+    return {
+      id: "agent",
+      name: "Agent",
+    };
   }
 }
 

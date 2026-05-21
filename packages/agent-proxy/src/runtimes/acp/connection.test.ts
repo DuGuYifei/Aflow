@@ -75,6 +75,48 @@ describe("runAcpAgent", () => {
     expect(result.output).toContain('config option "reasoning" value "low"');
   });
 
+  it("authenticates with the agent method before creating a session", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+
+    const result = await runAcpAgent(resolved({ authMethods: "agent" }), {
+      agentServerId: "fake-acp",
+      cwd,
+      prompt: "hello",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("authenticated:true");
+  });
+
+  it("authenticates with env_var when required credentials are configured", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+
+    const result = await runAcpAgent(resolved({
+      authMethods: "env_var",
+      env: { SPECFLOW_FAKE_TOKEN: "token" },
+    }), {
+      agentServerId: "fake-acp",
+      cwd,
+      prompt: "hello",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("authenticated:true");
+  });
+
+  it("reports missing env_var credentials before creating a session", async () => {
+    const result = await runAcpAgent(resolved({ authMethods: "env_var" }), {
+      agentServerId: "fake-acp",
+      cwd: await mkdtemp(join(tmpdir(), "specflow-acp-")),
+      prompt: "hello",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("SPECFLOW_FAKE_TOKEN");
+  });
+
   it("downgrades unsupported binary prompt blocks to resource links", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
     await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
@@ -218,6 +260,8 @@ describe("restoreAcpAgentSession", () => {
 function resolved(options: {
   restoreCapabilities?: string;
   promptCapabilities?: string;
+  authMethods?: string;
+  env?: Record<string, string>;
   settings?: Partial<Extract<ResolvedAgentServer["settings"], { type: "custom" }>>;
 } = {}): ResolvedAgentServer {
   return {
@@ -236,8 +280,10 @@ function resolved(options: {
       command: "bun",
       args: [fakeAgentPath],
       env: {
+        ...(options.env ?? {}),
         ...(options.restoreCapabilities ? { SPECFLOW_FAKE_ACP_RESTORE: options.restoreCapabilities } : {}),
         ...(options.promptCapabilities ? { SPECFLOW_FAKE_ACP_PROMPT_CAPABILITIES: options.promptCapabilities } : {}),
+        ...(options.authMethods ? { SPECFLOW_FAKE_ACP_AUTH_METHODS: options.authMethods } : {}),
       },
     },
   };

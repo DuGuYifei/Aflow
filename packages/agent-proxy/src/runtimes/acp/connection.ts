@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
@@ -200,6 +200,13 @@ export class AcpAgentSession {
     if (this.#initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
       throw new Error(`Unsupported ACP protocol version: ${this.#initializeResponse.protocolVersion}`);
     }
+    await authenticateIfAvailable({
+      connection: this.#client.connection,
+      initializeResponse: this.#initializeResponse,
+      resolved: this.#resolved,
+      cwd: this.#cwd,
+      onTerminalEvent: request.onTerminalEvent,
+    });
     const session = await this.#client.connection.newSession({
       cwd: this.#cwd,
       additionalDirectories: this.#additionalDirectories,
@@ -352,6 +359,13 @@ export async function runAcpAgent(
     if (initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
       throw new Error(`Unsupported ACP protocol version: ${initializeResponse.protocolVersion}`);
     }
+    await authenticateIfAvailable({
+      connection: client.connection,
+      initializeResponse,
+      resolved,
+      cwd: request.cwd,
+      onTerminalEvent: request.onTerminalEvent,
+    });
 
     const session = await client.connection.newSession({
       cwd: request.cwd,
@@ -486,6 +500,13 @@ export async function restoreAcpAgentSession(
     if (initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
       throw new Error(`Unsupported ACP protocol version: ${initializeResponse.protocolVersion}`);
     }
+    await authenticateIfAvailable({
+      connection: client.connection,
+      initializeResponse,
+      resolved,
+      cwd: request.cwd,
+      onTerminalEvent: request.onTerminalEvent,
+    });
 
     const selectedPrimitive = selectAcpRestorePrimitive(request.mode, initializeResponse);
     if (selectedPrimitive === "load") {
@@ -540,6 +561,96 @@ function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined, 
     signal?.addEventListener("abort", () => reject(new Error(message)), { once: true });
   });
   return Promise.race([promise, abortPromise]);
+}
+
+async function authenticateIfAvailable(input: {
+  connection: acp.ClientSideConnection;
+  initializeResponse: acp.InitializeResponse;
+  resolved: ResolvedAgentServer;
+  cwd: string;
+  onTerminalEvent?: (event: AgentTerminalEvent) => void;
+}): Promise<void> {
+  const methods = input.initializeResponse.authMethods ?? [];
+  if (methods.length === 0) return;
+
+  const method = selectAuthMethod(methods, input.resolved);
+  input.onTerminalEvent?.({
+    stream: "system",
+    chunk: `[acp:auth] ${method.name} (${method.id})\n`,
+  });
+
+  if (isTerminalAuthMethod(method)) {
+    await runTerminalAuthMethod(input.resolved, input.cwd, method, input.onTerminalEvent);
+  }
+
+  await input.connection.authenticate({ methodId: method.id });
+}
+
+function selectAuthMethod(
+  methods: acp.AuthMethod[],
+  resolved: ResolvedAgentServer,
+): acp.AuthMethod {
+  const agentMethod = methods.find(isAgentAuthMethod);
+  if (agentMethod) return agentMethod;
+
+  const envMethod = methods.find((method) => isEnvAuthMethod(method) && missingEnvVars(method, resolved).length === 0);
+  if (envMethod) return envMethod;
+
+  const terminalMethod = methods.find(isTerminalAuthMethod);
+  if (terminalMethod) {
+    if (resolved.settings.terminal?.auth) return terminalMethod;
+    throw new Error(
+      `ACP agent "${resolved.id}" requires terminal authentication, but terminal auth is disabled. Set terminal.auth=true on the agent server.`,
+    );
+  }
+
+  const missingEnvMethod = methods.find(isEnvAuthMethod);
+  if (missingEnvMethod) {
+    throw new Error(
+      `ACP agent "${resolved.id}" requires authentication env vars: ${missingEnvVars(missingEnvMethod, resolved).join(", ")}`,
+    );
+  }
+
+  throw new Error(`ACP agent "${resolved.id}" advertised no supported authentication methods.`);
+}
+
+function isAgentAuthMethod(method: acp.AuthMethod): method is Exclude<acp.AuthMethod, { type: "env_var" } | { type: "terminal" }> {
+  return !("type" in method);
+}
+
+function isEnvAuthMethod(method: acp.AuthMethod): method is Extract<acp.AuthMethod, { type: "env_var" }> {
+  return "type" in method && method.type === "env_var";
+}
+
+function isTerminalAuthMethod(method: acp.AuthMethod): method is Extract<acp.AuthMethod, { type: "terminal" }> {
+  return "type" in method && method.type === "terminal";
+}
+
+function missingEnvVars(method: Extract<acp.AuthMethod, { type: "env_var" }>, resolved: ResolvedAgentServer): string[] {
+  const env = { ...process.env, ...(resolved.command.env ?? {}) };
+  return method.vars
+    .filter((entry) => !entry.optional && !env[entry.name])
+    .map((entry) => entry.name);
+}
+
+async function runTerminalAuthMethod(
+  resolved: ResolvedAgentServer,
+  cwd: string,
+  method: Extract<acp.AuthMethod, { type: "terminal" }>,
+  onTerminalEvent?: (event: AgentTerminalEvent) => void,
+): Promise<void> {
+  const child = spawn(resolved.command.command, [...resolved.command.args, ...(method.args ?? [])], {
+    cwd,
+    env: { ...process.env, ...(resolved.command.env ?? {}), ...(method.env ?? {}) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.stdout.on("data", (chunk) => onTerminalEvent?.({ stream: "stdout", chunk: chunk.toString() }));
+  child.stderr.on("data", (chunk) => onTerminalEvent?.({ stream: "stderr", chunk: chunk.toString() }));
+  await onceExit(child);
+  if (child.exitCode !== 0) {
+    throw new Error(`ACP terminal auth failed for "${resolved.id}" with exit code ${child.exitCode ?? "unknown"}.`);
+  }
 }
 
 async function applySessionDefaults(
@@ -669,7 +780,7 @@ function metaString(meta: Record<string, unknown> | null | undefined, key: strin
   return typeof value === "string" ? value : undefined;
 }
 
-async function onceExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+async function onceExit(child: ChildProcess): Promise<void> {
   await new Promise<void>((resolve) => {
     if (child.exitCode !== null) {
       resolve();
