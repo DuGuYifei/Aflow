@@ -390,6 +390,7 @@ export function App() {
       const color = SESSION_COLORS[ss.length % SESSION_COLORS.length];
       const updated = [...ss, { id, name, color, agentServerId }];
       sessionsRef.current = updated;
+      setActiveSessionId(id);
       scheduleSave();
       return updated;
     });
@@ -411,6 +412,7 @@ export function App() {
     nodesRef.current    = updatedNodes;
     edgesRef.current    = updatedEdges;
     setSessions(remaining);
+    setActiveSessionId(fallback ?? '');
     setNodes(updatedNodes);
     setEdges(updatedEdges);
     scheduleSave();

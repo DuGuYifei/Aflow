@@ -554,7 +554,7 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
 
   const handleAdd = () => {
     if (readonly) return;
-    const name = draftName.trim();
+    const name = (inputRef.current?.value ?? draftName).trim();
     if (!name) return;
     onAddSession(name, draftAgent);
     setDraftName('');

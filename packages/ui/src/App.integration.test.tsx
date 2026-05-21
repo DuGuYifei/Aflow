@@ -40,6 +40,7 @@ describe("App run integration", () => {
 
   beforeEach(() => {
     const window = new Window({ url: "http://specflow.test" });
+    window.SyntaxError = SyntaxError;
     Object.assign(globalThis, {
       window,
       document: window.document,
@@ -78,6 +79,25 @@ describe("App run integration", () => {
 
     await waitForText("live-log-line");
     expect(document.body.textContent).toContain("Back to design");
+  });
+
+  test("adds a session and renders it immediately", async () => {
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    clickBottomBarHandle();
+    await waitForText("Logs");
+    clickButtonContaining("Sessions");
+    await waitForText("New agent session");
+
+    const input = document.querySelector(".add-session-row input");
+    if (!(input instanceof window.HTMLInputElement)) throw new Error("Session name input not found");
+    setInputValue(input, "reviewer");
+    clickButton("Add");
+
+    await waitForText("reviewer");
+    expect(document.body.textContent).toContain("2 sessions");
   });
 });
 
@@ -163,6 +183,29 @@ function clickButton(text: string, pick: "first" | "last" = "first"): void {
   const button = pick === "last" ? matches.at(-1) : matches[0];
   if (!button) throw new Error(`Button not found: ${text}`);
   button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function clickButtonContaining(text: string): void {
+  const button = [...document.getElementsByTagName("button")].find((candidate) =>
+    candidate.textContent?.includes(text),
+  );
+  if (!button) throw new Error(`Button containing text not found: ${text}`);
+  button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function clickBottomBarHandle(): void {
+  const bottomBar = document.getElementsByClassName("bottom-bar-cell")[0];
+  const button = bottomBar?.getElementsByTagName("button")[0];
+  if (!button) throw new Error("Bottom bar handle not found");
+  button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function setInputValue(input: HTMLInputElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
+  setter?.call(input, value);
+  const InputEventCtor = window.InputEvent ?? window.Event;
+  input.dispatchEvent(new InputEventCtor("input", { bubbles: true }));
+  input.dispatchEvent(new window.Event("change", { bubbles: true }));
 }
 
 async function waitForText(text: string): Promise<void> {
