@@ -5,6 +5,7 @@ import type {
   AgentRestoreResult,
   AgentRunRequest,
   AgentRunResult,
+  AgentTerminalEvent,
 } from "./types";
 import {
   authenticateAcpAgent,
@@ -67,10 +68,11 @@ export async function authenticateAgentServer(
   root: string,
   agentServerId: string,
   methodId: string,
+  onTerminalEvent?: (event: AgentTerminalEvent) => void,
 ): Promise<AgentAuthenticationStatus> {
   const resolved = await new AgentServerStore({ root }).resolve(agentServerId);
   if (resolved.source === "headless") {
     throw new Error(`Headless agent runtime does not advertise ACP authentication: ${agentServerId}`);
   }
-  return authenticateAcpAgent(resolved, root, methodId);
+  return authenticateAcpAgent(resolved, root, methodId, onTerminalEvent);
 }

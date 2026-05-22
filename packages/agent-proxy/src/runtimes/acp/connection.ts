@@ -809,6 +809,19 @@ async function runTerminalAuthMethod(
   method: Extract<acp.AuthMethod, { type: "terminal" }>,
   onTerminalEvent?: (event: AgentTerminalEvent) => void,
 ): Promise<void> {
+  if (!onTerminalEvent) {
+    const child = spawn(resolved.command.command, [...resolved.command.args, ...(method.args ?? [])], {
+      cwd,
+      env: { ...process.env, ...(resolved.command.env ?? {}), ...(method.env ?? {}) },
+      stdio: "inherit",
+    });
+    await onceExit(child);
+    if (child.exitCode !== 0) {
+      throw new Error(`ACP terminal auth failed for "${resolved.id}" with exit code ${child.exitCode ?? "unknown"}.`);
+    }
+    return;
+  }
+
   const child = spawn(resolved.command.command, [...resolved.command.args, ...(method.args ?? [])], {
     cwd,
     env: { ...process.env, ...(resolved.command.env ?? {}), ...(method.env ?? {}) },

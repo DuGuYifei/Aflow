@@ -9,6 +9,7 @@ import {
   type AgentAuthenticationStatus,
   type AgentServerEntry,
   type AgentServerSettings,
+  type AgentTerminalEvent,
   type RegistryIndex,
 } from "@specflow/agent-proxy";
 import { RunInteractionStore, TerminalEventStore, WorkflowExecutor } from "./execution";
@@ -23,6 +24,7 @@ export type {
   AgentAuthenticationStatus,
   AgentServerEntry,
   AgentServerSettings,
+  AgentTerminalEvent,
   RegistryAgent,
   RegistryIndex,
 } from "@specflow/agent-proxy";
@@ -35,7 +37,12 @@ export interface SpecflowBridge {
   executor: WorkflowExecutor;
   restoreAgentSession(request: AgentRestoreRequest): Promise<AgentRestoreResult>;
   inspectAgentAuthentication(root: string, agentServerId: string): Promise<AgentAuthenticationStatus>;
-  authenticateAgentServer(root: string, agentServerId: string, methodId: string): Promise<AgentAuthenticationStatus>;
+  authenticateAgentServer(
+    root: string,
+    agentServerId: string,
+    methodId: string,
+    onTerminalEvent?: (event: AgentTerminalEvent) => void,
+  ): Promise<AgentAuthenticationStatus>;
   ensureAgentServerInstalled(root: string, agentServerId: string): Promise<void>;
   listAgentServers(root: string): Promise<AgentServerEntry[]>;
   listAgentRegistry(root: string): Promise<RegistryIndex>;

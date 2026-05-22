@@ -4,7 +4,10 @@ import { access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   executeAgentFlowDoc,
+  authenticateAgentServer,
+  ensureAgentServerInstalled,
   initWorkspace,
+  inspectAgentServerAuthentication,
   loadAgentFlowFile,
   prepareCanvasRun,
   startSpecflowServer,
@@ -12,6 +15,9 @@ import {
   type AgentFlowDoc,
   type RunInputVariable,
 } from "@specflow/server";
+
+type AgentAuthenticationStatus = Awaited<ReturnType<typeof inspectAgentServerAuthentication>>;
+type AgentAuthenticationMethod = AgentAuthenticationStatus["methods"][number];
 
 interface RunCliOptions {
   file: string;
@@ -271,11 +277,17 @@ async function initializeFirstWorkspace(): Promise<void> {
     createIfMissing: true,
     seedAgentServerId: agent.id,
   });
-  await upsertLocalAgentServer(process.cwd(), agent.id, {
+  const settings = {
     type: "registry",
     registryId: agent.id,
     installedVersion: agent.version,
-  });
+    terminal: { enabled: true, auth: true },
+  } as const;
+  await upsertLocalAgentServer(process.cwd(), agent.id, settings);
+  console.log(`Installing ${agent.name || agent.id}...`);
+  await ensureAgentServerInstalled(process.cwd(), agent.id);
+  console.log(`Checking ${agent.name || agent.id} authentication...`);
+  await authenticateInitialAgentServer(agent.id, settings);
   console.log(`Initialized .specflow with code ACP ${agent.name || agent.id}.`);
 }
 
@@ -323,6 +335,59 @@ function isCodeAgent(agent: RegistryAgentChoice): boolean {
   const text = `${agent.id} ${agent.name} ${agent.description ?? ""}`.toLowerCase();
   return /\b(code|coding|developer|software engineer|programmer)\b/.test(text)
     || text.includes("codex");
+}
+
+async function authenticateInitialAgentServer(
+  agentServerId: string,
+  settings: {
+    type: "registry";
+    registryId: string;
+    installedVersion: string;
+    terminal: { enabled: boolean; auth: boolean };
+  },
+): Promise<void> {
+  let status = await inspectAgentServerAuthentication(process.cwd(), agentServerId);
+  if (!status.needsAuth) {
+    console.log(`${agentServerId} is ready.`);
+    return;
+  }
+
+  console.log(`${agentServerId} requires authentication.`);
+  const method = selectCliAuthMethod(status.methods);
+  if (!method) {
+    throw new Error(`ACP agent "${agentServerId}" requires authentication but advertised no supported method.`);
+  }
+
+  if (method.type === "env_var") {
+    const env: Record<string, string> = {};
+    for (const variable of method.vars.filter((entry) => !entry.optional || method.missingVars.includes(entry.name))) {
+      const label = variable.label || variable.name;
+      process.stdout.write(`${label}${variable.secret ? " (secret)" : ""}: `);
+      const value = (await readStdinLine()).trim();
+      if (value) env[variable.name] = value;
+    }
+    await upsertLocalAgentServer(process.cwd(), agentServerId, {
+      ...settings,
+      env,
+    });
+  } else if (method.type === "terminal") {
+    console.log(`Starting terminal authentication for ${agentServerId}...`);
+  } else {
+    console.log(`Starting ${method.name} authentication for ${agentServerId}...`);
+  }
+
+  status = await authenticateAgentServer(process.cwd(), agentServerId, method.id);
+  if (status.needsAuth) {
+    throw new Error(`ACP agent "${agentServerId}" still requires authentication after ${method.name}.`);
+  }
+  console.log(`${agentServerId} authentication complete.`);
+}
+
+function selectCliAuthMethod(methods: AgentAuthenticationMethod[]): AgentAuthenticationMethod | undefined {
+  return methods.find((method) => method.type === "terminal" && method.terminalEnabled)
+    ?? methods.find((method) => method.type === "agent")
+    ?? methods.find((method) => method.type === "env_var")
+    ?? methods.find((method) => method.type === "terminal");
 }
 
 async function pathExists(path: string): Promise<boolean> {
