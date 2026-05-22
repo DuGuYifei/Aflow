@@ -1,6 +1,6 @@
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge } from "@specflow/bridge";
-import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunStatusEvent, RegistryIndex } from "@specflow/bridge";
+import type { AgentAuthenticationStatus, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunStatusEvent } from "@specflow/bridge";
 import { uuidv7 } from "@specflow/shared";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import {
@@ -178,29 +178,7 @@ function redactAgentServerEntries(entries: AgentServerEntry[]): AgentServerEntry
 }
 
 async function listAgentServerEntries(bridge: SpecflowBridge, root: string): Promise<AgentServerEntry[]> {
-  const entries = await bridge.listAgentServers(root);
-  let registry: RegistryIndex | undefined;
-  try {
-    registry = await bridge.listAgentRegistry(root);
-  } catch {
-    registry = undefined;
-  }
-
-  const registryAgents = new Map((registry?.agents ?? []).map((agent) => [agent.id, agent]));
-  return entries.map((entry) => {
-    if (entry.settings.type !== "registry") return entry;
-    const latestVersion = registryAgents.get(entry.settings.registryId)?.version;
-    const installedVersion = entry.settings.installedVersion;
-    return {
-      ...entry,
-      registry: {
-        registryId: entry.settings.registryId,
-        installedVersion,
-        latestVersion,
-        updateAvailable: Boolean(latestVersion && installedVersion !== latestVersion),
-      },
-    };
-  });
+  return bridge.listAgentServers(root);
 }
 
 function redactAgentServerSettings(settings: AgentServerSettings): AgentServerSettings {
@@ -419,6 +397,20 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
+    let authStatuses: AgentAuthenticationStatus[];
+    try {
+      authStatuses = await inspectWorkflowAuthentication(agentflow);
+    } catch (error) {
+      return Response.json({ error: errorMessage(error) }, { status: 409 });
+    }
+    const requiredAuth = authStatuses.filter((status) => status.needsAuth);
+    if (requiredAuth.length > 0) {
+      return Response.json({
+        error: "Agent authentication required",
+        authStatuses: requiredAuth,
+      }, { status: 409 });
+    }
+
     const prepared = prepareCanvasRun(agentflow, { initialInput, variableValues });
     if (prepared.missingVariables.length > 0) {
       return Response.json({
@@ -595,6 +587,17 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       });
 
     return Response.json({ runId });
+  }
+
+  async function inspectWorkflowAuthentication(agentflow: AgentFlowDoc): Promise<AgentAuthenticationStatus[]> {
+    const servers = new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry]));
+    const agentServerIds = [...new Set(agentflow.sessions
+      .map((session) => session.agentServerId ?? session.agent)
+      .filter((id): id is string => Boolean(id) && id !== "unconfigured"))];
+
+    return Promise.all(agentServerIds
+      .filter((id) => servers.get(id)?.settings.type !== "headless")
+      .map((id) => bridge.inspectAgentAuthentication(root, id)));
   }
 
   async function handleRestore(agentSessionId: string, mode: AgentRestoreMode): Promise<Response> {

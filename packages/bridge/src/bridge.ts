@@ -1,9 +1,8 @@
 import {
   AgentServerStore,
   authenticateAgentServer,
-  ensureCacheDir,
+  fetchRegistryIndex,
   inspectAgentAuthentication,
-  loadRegistryIndex,
   restoreAgentSession,
   type AgentRestoreRequest,
   type AgentRestoreResult,
@@ -65,6 +64,6 @@ async function listAgentServers(root: string): Promise<AgentServerEntry[]> {
 }
 
 async function listAgentRegistry(root: string): Promise<RegistryIndex> {
-  const cacheDir = await ensureCacheDir(`${root}/.specflow/cache/agents`);
-  return loadRegistryIndex(cacheDir);
+  void root;
+  return fetchRegistryIndex();
 }

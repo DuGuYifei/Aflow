@@ -263,22 +263,40 @@ describe("restoreAcpAgentSession", () => {
 });
 
 describe("ACP auth inspection", () => {
+  it("does not require user auth when an agent already accepts sessions", async () => {
+    const inspected = await inspectAcpAgentAuthentication(
+      resolved({ authMethods: "env_var", preauthorized: true }),
+      await mkdtemp(join(tmpdir(), "specflow-acp-auth-ready-")),
+    );
+
+    expect(inspected.needsAuth).toBe(false);
+    expect(inspected.methods[0]).toMatchObject({
+      type: "env_var",
+      missingVars: ["SPECFLOW_FAKE_TOKEN"],
+    });
+  });
+
   it("reports env vars required by the agent and authenticates once they are configured", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-"));
     const inspected = await inspectAcpAgentAuthentication(resolved({ authMethods: "env_var" }), cwd);
-    expect(inspected.methods).toEqual([{
-      type: "env_var",
-      id: "env",
-      name: "Environment",
-      vars: [{ name: "SPECFLOW_FAKE_TOKEN", secret: true, optional: false }],
-      missingVars: ["SPECFLOW_FAKE_TOKEN"],
-    }]);
+    expect(inspected).toEqual({
+      agentServerId: "fake-acp",
+      needsAuth: true,
+      methods: [{
+        type: "env_var",
+        id: "env",
+        name: "Environment",
+        vars: [{ name: "SPECFLOW_FAKE_TOKEN", secret: true, optional: false }],
+        missingVars: ["SPECFLOW_FAKE_TOKEN"],
+      }],
+    });
 
     const authenticated = await authenticateAcpAgent(
       resolved({ authMethods: "env_var", env: { SPECFLOW_FAKE_TOKEN: "token" } }),
       cwd,
       "env",
     );
+    expect(authenticated.needsAuth).toBe(false);
     expect(authenticated.methods[0]?.id).toBe("env");
   });
 });
@@ -287,6 +305,7 @@ function resolved(options: {
   restoreCapabilities?: string;
   promptCapabilities?: string;
   authMethods?: string;
+  preauthorized?: boolean;
   env?: Record<string, string>;
   settings?: Partial<Extract<ResolvedAgentServer["settings"], { type: "custom" }>>;
 } = {}): ResolvedAgentServer {
@@ -310,6 +329,7 @@ function resolved(options: {
         ...(options.restoreCapabilities ? { SPECFLOW_FAKE_ACP_RESTORE: options.restoreCapabilities } : {}),
         ...(options.promptCapabilities ? { SPECFLOW_FAKE_ACP_PROMPT_CAPABILITIES: options.promptCapabilities } : {}),
         ...(options.authMethods ? { SPECFLOW_FAKE_ACP_AUTH_METHODS: options.authMethods } : {}),
+        ...(options.preauthorized ? { SPECFLOW_FAKE_ACP_PREAUTHORIZED: "1" } : {}),
       },
     },
   };

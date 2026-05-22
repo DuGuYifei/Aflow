@@ -17,7 +17,7 @@ class FakeAgent implements acp.Agent {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  #authenticated = false;
+  #authenticated = process.env.SPECFLOW_FAKE_ACP_PREAUTHORIZED === "1";
 
   constructor(connection: acp.AgentSideConnection) {
     this.#connection = connection;
@@ -182,7 +182,7 @@ class FakeAgent implements acp.Agent {
 
   #assertAuthenticated(): void {
     if (!this.#isAuthenticated()) {
-      throw new Error("auth_required");
+      throw acp.RequestError.authRequired();
     }
   }
 

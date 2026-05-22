@@ -163,7 +163,18 @@ export type AgentAuthenticationMethod =
 
 export interface AgentAuthenticationStatus {
   agentServerId: string;
+  needsAuth: boolean;
   methods: AgentAuthenticationMethod[];
+}
+
+export class AgentAuthenticationRequiredError extends Error {
+  readonly statuses: AgentAuthenticationStatus[];
+
+  constructor(statuses: AgentAuthenticationStatus[]) {
+    super('Agent authentication required');
+    this.name = 'AgentAuthenticationRequiredError';
+    this.statuses = statuses;
+  }
 }
 
 export interface RegistryAgent {
@@ -315,7 +326,7 @@ export async function runCanvas(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ initialInput: opts?.initialInput, variableValues: opts?.variableValues }),
   });
-  if (!res.ok) throw new Error(`Failed to start run: ${res.status}`);
+  if (!res.ok) await throwRunStartError(res, 'Failed to start run');
   return res.json();
 }
 
@@ -429,7 +440,7 @@ export async function rerunRun(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ initialInput: opts?.initialInput, variableValues: opts?.variableValues }),
   });
-  if (!res.ok) throw new Error(`Failed to re-run: ${res.status}`);
+  if (!res.ok) await throwRunStartError(res, 'Failed to re-run');
   return res.json();
 }
 
@@ -495,6 +506,19 @@ async function apiError(res: Response, fallback: string): Promise<string> {
   } catch {
     return `${fallback}: ${res.status}`;
   }
+}
+
+async function throwRunStartError(res: Response, fallback: string): Promise<never> {
+  let body: { error?: string; authStatuses?: AgentAuthenticationStatus[] } = {};
+  try {
+    body = await res.json();
+  } catch {
+    // Fall through to the status-based error below.
+  }
+  if (body.authStatuses?.length) {
+    throw new AgentAuthenticationRequiredError(body.authStatuses);
+  }
+  throw new Error(body.error || `${fallback}: ${res.status}`);
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

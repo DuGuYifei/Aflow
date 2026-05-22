@@ -3,6 +3,7 @@ export * from "./types";
 export * from "./store/agent-server-store";
 export {
   ensureCacheDir,
+  fetchRegistryIndex,
   loadRegistryIndex,
   REGISTRY_URL,
 } from "./sources/registry-client";

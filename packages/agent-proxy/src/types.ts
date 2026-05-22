@@ -214,5 +214,6 @@ export type AgentAuthenticationMethod =
 
 export interface AgentAuthenticationStatus {
   agentServerId: AgentServerId;
+  needsAuth: boolean;
   methods: AgentAuthenticationMethod[];
 }

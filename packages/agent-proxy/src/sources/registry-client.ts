@@ -47,15 +47,24 @@ export async function loadRegistryIndex(cacheDir: string): Promise<RegistryIndex
   const cached = await readCachedRegistry(cachePath);
   if (cached) return cached;
 
+  const { parsed, text } = await fetchRegistryIndexText();
+  await ensureParent(cachePath);
+  await writeFile(cachePath, text, "utf8");
+  return parsed;
+}
+
+export async function fetchRegistryIndex(): Promise<RegistryIndex> {
+  return (await fetchRegistryIndexText()).parsed;
+}
+
+async function fetchRegistryIndexText(): Promise<{ parsed: RegistryIndex; text: string }> {
   const response = await fetch(REGISTRY_URL);
   if (!response.ok) {
     throw new Error(`Failed to fetch ACP registry: ${response.status} ${response.statusText}`);
   }
   const text = await response.text();
   const parsed = JSON.parse(text) as RegistryIndex;
-  await ensureParent(cachePath);
-  await writeFile(cachePath, text, "utf8");
-  return parsed;
+  return { parsed, text };
 }
 
 async function readCachedRegistry(cachePath: string): Promise<RegistryIndex | undefined> {

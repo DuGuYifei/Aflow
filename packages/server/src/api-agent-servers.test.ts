@@ -1,9 +1,10 @@
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
+import { saveCanvas } from "./canvas-store";
 import { loadLocalAgentServerConfig } from "./agent-server-config";
 
 describe("agent server API", () => {
@@ -87,19 +88,15 @@ describe("agent server API", () => {
     expect((await loadLocalAgentServerConfig(root)).agent_servers["my-custom"]).toBeUndefined();
   });
 
-  test("reports registry agent updates from installed version markers", async () => {
+  test("does not read the registry while listing or saving configured servers", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-api-"));
+    let registryReads = 0;
     const bridge = {
       ...createSpecflowBridge(),
-      listAgentRegistry: async () => ({
-        version: "1",
-        agents: [{
-          id: "codex-acp",
-          name: "Codex",
-          version: "2.0.0",
-          distribution: { npx: { package: "codex-acp" } },
-        }],
-      }),
+      listAgentRegistry: async () => {
+        registryReads += 1;
+        throw new Error("registry should be read only by the explicit registry endpoint");
+      },
     };
     const handle = createApiHandler(bridge, root);
 
@@ -113,30 +110,45 @@ describe("agent server API", () => {
       }),
     }));
     expect(putOld?.status).toBe(200);
-    const oldBody = await putOld!.json() as Array<{ id: string; registry?: { updateAvailable: boolean; latestVersion?: string } }>;
-    expect(oldBody.find((entry) => entry.id === "codex-acp")?.registry).toMatchObject({
-      latestVersion: "2.0.0",
-      updateAvailable: true,
-    });
+    const oldBody = await putOld!.json() as Array<{ id: string; registry?: unknown }>;
+    expect(oldBody.find((entry) => entry.id === "codex-acp")?.registry).toBeUndefined();
 
-    const putLatest = await handle(new Request("http://specflow.test/api/agent-servers/codex-acp", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: "registry",
-        registryId: "codex-acp",
-        installedVersion: "2.0.0",
-      }),
-    }));
-    expect(putLatest?.status).toBe(200);
-    const latestBody = await putLatest!.json() as Array<{ id: string; registry?: { updateAvailable: boolean } }>;
-    expect(latestBody.find((entry) => entry.id === "codex-acp")?.registry?.updateAvailable).toBe(false);
+    const listed = await handle(new Request("http://specflow.test/api/agent-servers"));
+    expect(listed?.status).toBe(200);
+    expect(registryReads).toBe(0);
+  });
+
+  test("fetches the registry browser index without creating the agent cache", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-registry-api-"));
+    const handle = createApiHandler(createSpecflowBridge(), root);
+    const fetchBeforeTest = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({
+      version: "1",
+      agents: [{
+        id: "codex-acp",
+        name: "Codex",
+        version: "1.0.0",
+        distribution: { npx: { package: "codex-acp" } },
+      }],
+    })) as unknown as typeof fetch;
+
+    try {
+      const response = await handle(new Request("http://specflow.test/api/agent-servers/registry"));
+      expect(response?.status).toBe(200);
+      expect(await response!.json()).toMatchObject({
+        agents: [{ id: "codex-acp", version: "1.0.0" }],
+      });
+      await expect(access(join(root, ".specflow", "cache", "agents"))).rejects.toThrow();
+    } finally {
+      globalThis.fetch = fetchBeforeTest;
+    }
   });
 
   test("probes auth methods and stores env auth values locally", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-auth-api-"));
     const authStatus = {
       agentServerId: "fake",
+      needsAuth: true,
       methods: [{
         type: "env_var" as const,
         id: "env",
@@ -169,6 +181,55 @@ describe("agent server API", () => {
     expect(authenticated?.status).toBe(200);
     expect((await loadLocalAgentServerConfig(root)).agent_servers.fake?.env).toEqual({
       FAKE_API_KEY: "secret",
+    });
+  });
+
+  test("preflights every workflow ACP server before starting a run", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-run-auth-"));
+    const authStatus = {
+      agentServerId: "needs-auth",
+      needsAuth: true,
+      methods: [{ type: "agent" as const, id: "login", name: "Sign in" }],
+    };
+    const bridge = {
+      ...createSpecflowBridge(),
+      listAgentServers: async () => [{
+        id: "needs-auth",
+        settings: { type: "custom" as const, command: "fake-acp" },
+      }],
+      inspectAgentAuthentication: async () => authStatus,
+    };
+    const handle = createApiHandler(bridge, root);
+
+    await saveCanvas("wf-auth", {
+      id: "wf-auth",
+      name: "Auth workflow",
+      sessions: [{ id: "s1", name: "main", color: "blue", agentServerId: "needs-auth" }],
+      nodes: [{
+        kind: "step",
+        id: "n1",
+        num: "1",
+        x: 0,
+        y: 0,
+        w: 200,
+        title: "Prompt",
+        desc: "Needs auth",
+        sessionId: "s1",
+        updateDoc: false,
+      }],
+      edges: [],
+    }, root);
+
+    const response = await handle(new Request("http://specflow.test/api/canvases/wf-auth/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }));
+
+    expect(response?.status).toBe(409);
+    expect(await response!.json()).toEqual({
+      error: "Agent authentication required",
+      authStatuses: [authStatus],
     });
   });
 });

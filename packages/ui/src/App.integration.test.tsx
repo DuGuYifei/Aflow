@@ -34,6 +34,10 @@ class MockEventSource {
   }
 }
 
+let runAuthRequired = false;
+let holdRunStart = false;
+let releaseRunStart: (() => void) | undefined;
+
 describe("App run integration", () => {
   let root: Root | undefined;
   let container: HTMLElement;
@@ -53,6 +57,9 @@ describe("App run integration", () => {
       fetch: mockFetch,
     });
     MockEventSource.instances = [];
+    runAuthRequired = false;
+    holdRunStart = false;
+    releaseRunStart = undefined;
     container = document.createElement("div");
     document.body.appendChild(container);
   });
@@ -99,6 +106,36 @@ describe("App run integration", () => {
     await waitForText("reviewer");
     expect(document.body.textContent).toContain("2 sessions");
   });
+
+  test("opens the auth modal when run preflight requires agent authentication", async () => {
+    runAuthRequired = true;
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    clickButton("Start run");
+    await waitForText("No run inputs for this workflow.");
+    clickButton("Start run", "last");
+
+    await waitForText("Authenticate agents");
+    expect(document.body.textContent).toContain("echo-headless");
+    expect(document.body.textContent).toContain("Workspace login");
+  });
+
+  test("keeps a run launch status visible while agent checks are pending", async () => {
+    holdRunStart = true;
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    clickButton("Start run");
+    await waitForText("No run inputs for this workflow.");
+    clickButton("Start run", "last");
+
+    await waitForText("Checking agents...");
+    releaseRunStart?.();
+    await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events"));
+  });
 });
 
 function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -121,6 +158,21 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     return json([{ id: "echo-headless", settings: { type: "headless", command: "node", argsTemplate: [] } }]);
   }
   if (method === "POST" && url === "/api/canvases/wf1/run") {
+    if (holdRunStart) {
+      return new Promise((resolve) => {
+        releaseRunStart = () => resolve(Response.json({ runId: "run1" }));
+      });
+    }
+    if (runAuthRequired) {
+      return json({
+        error: "Agent authentication required",
+        authStatuses: [{
+          agentServerId: "echo-headless",
+          needsAuth: true,
+          methods: [{ type: "agent", id: "workspace-login", name: "Workspace login" }],
+        }],
+      }, { status: 409 });
+    }
     return json({ runId: "run1" });
   }
   if (method === "GET" && url === "/api/runs/run1") {
@@ -132,8 +184,8 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   return json({ ok: true });
 }
 
-function json(value: unknown): Promise<Response> {
-  return Promise.resolve(Response.json(value));
+function json(value: unknown, init?: ResponseInit): Promise<Response> {
+  return Promise.resolve(Response.json(value, init));
 }
 
 function sampleCanvas() {

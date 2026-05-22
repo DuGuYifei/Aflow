@@ -107,7 +107,7 @@ export function RunConfigPanel({
             disabled={!canStart}
           >
             <Icon name="play-circle" size={12} />
-            {busy ? 'Starting...' : 'Start run'}
+            {busy ? 'Checking agents...' : 'Start run'}
           </button>
         </div>
       </div>

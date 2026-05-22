@@ -112,10 +112,21 @@ export class AcpAgentClient {
 
   async close(): Promise<void> {
     this.process.stdin.end();
-    this.process.kill();
     await Promise.race([
       onceExit(this.process),
-      new Promise<void>((resolve) => setTimeout(resolve, 500)),
+      this.connection.closed,
+      new Promise<void>((resolve) => setTimeout(resolve, 100)),
+    ]);
+    this.process.kill();
+    await Promise.all([
+      Promise.race([
+        onceExit(this.process),
+        new Promise<void>((resolve) => setTimeout(resolve, 500)),
+      ]),
+      Promise.race([
+        this.connection.closed,
+        new Promise<void>((resolve) => setTimeout(resolve, 500)),
+      ]),
     ]);
   }
 
@@ -561,10 +572,7 @@ export async function inspectAcpAgentAuthentication(
   try {
     const initializeResponse = await client.initialize();
     assertProtocolVersion(initializeResponse);
-    return {
-      agentServerId: resolved.id,
-      methods: authMethodInfos(initializeResponse.authMethods ?? [], resolved),
-    };
+    return inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
   } finally {
     await client.close().catch(() => {});
   }
@@ -599,10 +607,7 @@ export async function authenticateAcpAgent(
       await runTerminalAuthMethod(resolved, cwd, method, onTerminalEvent);
     }
     await client.connection.authenticate({ methodId: method.id });
-    return {
-      agentServerId: resolved.id,
-      methods: authMethodInfos(initializeResponse.authMethods ?? [], resolved),
-    };
+    return inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
   } finally {
     await client.close().catch(() => {});
   }
@@ -638,6 +643,56 @@ function assertProtocolVersion(initializeResponse: acp.InitializeResponse): void
   if (initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
     throw new Error(`Unsupported ACP protocol version: ${initializeResponse.protocolVersion}`);
   }
+}
+
+async function inspectInitializedAuthentication(
+  connection: acp.ClientSideConnection,
+  initializeResponse: acp.InitializeResponse,
+  resolved: ResolvedAgentServer,
+  cwd: string,
+): Promise<AgentAuthenticationStatus> {
+  const methods = initializeResponse.authMethods ?? [];
+  let needsAuth = !(await canCreateSessionWithoutAuth(connection, cwd));
+
+  if (needsAuth) {
+    const configuredEnvMethod = methods.find((method) =>
+      isEnvAuthMethod(method) && missingEnvVars(method, resolved).length === 0
+    );
+    if (configuredEnvMethod) {
+      try {
+        await connection.authenticate({ methodId: configuredEnvMethod.id });
+        needsAuth = !(await canCreateSessionWithoutAuth(connection, cwd));
+      } catch {
+        // Keep the auth prompt available when a stored credential is rejected.
+      }
+    }
+  }
+
+  return {
+    agentServerId: resolved.id,
+    needsAuth,
+    methods: authMethodInfos(methods, resolved),
+  };
+}
+
+async function canCreateSessionWithoutAuth(
+  connection: acp.ClientSideConnection,
+  cwd: string,
+): Promise<boolean> {
+  try {
+    const session = await connection.newSession({ cwd, mcpServers: [] });
+    await connection.closeSession({ sessionId: session.sessionId }).catch(() => {});
+    return true;
+  } catch (error) {
+    if (isAuthRequiredError(error)) return false;
+    throw error;
+  }
+}
+
+function isAuthRequiredError(error: unknown): boolean {
+  if (error instanceof acp.RequestError && error.code === -32000) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /auth(?:entication)?[_ -]?required/i.test(message);
 }
 
 async function authenticateIfAvailable(input: {
@@ -730,7 +785,7 @@ function authMethodInfos(
 }
 
 function isAgentAuthMethod(method: acp.AuthMethod): method is Exclude<acp.AuthMethod, { type: "env_var" } | { type: "terminal" }> {
-  return !("type" in method);
+  return !("type" in method) || (method as { type?: unknown }).type === "agent";
 }
 
 function isEnvAuthMethod(method: acp.AuthMethod): method is Extract<acp.AuthMethod, { type: "env_var" }> {

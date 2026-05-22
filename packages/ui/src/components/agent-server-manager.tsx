@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  authenticateAgentServer,
   fetchAgentServerAuth,
   fetchAgentRegistry,
   fetchAgentServers,
   removeAgentServer,
   saveAgentServer,
-  type AgentAuthenticationMethod,
   type AgentAuthenticationStatus,
   type AgentServerEntry,
   type RegistryAgent,
@@ -16,14 +14,16 @@ import { Icon } from './icon';
 interface AgentServerManagerProps {
   onClose: () => void;
   onChanged?: () => void;
-  autoInspectServerId?: string;
+  onAuthRequired?: (statuses: AgentAuthenticationStatus[]) => void;
 }
 
-export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: AgentServerManagerProps) {
+export function AgentServerManager({ onClose, onChanged, onAuthRequired }: AgentServerManagerProps) {
   const [servers, setServers] = useState<AgentServerEntry[]>([]);
   const [registry, setRegistry] = useState<RegistryAgent[]>([]);
   const [tab, setTab] = useState<'registry' | 'custom'>('registry');
   const [busy, setBusy] = useState('');
+  const [busyMessage, setBusyMessage] = useState('');
+  const [loadingRegistry, setLoadingRegistry] = useState(true);
   const [error, setError] = useState('');
   const [customId, setCustomId] = useState('');
   const [customCommand, setCustomCommand] = useState('');
@@ -35,9 +35,6 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
   const [customDefaultMode, setCustomDefaultMode] = useState('');
   const [customDefaultModel, setCustomDefaultModel] = useState('');
   const [customConfigOptions, setCustomConfigOptions] = useState('');
-  const [auth, setAuth] = useState<Record<string, AgentAuthenticationStatus>>({});
-  const [authValues, setAuthValues] = useState<Record<string, string>>({});
-  const [authMessage, setAuthMessage] = useState('');
 
   const installed = useMemo(() => new Map(servers.map((server) => [server.id, server])), [servers]);
   const installedRegistry = useMemo(() => {
@@ -52,13 +49,10 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
     void refreshAll();
   }, []);
 
-  useEffect(() => {
-    if (autoInspectServerId) void inspectAuth(autoInspectServerId);
-  }, [autoInspectServerId]);
-
   async function refreshAll() {
     try {
       setError('');
+      setLoadingRegistry(true);
       const [serverList, registryIndex] = await Promise.all([
         fetchAgentServers(),
         fetchAgentRegistry(),
@@ -67,23 +61,29 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
       setRegistry(registryIndex.agents);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingRegistry(false);
     }
   }
 
   async function installRegistry(agent: RegistryAgent) {
     setBusy(agent.id);
+    setBusyMessage(`Downloading and checking ${agent.name || agent.id}...`);
     try {
       setServers(await saveAgentServer(agent.id, {
         type: 'registry',
         registryId: agent.id,
         installedVersion: agent.version,
       }));
+      setBusyMessage(`Checking authentication for ${agent.name || agent.id}...`);
+      await inspectAuthIfNeeded(agent.id);
       onChanged?.();
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy('');
+      setBusyMessage('');
     }
   }
 
@@ -103,17 +103,21 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
   async function updateRegistry(agent: RegistryAgent, server: AgentServerEntry) {
     if (server.settings.type !== 'registry') return;
     setBusy(server.id);
+    setBusyMessage(`Downloading and checking ${agent.name || agent.id}...`);
     try {
       setServers(await saveAgentServer(server.id, {
         ...server.settings,
         installedVersion: agent.version,
       }));
+      setBusyMessage(`Checking authentication for ${agent.name || agent.id}...`);
+      await inspectAuthIfNeeded(server.id);
       onChanged?.();
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy('');
+      setBusyMessage('');
     }
   }
 
@@ -144,6 +148,7 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
       setCustomDefaultMode('');
       setCustomDefaultModel('');
       setCustomConfigOptions('');
+      await inspectAuthIfNeeded(id);
       onChanged?.();
       setError('');
     } catch (err) {
@@ -153,43 +158,9 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
     }
   }
 
-  async function inspectAuth(id: string) {
-    setBusy(`auth:${id}`);
-    try {
-      const status = await fetchAgentServerAuth(id);
-      setAuth((current) => ({ ...current, [id]: status }));
-      setAuthMessage(status.methods.length === 0 ? `${id} does not advertise ACP auth methods.` : '');
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy('');
-    }
-  }
-
-  async function runAuth(id: string, method: AgentAuthenticationMethod) {
-    setBusy(`auth:${id}:${method.id}`);
-    try {
-      const env = method.type === 'env_var'
-        ? Object.fromEntries(method.vars
-            .map((variable) => [variable.name, authValues[authValueKey(id, method.id, variable.name)]?.trim() ?? ''])
-            .filter(([name, value]) => Boolean(name) && Boolean(value)))
-        : {};
-      const status = await authenticateAgentServer(id, method.id, env);
-      setAuth((current) => ({ ...current, [id]: status }));
-      setAuthMessage(`${id} authentication request completed.`);
-      setError('');
-      await refreshAll();
-      onChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy('');
-    }
-  }
-
-  function updateAuthValue(id: string, methodId: string, name: string, value: string) {
-    setAuthValues((current) => ({ ...current, [authValueKey(id, methodId, name)]: value }));
+  async function inspectAuthIfNeeded(id: string) {
+    const status = await fetchAgentServerAuth(id);
+    if (status.needsAuth) onAuthRequired?.([status]);
   }
 
   return (
@@ -215,14 +186,18 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
         </div>
 
         {error && <div className="agent-server-error">{error}</div>}
-        {authMessage && <div className="agent-server-note">{authMessage}</div>}
+        {busyMessage && <div className="agent-server-desc agent-server-busy">{busyMessage}</div>}
 
         {tab === 'registry' && (
           <div className="agent-server-list">
+            {loadingRegistry && <div className="agent-server-desc agent-server-busy">Loading registry...</div>}
             {registry.map((agent) => {
               const installedServer = installedRegistry.get(agent.id) ?? installed.get(agent.id);
               const isInstalled = Boolean(installedServer);
-              const hasUpdate = Boolean(installedServer?.registry?.updateAvailable);
+              const installedVersion = installedServer?.settings.type === 'registry'
+                ? installedServer.settings.installedVersion
+                : undefined;
+              const hasUpdate = Boolean(installedVersion && installedVersion !== agent.version);
               return (
                 <div className="agent-server-row" key={agent.id}>
                   <div className="agent-server-main">
@@ -237,19 +212,10 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
                       {Boolean(agent.distribution.binary) && <span>binary</span>}
                       {Boolean(agent.distribution.npx) && <span>npx</span>}
                       {Boolean(agent.distribution.uvx) && <span>uvx</span>}
-                      {installedServer?.registry?.installedVersion && (
-                        <span>installed {installedServer.registry.installedVersion}</span>
+                      {installedVersion && (
+                        <span>installed {installedVersion}</span>
                       )}
                     </div>
-                    {installedServer && auth[installedServer.id] && (
-                      <AuthPanel
-                        status={auth[installedServer.id]}
-                        values={authValues}
-                        busy={busy}
-                        onValue={updateAuthValue}
-                        onAuthenticate={runAuth}
-                      />
-                    )}
                   </div>
                   <div className="agent-server-actions">
                     {agent.website && (
@@ -259,9 +225,6 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
                     )}
                     {installedServer ? (
                       <>
-                        <button className="btn sm" disabled={busy === `auth:${installedServer.id}`} onClick={() => inspectAuth(installedServer.id)}>
-                          <Icon name="lock" size={10} />Auth
-                        </button>
                         {hasUpdate && (
                           <button className="btn sm primary" disabled={busy === installedServer.id} onClick={() => updateRegistry(agent, installedServer)}>
                             <Icon name="check" size={10} />Update
@@ -318,20 +281,8 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
                         <span className="mono-id">{server.settings.command}</span>
                       </div>
                       <div className="agent-server-desc">{server.settings.args?.join(' ') || 'no args'}</div>
-                      {auth[server.id] && (
-                        <AuthPanel
-                          status={auth[server.id]}
-                          values={authValues}
-                          busy={busy}
-                          onValue={updateAuthValue}
-                          onAuthenticate={runAuth}
-                        />
-                      )}
                     </div>
                     <div className="agent-server-actions">
-                      <button className="btn sm" disabled={busy === `auth:${server.id}`} onClick={() => inspectAuth(server.id)}>
-                        <Icon name="lock" size={10} />Auth
-                      </button>
                       <button className="btn sm" disabled={busy === server.id} onClick={() => remove(server.id)}>
                         <Icon name="trash" size={10} />Remove
                       </button>
@@ -345,69 +296,6 @@ export function AgentServerManager({ onClose, onChanged, autoInspectServerId }: 
       </div>
     </div>
   );
-}
-
-interface AuthPanelProps {
-  status: AgentAuthenticationStatus;
-  values: Record<string, string>;
-  busy: string;
-  onValue: (id: string, methodId: string, name: string, value: string) => void;
-  onAuthenticate: (id: string, method: AgentAuthenticationMethod) => void;
-}
-
-function AuthPanel({ status, values, busy, onValue, onAuthenticate }: AuthPanelProps) {
-  if (status.methods.length === 0) return null;
-
-  return (
-    <div className="agent-auth-panel">
-      {status.methods.map((method) => (
-        <div className="agent-auth-method" key={method.id}>
-          <div className="agent-auth-method-head">
-            <span>{method.name}</span>
-            <span className="mono-id">{method.type}</span>
-            {method.type === 'env_var' && method.link && (
-              <a href={method.link} target="_blank" rel="noreferrer" title={`${method.name} credentials`}>
-                <Icon name="external" size={10} />
-              </a>
-            )}
-          </div>
-          {method.description && <div className="agent-server-desc">{method.description}</div>}
-          {method.type === 'env_var' && (
-            <div className="agent-auth-env">
-              {method.vars.map((variable) => (
-                <label key={variable.name}>
-                  <span>{variable.label || variable.name}</span>
-                  <input
-                    className="input sm"
-                    type={variable.secret ? 'password' : 'text'}
-                    value={values[authValueKey(status.agentServerId, method.id, variable.name)] ?? ''}
-                    placeholder={variable.optional ? `${variable.name}, optional` : variable.name}
-                    onChange={(event) => onValue(status.agentServerId, method.id, variable.name, event.target.value)}
-                  />
-                </label>
-              ))}
-              {method.missingVars.length > 0 && <div className="agent-auth-missing">Missing {method.missingVars.join(', ')}</div>}
-            </div>
-          )}
-          {method.type === 'terminal' && !method.terminalEnabled && (
-            <div className="agent-auth-missing">Terminal auth is disabled for this server.</div>
-          )}
-          <button
-            className="btn sm primary"
-            disabled={busy === `auth:${status.agentServerId}:${method.id}` || (method.type === 'terminal' && !method.terminalEnabled)}
-            onClick={() => onAuthenticate(status.agentServerId, method)}
-          >
-            <Icon name={method.type === 'env_var' ? 'check' : 'external'} size={10} />
-            {method.type === 'env_var' ? 'Save key and auth' : 'Authenticate'}
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function authValueKey(id: string, methodId: string, name: string): string {
-  return `${id}:${methodId}:${name}`;
 }
 
 function splitLines(input: string): string[] {
