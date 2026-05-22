@@ -1,4 +1,13 @@
-import { createSpecflowBridge, type AgentAuthenticationStatus, type AgentTerminalEvent } from "@specflow/bridge";
+import {
+  createSpecflowBridge,
+  type AgentAuthenticationStatus,
+  type AgentServerEntry,
+  type AgentTerminalEvent,
+} from "@specflow/bridge";
+
+export async function listAgentServers(root: string): Promise<AgentServerEntry[]> {
+  return createSpecflowBridge().listAgentServers(root);
+}
 
 export async function ensureAgentServerInstalled(root: string, agentServerId: string): Promise<void> {
   await createSpecflowBridge().ensureAgentServerInstalled(root, agentServerId);

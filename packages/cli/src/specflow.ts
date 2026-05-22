@@ -8,6 +8,7 @@ import {
   ensureAgentServerInstalled,
   initWorkspace,
   inspectAgentServerAuthentication,
+  listAgentServers,
   loadAgentFlowFile,
   prepareCanvasRun,
   startSpecflowServer,
@@ -40,7 +41,8 @@ try {
 }
 
 async function serveCommand(): Promise<void> {
-  await initializeFirstWorkspace();
+  const initializedAgentServerId = await initializeFirstWorkspace();
+  await ensureConfiguredAgentServersForTui(new Set(initializedAgentServerId ? [initializedAgentServerId] : []));
   const server = await startSpecflowServer();
   let stopping = false;
 
@@ -250,27 +252,27 @@ interface RegistryAgentChoice {
   description?: string;
 }
 
-async function initializeFirstWorkspace(): Promise<void> {
-  if (await pathExists(join(process.cwd(), ".specflow"))) return;
+async function initializeFirstWorkspace(): Promise<string | undefined> {
+  if (await pathExists(join(process.cwd(), ".specflow"))) return undefined;
 
   if (!process.stdin.isTTY) {
     await initWorkspace(process.cwd(), { createIfMissing: true });
     console.log("Initialized .specflow in generic mode.");
-    return;
+    return undefined;
   }
 
   const mode = await selectWorkspaceMode();
   if (mode === "generic") {
     await initWorkspace(process.cwd(), { createIfMissing: true });
     console.log("Initialized .specflow in generic mode.");
-    return;
+    return undefined;
   }
 
   const agent = await selectCodeAgent();
   if (!agent) {
     await initWorkspace(process.cwd(), { createIfMissing: true });
     console.log("Initialized .specflow in generic mode.");
-    return;
+    return undefined;
   }
 
   await initWorkspace(process.cwd(), {
@@ -289,6 +291,7 @@ async function initializeFirstWorkspace(): Promise<void> {
   console.log(`Checking ${agent.name || agent.id} authentication...`);
   await authenticateInitialAgentServer(agent.id, settings);
   console.log(`Initialized .specflow with code ACP ${agent.name || agent.id}.`);
+  return agent.id;
 }
 
 async function selectWorkspaceMode(): Promise<"code" | "generic"> {
@@ -342,7 +345,7 @@ async function authenticateInitialAgentServer(
   settings: {
     type: "registry";
     registryId: string;
-    installedVersion: string;
+    installedVersion?: string;
     terminal: { enabled: boolean; auth: boolean };
   },
 ): Promise<void> {
@@ -381,6 +384,24 @@ async function authenticateInitialAgentServer(
     throw new Error(`ACP agent "${agentServerId}" still requires authentication after ${method.name}.`);
   }
   console.log(`${agentServerId} authentication complete.`);
+}
+
+async function ensureConfiguredAgentServersForTui(skipIds: Set<string>): Promise<void> {
+  const servers = await listAgentServers(process.cwd());
+  for (const server of servers) {
+    if (server.settings.type !== "registry") continue;
+    if (skipIds.has(server.id)) continue;
+    console.log(`Installing ${server.id}...`);
+    await ensureAgentServerInstalled(process.cwd(), server.id);
+    console.log(`Checking ${server.id} authentication...`);
+    await authenticateInitialAgentServer(server.id, {
+      ...server.settings,
+      terminal: {
+        enabled: server.settings.terminal?.enabled ?? true,
+        auth: server.settings.terminal?.auth ?? true,
+      },
+    });
+  }
 }
 
 function selectCliAuthMethod(methods: AgentAuthenticationMethod[]): AgentAuthenticationMethod | undefined {
