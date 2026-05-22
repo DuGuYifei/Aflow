@@ -5,7 +5,7 @@ import {
   type AgentLifecycleEvent,
   type AgentTerminalEvent,
 } from "@specflow/agent-proxy";
-import type { NodeStatus } from "@specflow/shared";
+import { uuidv7, type NodeStatus } from "@specflow/shared";
 import {
   assertValidAgentNodeSession,
   type AgentDefinition,
@@ -132,7 +132,7 @@ export class WorkflowExecutor {
       : new AgentProxySessionPool({ root: this.#cwd });
     const agentRunner = this.#agentRunnerOverride ?? ((request: AgentCommandRequest) => sessionPool!.run(request));
     const run: WorkflowRun = {
-      id: options.runId ?? crypto.randomUUID(),
+      id: options.runId ?? uuidv7(),
       workflowId: workflow.id,
       status: "running",
       startedAt: new Date().toISOString(),
@@ -243,7 +243,7 @@ export class WorkflowExecutor {
   }): Promise<NodeExecutionResult> {
     throwIfCancelled(input.signal);
     const nodeRun: NodeRun = {
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       nodeId: input.node.id,
       status: "running",
       startedAt: new Date().toISOString(),
@@ -393,7 +393,7 @@ export class WorkflowExecutor {
     prompt: string;
   }): AgentInvocation {
     const invocation: AgentInvocation = {
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       runId: input.run.id,
       nodeRunId: input.nodeRun?.id,
       nodeId: input.nodeRun?.nodeId,
@@ -537,7 +537,7 @@ function resolveAgentServerId(agent: AgentDefinition): string {
     return agent.agentServerId;
   }
 
-  return "codex-acp";
+  return "unconfigured";
 }
 
 function assertSessionBelongsToAgent(

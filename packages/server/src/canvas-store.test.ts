@@ -29,6 +29,20 @@ describe("agentflow/canvas storage", () => {
     expect(canvas.nodes[0]).toHaveProperty("nodeId");
   });
 
+  it("creates a first-run workspace and seeds the selected agent server", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-first-run-"));
+    await initWorkspace(root, { createIfMissing: true, seedAgentServerId: "chosen-code-acp" });
+
+    const agentflow = parse(await readFile(join(root, ".specflow", "agentflows", "wf1.yaml"), "utf8")) as AgentFlowDoc;
+    expect(agentflow.sessions.map((session) => session.agentServerId)).toEqual([
+      "chosen-code-acp",
+      "chosen-code-acp",
+      "chosen-code-acp",
+      "chosen-code-acp",
+      "chosen-code-acp",
+    ]);
+  });
+
   it("splits legacy canvas yaml into agentflow yaml and canvas json", async () => {
     const root = await tempProject();
     const specflow = join(root, ".specflow");

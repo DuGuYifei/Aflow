@@ -7,14 +7,14 @@ import { createApiHandler } from "./api";
 import { loadLocalAgentServerConfig } from "./agent-server-config";
 
 describe("agent server API", () => {
-  test("lists built-ins and writes local custom/registry overrides", async () => {
+  test("lists configured servers and writes local custom/registry overrides", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-api-"));
     const handle = createApiHandler(createSpecflowBridge(), root);
 
     const initial = await handle(new Request("http://specflow.test/api/agent-servers"));
     expect(initial?.status).toBe(200);
     const initialBody = await initial!.json() as Array<{ id: string }>;
-    expect(initialBody.map((entry) => entry.id)).toContain("codex-acp");
+    expect(initialBody).toEqual([]);
 
     const putCustom = await handle(new Request("http://specflow.test/api/agent-servers/my-custom", {
       method: "PUT",
@@ -131,5 +131,44 @@ describe("agent server API", () => {
     expect(putLatest?.status).toBe(200);
     const latestBody = await putLatest!.json() as Array<{ id: string; registry?: { updateAvailable: boolean } }>;
     expect(latestBody.find((entry) => entry.id === "codex-acp")?.registry?.updateAvailable).toBe(false);
+  });
+
+  test("probes auth methods and stores env auth values locally", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-auth-api-"));
+    const authStatus = {
+      agentServerId: "fake",
+      methods: [{
+        type: "env_var" as const,
+        id: "env",
+        name: "Environment",
+        vars: [{ name: "FAKE_API_KEY", secret: true, optional: false }],
+        missingVars: [],
+      }],
+    };
+    const bridge = {
+      ...createSpecflowBridge(),
+      inspectAgentAuthentication: async () => authStatus,
+      authenticateAgentServer: async () => authStatus,
+    };
+    const handle = createApiHandler(bridge, root);
+
+    await handle(new Request("http://specflow.test/api/agent-servers/fake", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "custom", command: "fake-acp" }),
+    }));
+
+    const inspected = await handle(new Request("http://specflow.test/api/agent-servers/fake/auth"));
+    expect(await inspected!.json()).toEqual(authStatus);
+
+    const authenticated = await handle(new Request("http://specflow.test/api/agent-servers/fake/auth/env", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ env: { FAKE_API_KEY: "secret" } }),
+    }));
+    expect(authenticated?.status).toBe(200);
+    expect((await loadLocalAgentServerConfig(root)).agent_servers.fake?.env).toEqual({
+      FAKE_API_KEY: "secret",
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { useRef, useState, useMemo, useEffect, useCallback } from 'react';
+import { uuidv7 } from '@specflow/shared';
 import type { WorkflowNode, Edge, Session, Selection, RunStateMap, GateNode, InputNode } from '../types';
 import type { IconName } from './icon';
 import { Icon } from './icon';
@@ -440,7 +441,7 @@ export function Canvas({
                 fromN.kind !== 'input' &&
                 fromN.sessionId != null && fromN.sessionId === toN.sessionId;
               onAddEdge({
-                id: `e${Date.now()}`,
+                id: uuidv7(),
                 from: dragInfo.fromId,
                 to: toId,
                 branch: dragInfo.branch,
@@ -471,7 +472,7 @@ export function Canvas({
     // In add-mode and edit view: place node at click
     if (mode !== 'pan' && isEdit) {
       const pos = clientToCanvas(e.clientX, e.clientY);
-      const id = `n${Date.now()}`;
+      const id = uuidv7();
       const num = `${nodesRef.current.length + 1}`;
       const firstSession = sessions[0]?.id ?? null;
 

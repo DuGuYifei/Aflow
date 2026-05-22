@@ -1,11 +1,14 @@
 #!/usr/bin/env bun
 
-import { resolve } from "node:path";
+import { access } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   executeAgentFlowDoc,
+  initWorkspace,
   loadAgentFlowFile,
   prepareCanvasRun,
   startSpecflowServer,
+  upsertLocalAgentServer,
   type AgentFlowDoc,
   type RunInputVariable,
 } from "@specflow/server";
@@ -31,6 +34,7 @@ try {
 }
 
 async function serveCommand(): Promise<void> {
+  await initializeFirstWorkspace();
   const server = await startSpecflowServer();
   let stopping = false;
 
@@ -188,7 +192,7 @@ function printRunPlan(filePath: string, doc: AgentFlowDoc, variables: RunInputVa
   console.log(`File: ${filePath}`);
   console.log(`Sessions: ${doc.sessions.length}`);
   for (const s of doc.sessions) {
-    console.log(`  - ${s.name} [${s.agentServerId ?? s.agent ?? "codex-acp"}]`);
+    console.log(`  - ${s.name} [${s.agentServerId ?? s.agent ?? "unconfigured"}]`);
   }
   console.log(`Nodes: ${runtimeNodes.length}`);
   for (const n of runtimeNodes) {
@@ -231,4 +235,101 @@ function indentBlock(label: string, value: string): string {
 
 function printRunUsage(): void {
   console.error("Usage: specflow run <agentflow.yaml> [-Dname=value ...] [--input text] [--yes]");
+}
+
+interface RegistryAgentChoice {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+}
+
+async function initializeFirstWorkspace(): Promise<void> {
+  if (await pathExists(join(process.cwd(), ".specflow"))) return;
+
+  if (!process.stdin.isTTY) {
+    await initWorkspace(process.cwd(), { createIfMissing: true });
+    console.log("Initialized .specflow in generic mode.");
+    return;
+  }
+
+  const mode = await selectWorkspaceMode();
+  if (mode === "generic") {
+    await initWorkspace(process.cwd(), { createIfMissing: true });
+    console.log("Initialized .specflow in generic mode.");
+    return;
+  }
+
+  const agent = await selectCodeAgent();
+  if (!agent) {
+    await initWorkspace(process.cwd(), { createIfMissing: true });
+    console.log("Initialized .specflow in generic mode.");
+    return;
+  }
+
+  await initWorkspace(process.cwd(), {
+    createIfMissing: true,
+    seedAgentServerId: agent.id,
+  });
+  await upsertLocalAgentServer(process.cwd(), agent.id, {
+    type: "registry",
+    registryId: agent.id,
+    installedVersion: agent.version,
+  });
+  console.log(`Initialized .specflow with code ACP ${agent.name || agent.id}.`);
+}
+
+async function selectWorkspaceMode(): Promise<"code" | "generic"> {
+  while (true) {
+    console.log("\nSpecflow first-run setup");
+    console.log("  1. Code agent mode");
+    console.log("  2. Generic mode");
+    process.stdout.write("Choose a mode [1]: ");
+    const answer = (await readStdinLine()).trim().toLowerCase();
+    if (!answer || answer === "1" || answer === "code") return "code";
+    if (answer === "2" || answer === "generic") return "generic";
+  }
+}
+
+async function selectCodeAgent(): Promise<RegistryAgentChoice | undefined> {
+  const response = await fetch("https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json");
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ACP registry: ${response.status} ${response.statusText}`);
+  }
+  const registry = await response.json() as { agents?: RegistryAgentChoice[] };
+  const agents = (registry.agents ?? []).filter(isCodeAgent);
+  if (agents.length === 0) {
+    throw new Error("ACP registry returned no code agents.");
+  }
+
+  console.log("\nCode ACP agents");
+  for (let index = 0; index < agents.length; index += 1) {
+    const agent = agents[index]!;
+    const summary = agent.description ? ` - ${agent.description}` : "";
+    console.log(`  ${index + 1}. ${agent.name || agent.id} (${agent.id}@${agent.version})${summary}`);
+  }
+  console.log("  0. Skip for now");
+
+  while (true) {
+    process.stdout.write("Choose an agent [1]: ");
+    const raw = (await readStdinLine()).trim();
+    if (raw === "0") return undefined;
+    const index = raw ? Number(raw) - 1 : 0;
+    if (Number.isInteger(index) && agents[index]) return agents[index];
+  }
+}
+
+function isCodeAgent(agent: RegistryAgentChoice): boolean {
+  const text = `${agent.id} ${agent.name} ${agent.description ?? ""}`.toLowerCase();
+  return /\b(code|coding|developer|software engineer|programmer)\b/.test(text)
+    || text.includes("codex");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }

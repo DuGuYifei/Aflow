@@ -1,3 +1,5 @@
+import { uuidv7 } from "@specflow/shared";
+
 export interface BridgeSession {
   id: string;
   createdAt: Date;
@@ -8,7 +10,7 @@ export class SessionRegistry {
 
   create(): BridgeSession {
     const session = {
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       createdAt: new Date(),
     };
 

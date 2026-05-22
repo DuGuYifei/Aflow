@@ -1,6 +1,7 @@
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge } from "@specflow/bridge";
 import type { AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunStatusEvent, RegistryIndex } from "@specflow/bridge";
+import { uuidv7 } from "@specflow/shared";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import {
   listCanvases,
@@ -277,7 +278,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     id: "s1",
     name: "main",
     color: "oklch(0.7 0.13 250)",
-    agentServerId: "codex-acp",
+    agentServerId: "unconfigured",
   };
 
   function publishRestoreEvent(event: RestoreStreamEvent): void {
@@ -430,7 +431,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     const workflow = canvasToWorkflow(prepared.doc);
-    const runId = crypto.randomUUID();
+    const runId = uuidv7();
     const runController = new AbortController();
     runControllers.set(runId, runController);
     const existingCount = (await listRuns(workflowId, root)).length;
@@ -447,7 +448,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       label,
       status: "running",
       startedAt: new Date().toISOString(),
-      agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "codex-acp",
+      agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "unconfigured",
       nodeStates: initialNodeStates,
       nodeOutputs: {},
       agentInvocations: [],
@@ -546,7 +547,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       void saveRun(record, root);
       appendLog({ type: "run_status", ...e });
-      bus.emit(`${runId}:run`, { runId, status: record.status, workflowId });
+      bus.emit(`${runId}:run`, { runId, status: record.status, workflowId, error: record.errorMsg });
       offInteractionLog();
     };
 
@@ -604,7 +605,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       return Response.json({ error: "Agent session not found" }, { status: 404 });
     }
 
-    const restoreId = crypto.randomUUID();
+    const restoreId = uuidv7();
     const restoreController = new AbortController();
     restoreControllers.set(restoreId, restoreController);
     const startedAt = new Date().toISOString();
@@ -748,6 +749,47 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       return Response.json(await bridge.listAgentRegistry(root));
     }
 
+    // GET /api/agent-servers/:id/auth
+    const agentServerAuthMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)\/auth$/);
+    if (agentServerAuthMatch && request.method === "GET") {
+      try {
+        return Response.json(await bridge.inspectAgentAuthentication(root, decodeURIComponent(agentServerAuthMatch[1])));
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+    }
+
+    // POST /api/agent-servers/:id/auth/:methodId
+    const agentServerAuthMethodMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)\/auth\/([^/]+)$/);
+    if (agentServerAuthMethodMatch && request.method === "POST") {
+      const id = decodeURIComponent(agentServerAuthMethodMatch[1]);
+      const methodId = decodeURIComponent(agentServerAuthMethodMatch[2]);
+      let body: { env?: Record<string, unknown> } = {};
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const env = recordOfStrings(body.env);
+      if (env && Object.keys(env).length > 0) {
+        const current = (await bridge.listAgentServers(root)).find((entry) => entry.id === id);
+        if (!current) {
+          return Response.json({ error: "Agent server not found" }, { status: 404 });
+        }
+        await upsertLocalAgentServer(root, id, {
+          ...current.settings,
+          env: { ...(current.settings.env ?? {}), ...env },
+        } as AgentServerSettings);
+      }
+
+      try {
+        return Response.json(await bridge.authenticateAgentServer(root, id, methodId));
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+    }
+
     // PUT /api/agent-servers/:id
     const agentServerMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)$/);
     if (agentServerMatch && request.method === "PUT") {
@@ -787,7 +829,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     if (request.method === "POST" && pathname === "/api/canvases") {
       let body: { name?: string } = {};
       try { body = await request.json(); } catch { /* ok */ }
-      const id = `wf${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+      const id = uuidv7();
       const doc: CanvasDoc = {
         id,
         name: body.name ?? "Untitled workflow",
@@ -1011,4 +1053,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     return null; // not handled
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { uuidv7 } from '@specflow/shared';
 import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, LogLine, InputNode } from './types';
 import {
   fetchCanvases, fetchCanvas, saveCanvas, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
   cancelRun as apiCancelRun,
-  fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
+  fetchAgentSessions, fetchAgentServers, fetchAgentServerAuth, restoreAgentSession, subscribeToRestore,
   apiRunToUiRun, apiRunLogsToLogLines, summaryToWorkflow, respondToRunInteraction,
   type SseEventType,
   type RunInteraction,
@@ -84,6 +85,7 @@ export function App() {
   const [runConfigBusy, setRunConfigBusy]     = useState(false);
   const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
   const [agentServerManagerOpen, setAgentServerManagerOpen] = useState(false);
+  const [authInspectServerId, setAuthInspectServerId] = useState('');
 
   // viewMode is derived from selection: viewing a run → run view (readonly).
   const view: 'edit' | 'run' = activeRunId ? 'run' : 'edit';
@@ -136,6 +138,11 @@ export function App() {
       setActiveCanvasName(doc.name);
       if (doc.sessions[0]) setActiveSessionId(doc.sessions[0].id);
       setSelection(null);
+      void findMissingEnvAuthServer(doc.sessions.map((session) => session.agentServerId)).then((serverId) => {
+        if (!serverId) return;
+        setAuthInspectServerId(serverId);
+        setAgentServerManagerOpen(true);
+      });
     }).catch(console.error);
 
     fetchRuns(activeWorkflow).then((records) => {
@@ -229,7 +236,7 @@ export function App() {
     setNodes((ns) => {
       const updated = ns.map((n) => {
         if (n.id !== gateId || n.kind !== 'gate') return n;
-        const newBranch = { id: `b${Date.now()}`, label: 'branch', color: 'var(--ink-3)' };
+        const newBranch = { id: uuidv7(), label: 'branch', color: 'var(--ink-3)' };
         return { ...n, branches: [...n.branches, newBranch] };
       });
       nodesRef.current = updated;
@@ -386,7 +393,7 @@ export function App() {
 
   const onAddSession = useCallback((name: string, agentServerId: Session['agentServerId']) => {
     setSessions((ss) => {
-      const id = `s${Date.now()}`;
+      const id = uuidv7();
       const color = SESSION_COLORS[ss.length % SESSION_COLORS.length];
       const updated = [...ss, { id, name, color, agentServerId }];
       sessionsRef.current = updated;
@@ -561,7 +568,7 @@ export function App() {
           status: 'running',
           time: 'just now',
           duration: '—',
-          agent: sessionsRef.current[0]?.agentServerId ?? 'codex-acp',
+          agent: sessionsRef.current[0]?.agentServerId ?? 'unconfigured',
         };
       }
       setRuns((prev) => [placeholder, ...prev]);
@@ -578,12 +585,16 @@ export function App() {
         } else if (type === 'interaction-requested') {
           onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
-          const ev = data as { status: string };
+          const ev = data as { status: string; error?: string };
           const uiStatus = runStatusFromEvent(ev.status);
           setRuns((prev) => prev.map((r) =>
             r.id === runId ? { ...r, status: uiStatus } : r,
           ));
           if (uiStatus !== 'running') {
+            if (isAuthError(ev.error)) {
+              setAuthInspectServerId(sessionsRef.current[0]?.agentServerId ?? '');
+              setAgentServerManagerOpen(true);
+            }
             unsub();
             fetchRuns(activeWorkflow).then((records) => {
               setRuns(records.map(apiRunToUiRun));
@@ -632,12 +643,16 @@ export function App() {
         } else if (type === 'interaction-requested') {
           onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
-          const ev = data as { status: string };
+          const ev = data as { status: string; error?: string };
           const uiStatus = runStatusFromEvent(ev.status);
           setRuns((prev) => prev.map((r) =>
             r.id === newRunId ? { ...r, status: uiStatus } : r,
           ));
           if (uiStatus !== 'running') {
+            if (isAuthError(ev.error)) {
+              setAuthInspectServerId(sessionsRef.current[0]?.agentServerId ?? '');
+              setAgentServerManagerOpen(true);
+            }
             unsub();
             fetchRuns(activeWorkflow).then((records) => {
               setRuns(records.map(apiRunToUiRun));
@@ -854,7 +869,11 @@ export function App() {
       )}
 
       {!runConfigOpen && agentServerManagerOpen && (
-        <AgentServerManager onClose={() => setAgentServerManagerOpen(false)} onChanged={refreshAgentServers} />
+        <AgentServerManager
+          autoInspectServerId={authInspectServerId}
+          onClose={() => setAgentServerManagerOpen(false)}
+          onChanged={refreshAgentServers}
+        />
       )}
 
       {!runConfigOpen && selection?.kind === 'node' && selectedNodeWithState && (
@@ -934,4 +953,22 @@ function textFromSessionUpdate(update: unknown): string | undefined {
   if (maybe.sessionUpdate !== 'agent_message_chunk') return undefined;
   const content = maybe.content as { type?: string; text?: unknown } | undefined;
   return content?.type === 'text' && typeof content.text === 'string' ? content.text : undefined;
+}
+
+async function findMissingEnvAuthServer(agentServerIds: string[]): Promise<string | undefined> {
+  for (const id of [...new Set(agentServerIds)].filter((value) => value && value !== 'unconfigured')) {
+    try {
+      const auth = await fetchAgentServerAuth(id);
+      if (auth.methods.some((method) => method.type === 'env_var' && method.missingVars.length > 0)) {
+        return id;
+      }
+    } catch {
+      // Inspection may need a registry download or a runnable custom command; keep normal loading available.
+    }
+  }
+  return undefined;
+}
+
+function isAuthError(error: string | undefined): boolean {
+  return Boolean(error && /auth|login|credential|api[_ -]?key|token/i.test(error));
 }

@@ -45,7 +45,6 @@ export class AgentServerStore {
     const base = await readConfig(join(this.#root, ".specflow", "agent-servers.json"));
     const local = await readConfig(join(this.#root, ".specflow", "agent-servers.local.json"));
     this.#settings = new Map([
-      ...Object.entries(defaultAgentServers()),
       ...Object.entries(base.agentServers ?? base.agent_servers ?? {}),
       ...Object.entries(local.agentServers ?? local.agent_servers ?? {}),
     ]);
@@ -144,19 +143,3 @@ type HeadlessRawSettings = Extract<AgentServerSettings, { type: "headless" }> & 
   args_template?: string[];
   timeout_ms?: number;
 } & CommonRawSettings;
-
-function defaultAgentServers(): Record<string, AgentServerSettings> {
-  return {
-    "codex-acp": {
-      type: "registry",
-      registryId: "codex-acp",
-      defaultMode: "auto",
-      defaultConfigOptions: {},
-    },
-    "claude-acp": {
-      type: "registry",
-      registryId: "claude-acp",
-      defaultConfigOptions: {},
-    },
-  };
-}

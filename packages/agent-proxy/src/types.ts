@@ -180,3 +180,39 @@ export interface AgentServerEntry {
   settings: AgentServerSettings;
   registry?: AgentServerRegistryStatus;
 }
+
+export interface AgentAuthenticationEnvVar {
+  name: string;
+  label?: string;
+  secret: boolean;
+  optional: boolean;
+}
+
+export type AgentAuthenticationMethod =
+  | {
+      type: "agent";
+      id: string;
+      name: string;
+      description?: string;
+    }
+  | {
+      type: "env_var";
+      id: string;
+      name: string;
+      description?: string;
+      link?: string;
+      vars: AgentAuthenticationEnvVar[];
+      missingVars: string[];
+    }
+  | {
+      type: "terminal";
+      id: string;
+      name: string;
+      description?: string;
+      terminalEnabled: boolean;
+    };
+
+export interface AgentAuthenticationStatus {
+  agentServerId: AgentServerId;
+  methods: AgentAuthenticationMethod[];
+}

@@ -1,4 +1,5 @@
 import type { TerminalOutputEvent, TerminalStream } from "@specflow/workflow";
+import { uuidv7 } from "@specflow/shared";
 
 export interface TerminalEventFilter {
   runId?: string;
@@ -21,7 +22,7 @@ export class TerminalEventStore {
     this.#sequencesByRun.set(input.runId, nextSequence);
 
     const event: TerminalOutputEvent = {
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       runId: input.runId,
       nodeRunId: input.nodeRunId,
       agentInvocationId: input.agentInvocationId,

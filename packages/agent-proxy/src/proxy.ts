@@ -1,6 +1,17 @@
 import { AgentServerStore } from "./store/agent-server-store";
-import type { AgentRestoreRequest, AgentRestoreResult, AgentRunRequest, AgentRunResult } from "./types";
-import { restoreAcpAgentSession, runAcpAgent } from "./runtimes/acp/connection";
+import type {
+  AgentAuthenticationStatus,
+  AgentRestoreRequest,
+  AgentRestoreResult,
+  AgentRunRequest,
+  AgentRunResult,
+} from "./types";
+import {
+  authenticateAcpAgent,
+  inspectAcpAgentAuthentication,
+  restoreAcpAgentSession,
+  runAcpAgent,
+} from "./runtimes/acp/connection";
 import { runHeadlessAgent } from "./runtimes/headless/command";
 import { withPolicyDirectories } from "./runtime-policy";
 export { AgentProxySessionPool } from "./session-pool";
@@ -39,4 +50,27 @@ export async function restoreAgentSession(request: AgentRestoreRequest): Promise
     throw new Error(`Headless agent runtime is not implemented: ${request.agentServerId}`);
   }
   return restoreAcpAgentSession(resolved, withPolicyDirectories(resolved, request));
+}
+
+export async function inspectAgentAuthentication(
+  root: string,
+  agentServerId: string,
+): Promise<AgentAuthenticationStatus> {
+  const resolved = await new AgentServerStore({ root }).resolve(agentServerId);
+  if (resolved.source === "headless") {
+    throw new Error(`Headless agent runtime does not advertise ACP authentication: ${agentServerId}`);
+  }
+  return inspectAcpAgentAuthentication(resolved, root);
+}
+
+export async function authenticateAgentServer(
+  root: string,
+  agentServerId: string,
+  methodId: string,
+): Promise<AgentAuthenticationStatus> {
+  const resolved = await new AgentServerStore({ root }).resolve(agentServerId);
+  if (resolved.source === "headless") {
+    throw new Error(`Headless agent runtime does not advertise ACP authentication: ${agentServerId}`);
+  }
+  return authenticateAcpAgent(resolved, root, methodId);
 }

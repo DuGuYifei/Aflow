@@ -3,7 +3,12 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { restoreAcpAgentSession, runAcpAgent } from "./connection";
+import {
+  authenticateAcpAgent,
+  inspectAcpAgentAuthentication,
+  restoreAcpAgentSession,
+  runAcpAgent,
+} from "./connection";
 import type { AgentRunRequest, ResolvedAgentServer } from "../../types";
 
 const fakeAgentPath = fileURLToPath(new URL("./test-fixtures/fake-agent.ts", import.meta.url));
@@ -254,6 +259,27 @@ describe("restoreAcpAgentSession", () => {
       sessionId: "prior-session",
       mode: "inspect",
     })).rejects.toThrow("does not support session restore");
+  });
+});
+
+describe("ACP auth inspection", () => {
+  it("reports env vars required by the agent and authenticates once they are configured", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-"));
+    const inspected = await inspectAcpAgentAuthentication(resolved({ authMethods: "env_var" }), cwd);
+    expect(inspected.methods).toEqual([{
+      type: "env_var",
+      id: "env",
+      name: "Environment",
+      vars: [{ name: "SPECFLOW_FAKE_TOKEN", secret: true, optional: false }],
+      missingVars: ["SPECFLOW_FAKE_TOKEN"],
+    }]);
+
+    const authenticated = await authenticateAcpAgent(
+      resolved({ authMethods: "env_var", env: { SPECFLOW_FAKE_TOKEN: "token" } }),
+      cwd,
+      "env",
+    );
+    expect(authenticated.methods[0]?.id).toBe("env");
   });
 });
 

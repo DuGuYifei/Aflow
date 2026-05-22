@@ -2,6 +2,7 @@ import type {
   AgentPermissionRequest,
   AgentPermissionResult,
 } from "@specflow/agent-proxy";
+import { uuidv7 } from "@specflow/shared";
 
 export type RunInteractionStatus = "pending" | "resolved" | "cancelled";
 
@@ -86,7 +87,7 @@ export class RunInteractionStore {
   requestPermission(context: RunInteractionContext, request: AgentPermissionRequest): Promise<AgentPermissionResult> {
     const interaction: PermissionRunInteraction = {
       ...context,
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       kind: "permission",
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -103,7 +104,7 @@ export class RunInteractionStore {
   requestElicitation(context: RunInteractionContext, request: unknown): Promise<ElicitationResponse> {
     const interaction: ElicitationRunInteraction = {
       ...context,
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       kind: "elicitation",
       status: "pending",
       createdAt: new Date().toISOString(),
@@ -119,7 +120,7 @@ export class RunInteractionStore {
   recordElicitationComplete(context: RunInteractionContext, notification: unknown): void {
     const interaction: ElicitationRunInteraction = {
       ...context,
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       kind: "elicitation",
       status: "resolved",
       createdAt: new Date().toISOString(),

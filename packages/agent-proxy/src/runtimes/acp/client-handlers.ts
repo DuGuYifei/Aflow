@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
+import { uuidv7 } from "@specflow/shared";
 import type {
   AgentPermissionRequest,
   AgentPermissionResult,
@@ -106,7 +107,7 @@ export class AcpClientHandlers implements acp.Client {
     if (!this.#terminalEnabled) {
       throw acp.RequestError.methodNotFound("terminal/create");
     }
-    const terminalId = crypto.randomUUID();
+    const terminalId = uuidv7();
     const cwd = params.cwd ? assertInsideAllowedRoots(this.#allowedRoots, params.cwd) : this.#cwd;
     const proc = Bun.spawn([params.command, ...(params.args ?? [])], {
       cwd,

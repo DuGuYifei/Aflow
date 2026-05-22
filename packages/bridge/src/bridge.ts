@@ -1,10 +1,13 @@
 import {
   AgentServerStore,
+  authenticateAgentServer,
   ensureCacheDir,
+  inspectAgentAuthentication,
   loadRegistryIndex,
   restoreAgentSession,
   type AgentRestoreRequest,
   type AgentRestoreResult,
+  type AgentAuthenticationStatus,
   type AgentServerEntry,
   type AgentServerSettings,
   type RegistryIndex,
@@ -18,6 +21,7 @@ export type {
   AgentRestorePrimitive,
   AgentRestoreRequest,
   AgentRestoreResult,
+  AgentAuthenticationStatus,
   AgentServerEntry,
   AgentServerSettings,
   RegistryAgent,
@@ -31,6 +35,8 @@ export interface SpecflowBridge {
   interactions: RunInteractionStore;
   executor: WorkflowExecutor;
   restoreAgentSession(request: AgentRestoreRequest): Promise<AgentRestoreResult>;
+  inspectAgentAuthentication(root: string, agentServerId: string): Promise<AgentAuthenticationStatus>;
+  authenticateAgentServer(root: string, agentServerId: string, methodId: string): Promise<AgentAuthenticationStatus>;
   listAgentServers(root: string): Promise<AgentServerEntry[]>;
   listAgentRegistry(root: string): Promise<RegistryIndex>;
 }
@@ -47,6 +53,8 @@ export function createSpecflowBridge(): SpecflowBridge {
     interactions,
     executor,
     restoreAgentSession,
+    inspectAgentAuthentication,
+    authenticateAgentServer,
     listAgentServers,
     listAgentRegistry,
   };

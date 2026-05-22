@@ -135,6 +135,37 @@ export interface AgentServerEntry {
   };
 }
 
+export interface AgentAuthenticationEnvVar {
+  name: string;
+  label?: string;
+  secret: boolean;
+  optional: boolean;
+}
+
+export type AgentAuthenticationMethod =
+  | { type: 'agent'; id: string; name: string; description?: string }
+  | {
+      type: 'env_var';
+      id: string;
+      name: string;
+      description?: string;
+      link?: string;
+      vars: AgentAuthenticationEnvVar[];
+      missingVars: string[];
+    }
+  | {
+      type: 'terminal';
+      id: string;
+      name: string;
+      description?: string;
+      terminalEnabled: boolean;
+    };
+
+export interface AgentAuthenticationStatus {
+  agentServerId: string;
+  methods: AgentAuthenticationMethod[];
+}
+
 export interface RegistryAgent {
   id: string;
   name: string;
@@ -344,6 +375,26 @@ export async function removeAgentServer(id: string): Promise<AgentServerEntry[]>
   return res.json();
 }
 
+export async function fetchAgentServerAuth(id: string): Promise<AgentAuthenticationStatus> {
+  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/auth`);
+  if (!res.ok) throw new Error(await apiError(res, `Failed to inspect auth for ${id}`));
+  return res.json();
+}
+
+export async function authenticateAgentServer(
+  id: string,
+  methodId: string,
+  env: Record<string, string> = {},
+): Promise<AgentAuthenticationStatus> {
+  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/auth/${encodeURIComponent(methodId)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ env }),
+  });
+  if (!res.ok) throw new Error(await apiError(res, `Failed to authenticate ${id}`));
+  return res.json();
+}
+
 export async function fetchAgentSession(id: string): Promise<AgentSessionRecord> {
   const res = await fetch(`/api/agent-sessions/${id}`);
   if (!res.ok) throw new Error(`Agent session ${id} not found`);
@@ -435,6 +486,15 @@ export function subscribeToRestore(
   source.addEventListener('terminal', handle('terminal'));
 
   return () => source.close();
+}
+
+async function apiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json() as { error?: string };
+    return body.error || `${fallback}: ${res.status}`;
+  } catch {
+    return `${fallback}: ${res.status}`;
+  }
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

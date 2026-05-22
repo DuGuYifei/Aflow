@@ -1,15 +1,17 @@
 import type { CanvasDoc } from "./canvas-doc";
 
+export const UNCONFIGURED_AGENT_SERVER_ID = "unconfigured";
+
 export const SEED_CANVAS_DOCS: CanvasDoc[] = [
   {
     id: "wf1",
     name: "Frontend ticket flow",
     sessions: [
-      { id: "s1", name: "parser",    color: "oklch(0.78 0.13 45)",  agentServerId: "claude-acp" },
-      { id: "s2", name: "builder",   color: "oklch(0.74 0.13 145)", agentServerId: "claude-acp" },
-      { id: "s3", name: "reviewer",  color: "oklch(0.74 0.13 230)", agentServerId: "codex-acp" },
-      { id: "s4", name: "interview", color: "oklch(0.74 0.13 300)", agentServerId: "claude-acp" },
-      { id: "s5", name: "plan-code", color: "oklch(0.78 0.13 80)",  agentServerId: "claude-acp" },
+      { id: "s1", name: "parser",    color: "oklch(0.78 0.13 45)",  agentServerId: UNCONFIGURED_AGENT_SERVER_ID },
+      { id: "s2", name: "builder",   color: "oklch(0.74 0.13 145)", agentServerId: UNCONFIGURED_AGENT_SERVER_ID },
+      { id: "s3", name: "reviewer",  color: "oklch(0.74 0.13 230)", agentServerId: UNCONFIGURED_AGENT_SERVER_ID },
+      { id: "s4", name: "interview", color: "oklch(0.74 0.13 300)", agentServerId: UNCONFIGURED_AGENT_SERVER_ID },
+      { id: "s5", name: "plan-code", color: "oklch(0.78 0.13 80)",  agentServerId: UNCONFIGURED_AGENT_SERVER_ID },
     ],
     nodes: [
       { kind: "step", id: "n1",  num: "01",   x: 60,   y: 240, w: 230,

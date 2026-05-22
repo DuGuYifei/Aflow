@@ -10,6 +10,11 @@ import type { CanvasDoc } from "./canvas-doc";
 
 const GITIGNORE_ENTRIES = ["runs/", "canvas/"];
 
+export interface InitWorkspaceOptions {
+  createIfMissing?: boolean;
+  seedAgentServerId?: string;
+}
+
 async function pathExists(p: string): Promise<boolean> {
   try {
     await access(p);
@@ -19,11 +24,16 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-export async function initWorkspace(cwd: string = process.cwd()): Promise<void> {
+export async function initWorkspace(
+  cwd: string = process.cwd(),
+  options: InitWorkspaceOptions = {},
+): Promise<void> {
   const root = join(cwd, ".specflow");
 
-  // Silently skip if the project has no .specflow directory yet.
-  if (!await pathExists(root)) return;
+  if (!await pathExists(root)) {
+    if (!options.createIfMissing) return;
+    await mkdir(root, { recursive: true });
+  }
 
   const agentflowsDir = join(root, "agentflows");
   const canvasDir = join(root, "canvas");
@@ -58,7 +68,7 @@ export async function initWorkspace(cwd: string = process.cwd()): Promise<void> 
       legacyYamlFiles.map(async (file) => {
         const raw = await readFile(join(canvasDir, file), "utf8");
         const doc = parse(raw) as CanvasDoc;
-        const { agentflow, layout } = splitCanvasDoc(doc);
+        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(doc, options.seedAgentServerId));
         await saveAgentFlowAndLayout(agentflow.id, agentflow, layout, cwd);
       }),
     );
@@ -69,9 +79,17 @@ export async function initWorkspace(cwd: string = process.cwd()): Promise<void> 
   if (legacyYamlFiles.length === 0) {
     await Promise.all(
       SEED_CANVAS_DOCS.map((doc) => {
-        const { agentflow, layout } = splitCanvasDoc(doc);
+        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(doc, options.seedAgentServerId));
         return saveAgentFlowAndLayout(agentflow.id, agentflow, layout, cwd);
       }),
     );
   }
+}
+
+function withSeedAgentServer<T extends CanvasDoc>(doc: T, agentServerId: string | undefined): T {
+  if (!agentServerId) return doc;
+  return {
+    ...doc,
+    sessions: doc.sessions.map((session) => ({ ...session, agentServerId })),
+  };
 }

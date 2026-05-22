@@ -1,5 +1,6 @@
 import * as acp from "@agentclientprotocol/sdk";
 import { Readable, Writable } from "node:stream";
+import { uuidv7 } from "@specflow/shared";
 
 class FakeAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
@@ -52,7 +53,7 @@ class FakeAgent implements acp.Agent {
 
   async newSession(): Promise<acp.NewSessionResponse> {
     this.#assertAuthenticated();
-    const sessionId = crypto.randomUUID();
+    const sessionId = uuidv7();
     this.#sessions.set(sessionId, { promptCount: 0 });
     return this.#sessionResponse(sessionId);
   }

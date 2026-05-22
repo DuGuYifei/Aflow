@@ -533,10 +533,10 @@ function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps
 
 function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onEditSession, onDeleteSession, agentServers, readonly }: SettingsTabProps) {
   const [draftName, setDraftName] = useState('');
-  const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('codex-acp');
+  const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('unconfigured');
   const [editingId, setEditingId] = useState('');
   const [editingName, setEditingName] = useState('');
-  const [editingAgent, setEditingAgent] = useState<Session['agentServerId']>('codex-acp');
+  const [editingAgent, setEditingAgent] = useState<Session['agentServerId']>('unconfigured');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

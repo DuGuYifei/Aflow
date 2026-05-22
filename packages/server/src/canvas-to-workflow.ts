@@ -5,9 +5,10 @@ import type {
   TaggedOutputEdge,
   Workflow,
 } from "@specflow/workflow";
+import { uuidv7 } from "@specflow/shared";
 import type { AgentFlowDoc, AgentFlowStepNode, CanvasEdge, CanvasSession } from "./canvas-doc";
 
-export const DEFAULT_AGENT_SERVER_ID = "codex-acp";
+export const DEFAULT_AGENT_SERVER_ID = "unconfigured";
 
 function agentServerIdForSession(session: CanvasSession): string {
   return session.agentServerId ?? legacyAgentServerId(session.agent);
@@ -102,13 +103,13 @@ function buildAgentNode(n: AgentFlowStepNode, doc: AgentFlowDoc): AgentNode {
     sessionId: n.sessionId ?? "",
     updateSpecDoc: n.updateDoc,
     attachments: (n.attachments ?? []).map((a) => ({
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       kind: "file",
       path: a.label,
       label: a.label,
     })),
     relatedResources: (n.paths ?? []).map((p) => ({
-      id: crypto.randomUUID(),
+      id: uuidv7(),
       kind: "file",
       path: p,
     })),

@@ -8,6 +8,8 @@ import type {
   AgentRestoreResult,
   AgentRunRequest,
   AgentRunResult,
+  AgentAuthenticationMethod,
+  AgentAuthenticationStatus,
   AgentTerminalEvent,
   ResolvedAgentServer,
 } from "../../types";
@@ -551,6 +553,61 @@ export async function restoreAcpAgentSession(
   }
 }
 
+export async function inspectAcpAgentAuthentication(
+  resolved: ResolvedAgentServer,
+  cwd: string,
+): Promise<AgentAuthenticationStatus> {
+  const client = createAuthClient(resolved, cwd);
+  try {
+    const initializeResponse = await client.initialize();
+    assertProtocolVersion(initializeResponse);
+    return {
+      agentServerId: resolved.id,
+      methods: authMethodInfos(initializeResponse.authMethods ?? [], resolved),
+    };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+export async function authenticateAcpAgent(
+  resolved: ResolvedAgentServer,
+  cwd: string,
+  methodId: string,
+  onTerminalEvent?: (event: AgentTerminalEvent) => void,
+): Promise<AgentAuthenticationStatus> {
+  const client = createAuthClient(resolved, cwd, onTerminalEvent);
+  try {
+    const initializeResponse = await client.initialize();
+    assertProtocolVersion(initializeResponse);
+    const method = (initializeResponse.authMethods ?? []).find((candidate) => candidate.id === methodId);
+    if (!method) {
+      throw new Error(`ACP agent "${resolved.id}" does not advertise auth method "${methodId}".`);
+    }
+    if (isEnvAuthMethod(method)) {
+      const missing = missingEnvVars(method, resolved);
+      if (missing.length > 0) {
+        throw new Error(`ACP agent "${resolved.id}" requires authentication env vars: ${missing.join(", ")}`);
+      }
+    }
+    if (isTerminalAuthMethod(method)) {
+      if (!resolved.settings.terminal?.auth) {
+        throw new Error(
+          `ACP agent "${resolved.id}" requires terminal authentication, but terminal auth is disabled. Set terminal.auth=true on the agent server.`,
+        );
+      }
+      await runTerminalAuthMethod(resolved, cwd, method, onTerminalEvent);
+    }
+    await client.connection.authenticate({ methodId: method.id });
+    return {
+      agentServerId: resolved.id,
+      methods: authMethodInfos(initializeResponse.authMethods ?? [], resolved),
+    };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
 function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined, message: string): Promise<T> {
   if (!signal) return promise;
   const abortPromise = new Promise<never>((_, reject) => {
@@ -561,6 +618,26 @@ function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined, 
     signal?.addEventListener("abort", () => reject(new Error(message)), { once: true });
   });
   return Promise.race([promise, abortPromise]);
+}
+
+function createAuthClient(
+  resolved: ResolvedAgentServer,
+  cwd: string,
+  onTerminalEvent?: (event: AgentTerminalEvent) => void,
+): AcpAgentClient {
+  return new AcpAgentClient({
+    resolved,
+    cwd,
+    onTerminalEvent,
+    request: {},
+    appendOutput() {},
+  });
+}
+
+function assertProtocolVersion(initializeResponse: acp.InitializeResponse): void {
+  if (initializeResponse.protocolVersion !== acp.PROTOCOL_VERSION) {
+    throw new Error(`Unsupported ACP protocol version: ${initializeResponse.protocolVersion}`);
+  }
 }
 
 async function authenticateIfAvailable(input: {
@@ -612,6 +689,44 @@ function selectAuthMethod(
   }
 
   throw new Error(`ACP agent "${resolved.id}" advertised no supported authentication methods.`);
+}
+
+function authMethodInfos(
+  methods: acp.AuthMethod[],
+  resolved: ResolvedAgentServer,
+): AgentAuthenticationMethod[] {
+  return methods.map((method) => {
+    const common = {
+      id: method.id,
+      name: method.name,
+      ...("description" in method && method.description ? { description: method.description } : {}),
+    };
+    if (isEnvAuthMethod(method)) {
+      return {
+        ...common,
+        type: "env_var",
+        ...("link" in method && method.link ? { link: method.link } : {}),
+        vars: method.vars.map((entry) => ({
+          name: entry.name,
+          ...(entry.label ? { label: entry.label } : {}),
+          secret: entry.secret ?? true,
+          optional: entry.optional ?? false,
+        })),
+        missingVars: missingEnvVars(method, resolved),
+      };
+    }
+    if (isTerminalAuthMethod(method)) {
+      return {
+        ...common,
+        type: "terminal",
+        terminalEnabled: resolved.settings.terminal?.auth ?? false,
+      };
+    }
+    return {
+      ...common,
+      type: "agent",
+    };
+  });
 }
 
 function isAgentAuthMethod(method: acp.AuthMethod): method is Exclude<acp.AuthMethod, { type: "env_var" } | { type: "terminal" }> {
