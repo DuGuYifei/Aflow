@@ -572,7 +572,7 @@ export async function inspectAcpAgentAuthentication(
   try {
     const initializeResponse = await client.initialize();
     assertProtocolVersion(initializeResponse);
-    return inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
+    return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
   } finally {
     await client.close().catch(() => {});
   }
@@ -607,7 +607,7 @@ export async function authenticateAcpAgent(
       await runTerminalAuthMethod(resolved, cwd, method, onTerminalEvent);
     }
     await client.connection.authenticate({ methodId: method.id });
-    return inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
+    return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
   } finally {
     await client.close().catch(() => {});
   }
@@ -680,8 +680,7 @@ async function canCreateSessionWithoutAuth(
   cwd: string,
 ): Promise<boolean> {
   try {
-    const session = await connection.newSession({ cwd, mcpServers: [] });
-    await connection.closeSession({ sessionId: session.sessionId }).catch(() => {});
+    await connection.newSession({ cwd, mcpServers: [] });
     return true;
   } catch (error) {
     if (isAuthRequiredError(error)) return false;
