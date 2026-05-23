@@ -3,9 +3,14 @@ import type { RegistryIndex } from "./sources/registry-client";
 
 export type SupportedRegistryAgentId = "codex-acp" | "claude-acp";
 
+export type AgentAuthenticationProbe =
+  | { type: "acp_session" }
+  | { type: "command_json"; args: string[]; authenticatedField: string };
+
 export interface SupportedRegistryAgentProfile {
   id: SupportedRegistryAgentId;
   authMethodPreference: string[];
+  authenticationProbe: AgentAuthenticationProbe;
   defaultSettings: Pick<AgentServerSettings, "terminal">;
 }
 
@@ -13,11 +18,17 @@ const SUPPORTED_REGISTRY_AGENT_PROFILES: Record<SupportedRegistryAgentId, Suppor
   "codex-acp": {
     id: "codex-acp",
     authMethodPreference: ["chatgpt", "codex-api-key", "openai-api-key"],
+    authenticationProbe: { type: "acp_session" },
     defaultSettings: { terminal: { enabled: true, auth: true } },
   },
   "claude-acp": {
     id: "claude-acp",
     authMethodPreference: ["claude-ai-login", "console-login", "claude-login", "gateway", "gateway-bedrock"],
+    authenticationProbe: {
+      type: "command_json",
+      args: ["--cli", "auth", "status"],
+      authenticatedField: "loggedIn",
+    },
     defaultSettings: { terminal: { enabled: true, auth: true } },
   },
 };

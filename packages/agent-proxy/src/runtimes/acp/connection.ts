@@ -13,6 +13,7 @@ import type {
   AgentTerminalEvent,
   ResolvedAgentServer,
 } from "../../types";
+import { supportedRegistryAgentProfile } from "../../supported-agents";
 import { AcpClientHandlers } from "./client-handlers";
 
 export interface AcpAgentClientOptions {
@@ -582,6 +583,7 @@ export async function authenticateAcpAgent(
         );
       }
       await runTerminalAuthMethod(resolved, cwd, method, onTerminalEvent);
+      return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
     }
     await client.connection.authenticate({ methodId: method.id });
     return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
@@ -629,7 +631,7 @@ async function inspectInitializedAuthentication(
   cwd: string,
 ): Promise<AgentAuthenticationStatus> {
   const methods = initializeResponse.authMethods ?? [];
-  let needsAuth = !(await canCreateSessionWithoutAuth(connection, cwd));
+  let needsAuth = !(await isAgentAuthenticated(connection, resolved, cwd));
 
   if (needsAuth) {
     const configuredEnvMethod = methods.find((method) =>
@@ -638,7 +640,7 @@ async function inspectInitializedAuthentication(
     if (configuredEnvMethod) {
       try {
         await connection.authenticate({ methodId: configuredEnvMethod.id });
-        needsAuth = !(await canCreateSessionWithoutAuth(connection, cwd));
+        needsAuth = !(await isAgentAuthenticated(connection, resolved, cwd));
       } catch {
         // Keep the auth prompt available when a stored credential is rejected.
       }
@@ -652,6 +654,21 @@ async function inspectInitializedAuthentication(
   };
 }
 
+async function isAgentAuthenticated(
+  connection: acp.ClientSideConnection,
+  resolved: ResolvedAgentServer,
+  cwd: string,
+): Promise<boolean> {
+  const profile = resolved.settings.type === "registry"
+    ? supportedRegistryAgentProfile(resolved.settings.registryId)
+    : undefined;
+  const probe = profile?.authenticationProbe;
+  if (!probe || probe.type === "acp_session") {
+    return canCreateSessionWithoutAuth(connection, cwd);
+  }
+  return commandJsonReportsAuthenticated(resolved, cwd, probe.args, probe.authenticatedField);
+}
+
 async function canCreateSessionWithoutAuth(
   connection: acp.ClientSideConnection,
   cwd: string,
@@ -663,6 +680,42 @@ async function canCreateSessionWithoutAuth(
     if (isAuthRequiredError(error)) return false;
     throw error;
   }
+}
+
+async function commandJsonReportsAuthenticated(
+  resolved: ResolvedAgentServer,
+  cwd: string,
+  args: string[],
+  authenticatedField: string,
+): Promise<boolean> {
+  const child = spawn(resolved.command.command, [...resolved.command.args, ...args], {
+    cwd,
+    env: { ...process.env, ...(resolved.command.env ?? {}) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  await onceExit(child);
+
+  let status: Record<string, unknown>;
+  try {
+    status = JSON.parse(stdout.trim()) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `ACP authentication status command failed for "${resolved.id}": ${stderr.trim() || stdout.trim() || `exit code ${child.exitCode ?? "unknown"}`}`,
+    );
+  }
+  const authenticated = status[authenticatedField];
+  if (typeof authenticated !== "boolean") {
+    throw new Error(`ACP authentication status command for "${resolved.id}" did not return boolean field "${authenticatedField}".`);
+  }
+  return authenticated;
 }
 
 function isAuthRequiredError(error: unknown): boolean {

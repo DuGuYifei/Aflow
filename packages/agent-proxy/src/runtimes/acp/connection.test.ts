@@ -286,6 +286,30 @@ describe("ACP auth inspection", () => {
     expect(authenticated.needsAuth).toBe(false);
     expect(authenticated.methods[0]?.id).toBe("env");
   });
+
+  it("uses a command status probe for Claude because newSession is not an auth check", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-claude-"));
+
+    const missing = await inspectAcpAgentAuthentication(resolvedClaude({ authMethods: "terminal" }), cwd);
+    const ready = await inspectAcpAgentAuthentication(
+      resolvedClaude({ authMethods: "terminal", preauthorized: true }),
+      cwd,
+    );
+
+    expect(missing.needsAuth).toBe(true);
+    expect(ready.needsAuth).toBe(false);
+  });
+
+  it("runs terminal authentication without calling the agent authenticate method", async () => {
+    const status = await authenticateAcpAgent(
+      resolvedClaude({ authMethods: "terminal", preauthorized: true }),
+      await mkdtemp(join(tmpdir(), "specflow-acp-auth-terminal-")),
+      "terminal",
+      () => {},
+    );
+
+    expect(status.needsAuth).toBe(false);
+  });
 });
 
 function resolved(options: {
@@ -318,6 +342,20 @@ function resolved(options: {
         ...(options.authMethods ? { SPECFLOW_FAKE_ACP_AUTH_METHODS: options.authMethods } : {}),
         ...(options.preauthorized ? { SPECFLOW_FAKE_ACP_PREAUTHORIZED: "1" } : {}),
       },
+    },
+  };
+}
+
+function resolvedClaude(options: Parameters<typeof resolved>[0] = {}): ResolvedAgentServer {
+  const fake = resolved(options);
+  return {
+    ...fake,
+    id: "claude-acp",
+    source: "registry",
+    settings: {
+      type: "registry",
+      registryId: "claude-acp",
+      terminal: { enabled: true, auth: true },
     },
   };
 }

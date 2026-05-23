@@ -2,6 +2,15 @@ import * as acp from "@agentclientprotocol/sdk";
 import { Readable, Writable } from "node:stream";
 import { uuidv7 } from "@specflow/shared";
 
+if (process.argv.slice(2).join(" ") === "--cli auth status") {
+  const loggedIn = process.env.SPECFLOW_FAKE_ACP_PREAUTHORIZED === "1";
+  console.log(JSON.stringify({ loggedIn }));
+  process.exit(loggedIn ? 0 : 1);
+}
+if (process.argv.includes("--fake-auth")) {
+  process.exit(0);
+}
+
 class FakeAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
   readonly #sessions = new Map<string, { promptCount: number }>();
@@ -47,6 +56,9 @@ class FakeAgent implements acp.Agent {
     const methodIds = new Set(this.#authMethods.map((method) => this.#authMethod(method).id));
     if (methodIds.size > 0 && !methodIds.has(params.methodId)) {
       throw new Error(`Unknown auth method ${params.methodId}`);
+    }
+    if (params.methodId === "terminal") {
+      throw new Error("Method not implemented.");
     }
     this.#authenticationCount += 1;
     this.#authenticated = true;
