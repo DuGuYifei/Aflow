@@ -105,3 +105,22 @@ Implementation order is intentional. Each phase should finish with tests and doc
 - [x] Add fake ACP fixtures for permission, elicitation, load, resume, and active restore update streaming.
 - [x] Run `bun run typecheck` before every ACP runtime merge.
 - [x] Run `bun test` before every ACP runtime merge.
+
+### Future Phases (Not Yet Planned)
+
+- 支持二进制文件比如截图，音频
+- `--server` 才启动服务器模式，否则有客户端UI
+- `--headless` CLI模式
+- 修复run记录里的排版，应该没有快照导致的？但不确定。
+- run一次有 [Bun.serve]: request timed out after 10 seconds. Pass `idleTimeout` to configure.
+- edit session，目前只有增加和删除
+- 登录没有实现
+- 启动时选择 code 还是 其他，code 要安装 agent-acp 选择，或者输入自己的agent的配置
+- agent-acp现在是全局安装还是本仓库？改为全局。（待考虑）
+- 整理 .specflow 目录结构，不是所有的都应该在当前仓库，可以是全局或用户根目录下（待考虑）
+- id是分布式uuidv7吗
+- ui log是怎么来的，run-logs有必要存吗？是acp获取的session日志吗？
+- 判断auth的方式不对，执行时遇到需要auth
+- history界面为什么存在？即使存在为何要有session选择情况下还能选择agent？session是固定某个agent拥有的。
+- 测试edge
+- 实现gate并测试
