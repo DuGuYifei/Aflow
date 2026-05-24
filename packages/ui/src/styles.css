@@ -1295,6 +1295,15 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   margin-bottom: 5px;
 }
 .toggle-row input { margin-top: 2px; }
+.node-session-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.node-session-select {
+  flex: 1;
+  min-width: 0;
+}
 .term-resizer {
   width: 4px;
   flex-shrink: 0;

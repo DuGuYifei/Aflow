@@ -140,6 +140,41 @@ describe("App run integration", () => {
     expect(document.body.textContent).toContain("2 sessions");
   });
 
+  test("assigns a step session from the right panel dropdown and keeps Add available", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
+        return json({
+          ...sampleCanvas(),
+          sessions: [
+            { id: "main", name: "main", agentServerId: "echo-headless" },
+            { id: "reviewer", name: "reviewer", agentServerId: "codex-acp" },
+          ],
+        });
+      }
+      return defaultFetch(input, init);
+    };
+
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    const step = document.querySelector(".node");
+    if (!(step instanceof window.HTMLElement)) throw new Error("Step node not found");
+    step.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitForText("Definition");
+
+    const select = document.querySelector(".node-session-select");
+    if (!(select instanceof window.HTMLSelectElement)) throw new Error("Right panel session selector not found");
+    if (select.value !== "main") throw new Error(`Expected main session, got ${select.value}`);
+    if (!document.querySelector(".node-session-control button")) throw new Error("Right panel Add button not found");
+
+    setSelectValue(select, "reviewer");
+    await waitFor(() => select.value === "reviewer");
+  });
+
   test("organizes ACP session history under the selected agent", async () => {
     agentSessionHistory = [
       sampleAgentSession("claude-acp", "claude-review", "claude-runtime"),

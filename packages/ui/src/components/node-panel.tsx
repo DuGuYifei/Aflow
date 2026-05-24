@@ -128,12 +128,20 @@ function StepOverview(props: NodePanelProps & {
         Native elicitation support will be added after the Agent Client Protocol Elicitation RFD is merged.
       </div>
       <div className="section-title">Session</div>
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {sessions.map((session) => (
-          <button key={session.id} className="btn sm" disabled={readonly} onClick={() => props.onChangeSession(node.id, session.id)}>
-            <span className="ses-dot" style={{ background: sessionAccent(session) }} />{session.name}
-          </button>
-        ))}
+      <div className="node-session-control">
+        <select
+          className="input node-session-select"
+          value={node.sessionId ?? ''}
+          disabled={readonly || sessions.length === 0}
+          onChange={(event) => {
+            if (event.target.value) props.onChangeSession(node.id, event.target.value);
+          }}
+        >
+          {!node.sessionId && <option value="">Select session</option>}
+          {sessions.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>{candidate.name} ({candidate.agentServerId ?? candidate.agent})</option>
+          ))}
+        </select>
         {!readonly && <button className="btn sm ghost" onClick={props.onAddSessionRequest}><Icon name="plus" size={11} />Add</button>}
       </div>
       <NodeImages {...props} compact />
