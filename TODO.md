@@ -54,3 +54,7 @@
 - [ ] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。
 - [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界。
 - [ ] 改进执行中才触发 auth 请求时的重试与 UI 流程。
+- [ ] Skill系统接入
+- [ ] MCP系统接入
+- [ ] 无头模式
+
