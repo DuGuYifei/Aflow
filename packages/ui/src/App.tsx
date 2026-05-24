@@ -43,7 +43,7 @@ function runStatusFromEvent(status: string): RunStatus {
 }
 
 export function App() {
-  const [activeWorkflow, setActiveWorkflow] = useState('wf1');
+  const [activeWorkflow, setActiveWorkflow] = useState('');
   const [activeCanvasName, setActiveCanvasName] = useState('');
 
   const [nodes, setNodes] = useState<WorkflowNode[]>([]);
@@ -157,11 +157,14 @@ export function App() {
   useEffect(() => {
     fetchCanvases().then((list) => {
       setWorkflows(list.map(summaryToWorkflow));
+      const initial = list.find((workflow) => workflow.id === 'example-code-frontend-flow') ?? list[0];
+      if (initial) setActiveWorkflow(initial.id);
     }).catch(console.error);
   }, []);
 
   // Load active canvas + runs whenever workflow changes
   useEffect(() => {
+    if (!activeWorkflow) return;
     fetchCanvas(activeWorkflow).then((doc) => {
       setNodes(doc.nodes as WorkflowNode[]);
       setEdges(doc.edges as Edge[]);

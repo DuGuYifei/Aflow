@@ -2,9 +2,9 @@ import { describe, expect, it } from "bun:test";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import type { CanvasDoc } from "./canvas-doc";
 
-// Minimal seed canvas matching the data.ts shape (wf1)
-const wf1Canvas: CanvasDoc = {
-  id: "wf1",
+// Minimal frontend example canvas matching the data.ts shape.
+const frontendExampleCanvas: CanvasDoc = {
+  id: "example-code-frontend-flow",
   name: "Frontend ticket flow",
   sessions: [
     { id: "s1", name: "parser", agentServerId: "claude-acp" },
@@ -52,7 +52,7 @@ const wf1Canvas: CanvasDoc = {
 
 describe("canvasToWorkflow", () => {
   it("creates external agents from canvas sessions plus default fallback", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     expect(wf.agents.map((a) => a.id).sort()).toEqual([
       "agent-server-claude-acp",
       "agent-server-codex-acp",
@@ -60,31 +60,31 @@ describe("canvasToWorkflow", () => {
   });
 
   it("preserves all 5 sessions bound to their selected agent server", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     expect(wf.sessions).toHaveLength(5);
     expect(wf.sessions.find((s) => s.id === "s1")?.agentId).toBe("agent-server-claude-acp");
     expect(wf.sessions.find((s) => s.id === "s3")?.agentId).toBe("agent-server-codex-acp");
   });
 
   it("drops the end node, keeps 12 runtime nodes", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     expect(wf.nodes).toHaveLength(12);
     expect(wf.nodes.every((n) => n.kind !== "end" as string)).toBe(true);
   });
 
   it("drops 4 loopback edges + 1 edge to end = 11 runtime edges", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     expect(wf.edges).toHaveLength(11);
   });
 
   it("same-session edges become trigger edges with no explicit transfer", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     const e1 = wf.edges.find((e) => e.id === "e1");
     expect(e1?.kind).toBe("trigger");
   });
 
   it("cross-session tagged edge becomes tagged-output", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     const e2 = wf.edges.find((e) => e.id === "e2");
     expect(e2?.kind).toBe("tagged-output");
     if (e2?.kind === "tagged-output") {
@@ -95,7 +95,7 @@ describe("canvasToWorkflow", () => {
   });
 
   it("agent nodes use the agent server selected on their session", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     const review = wf.nodes.find((n) => n.id === "n2c");
     expect(review?.kind).toBe("agent");
     if (review?.kind === "agent") {
@@ -106,12 +106,12 @@ describe("canvasToWorkflow", () => {
   });
 
   it("gate input has no transfer configuration", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     expect(wf.edges.find((e) => e.id === "e4")?.kind).toBe("gate-input");
   });
 
   it("gate output applies transfer rules against the step before the gate", () => {
-    const wf = canvasToWorkflow(wf1Canvas);
+    const wf = canvasToWorkflow(frontendExampleCanvas);
     const e5 = wf.edges.find((e) => e.id === "e5");
     expect(e5?.kind).toBe("tagged-output");
     expect(e5?.sourcePortId).toBe("pass");

@@ -20,7 +20,7 @@ const nodes: WorkflowNode[] = [
   { id: 'n1',  kind: 'step', num: '01',   x: 60,   y: 240, w: 230,
     title: 'Ticket',
     prompt: 'Capture the incoming ticket — title, description, attached screenshots.',
-    images: [{ path: '.specflow/assets/wf1/images/ticket.png', label: 'ticket.png', mimeType: 'image/png' }], paths: ['/issues/PROD-2841'],
+    images: [{ path: '.specflow/assets/example-code-frontend-flow/images/ticket.png', label: 'ticket.png', mimeType: 'image/png' }], paths: ['/issues/PROD-2841'],
     sessionId: 's1', locked: true },
 
   { id: 'n2a', kind: 'step', num: '02·a', x: 340,  y: 80,  w: 220,
@@ -110,7 +110,7 @@ const edges: Edge[] = [
 ];
 
 const workflows: Workflow[] = [
-  { id: 'wf1', name: 'Frontend ticket flow', meta: '11 nodes', active: true, runs: 14 },
+  { id: 'example-code-frontend-flow', name: 'Frontend ticket flow', meta: '11 nodes', active: true, runs: 14 },
   { id: 'wf2', name: 'Backend bugfix flow',  meta: '7 nodes',               runs: 22 },
   { id: 'wf3', name: 'Design polish loop',   meta: '5 nodes',               runs: 6  },
   { id: 'wf4', name: 'Migration playbook',   meta: '13 nodes',              runs: 3  },

@@ -97,6 +97,30 @@ describe("App run integration", () => {
     expect(document.body.textContent).toContain("Back to design");
   });
 
+  test("loads the first existing workflow when the renamed example is absent", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{ id: "legacy-flow", name: "Existing workflow" }]);
+      }
+      if (method === "GET" && url === "/api/canvases/legacy-flow") {
+        return json({ ...sampleCanvas(), id: "legacy-flow", name: "Existing workflow" });
+      }
+      if (method === "GET" && url === "/api/agent-sessions?workflowId=legacy-flow") {
+        return json([]);
+      }
+      return defaultFetch(input, init);
+    };
+
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Existing workflow");
+    await waitForText("Start run");
+  });
+
   test("adds a session and renders it immediately", async () => {
     root = createRoot(container);
     root.render(<App />);
@@ -266,21 +290,21 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   const method = init?.method ?? "GET";
 
   if (method === "GET" && url === "/api/canvases") {
-    return json([{ id: "wf1", name: "Workflow" }]);
+    return json([{ id: "example-code-frontend-flow", name: "Workflow" }]);
   }
-  if (method === "GET" && url === "/api/canvases/wf1") {
+  if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
     return json(sampleCanvas());
   }
   if (method === "GET" && url.startsWith("/api/runs?")) {
     return json([]);
   }
-  if (method === "GET" && url === "/api/agent-sessions?workflowId=wf1") {
+  if (method === "GET" && url === "/api/agent-sessions?workflowId=example-code-frontend-flow") {
     return json(agentSessionHistory);
   }
   if (method === "GET" && url === "/api/agent-servers") {
     return json([{ id: "echo-headless", settings: { type: "headless", command: "node", argsTemplate: [] } }]);
   }
-  if (method === "POST" && url === "/api/canvases/wf1/run") {
+  if (method === "POST" && url === "/api/canvases/example-code-frontend-flow/run") {
     if (holdRunStart) {
       return new Promise((resolve) => {
         releaseRunStart = () => resolve(Response.json({ runId: "run1" }));
@@ -332,7 +356,7 @@ function json(value: unknown, init?: ResponseInit): Promise<Response> {
 
 function sampleCanvas() {
   return {
-    id: "wf1",
+    id: "example-code-frontend-flow",
     name: "Workflow",
     sessions: [{ id: "main", name: "main", agentServerId: "echo-headless" }],
     nodes: [{
@@ -353,7 +377,7 @@ function sampleCanvas() {
 function sampleRun(status: string) {
   return {
     id: "run1",
-    workflowId: "wf1",
+    workflowId: "example-code-frontend-flow",
     label: "Run #1",
     ticket: "",
     status,
@@ -363,7 +387,7 @@ function sampleRun(status: string) {
     nodeStates: { "node-1": "running" },
     nodeOutputs: {},
     agentflowSnapshot: sampleCanvas(),
-    canvasSnapshot: { workflowId: "wf1", version: 1, nodes: [{ nodeId: "node-1", x: 120, y: 120, w: 240 }] },
+    canvasSnapshot: { workflowId: "example-code-frontend-flow", version: 1, nodes: [{ nodeId: "node-1", x: 120, y: 120, w: 240 }] },
     initialInput: "",
     variableValues: {},
   };
@@ -372,7 +396,7 @@ function sampleRun(status: string) {
 function sampleAgentSession(agentServerId: string, specflowSessionId: string, acpSessionId: string) {
   return {
     id: `${agentServerId}-${acpSessionId}`,
-    workflowId: "wf1",
+    workflowId: "example-code-frontend-flow",
     specflowSessionId,
     agentId: `agent-server-${agentServerId}`,
     agentServerId,

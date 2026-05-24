@@ -261,8 +261,8 @@ edges:
     expect(gitignore).toContain("runs/");
     expect(gitignore).toContain("canvas/");
 
-    const agentflowRaw = await readFile(join(root, ".specflow", "agentflows", "wf1.yaml"), "utf8");
-    const agentflow = parseAgentFlowSource(agentflowRaw, "wf1");
+    const agentflowRaw = await readFile(join(root, ".specflow", "agentflows", "example-code-frontend-flow.yaml"), "utf8");
+    const agentflow = parseAgentFlowSource(agentflowRaw, "example-code-frontend-flow");
     expect(agentflow.nodes.some((node) => node.kind === "end")).toBe(true);
     expect("x" in agentflow.nodes[0]!).toBe(false);
     expect(agentflowRaw).toContain("version: 1");
@@ -271,23 +271,38 @@ edges:
     expect(agentflowRaw).not.toContain("sessionId:");
     expect(agentflowRaw).not.toContain("color:");
 
-    const canvas = JSON.parse(await readFile(join(root, ".specflow", "canvas", "wf1.json"), "utf8"));
-    expect(canvas.workflowId).toBe("wf1");
+    const canvas = JSON.parse(await readFile(join(root, ".specflow", "canvas", "example-code-frontend-flow.json"), "utf8"));
+    expect(canvas.workflowId).toBe("example-code-frontend-flow");
     expect(canvas.nodes[0]).toHaveProperty("nodeId");
+
+    const docsFlowRaw = await readFile(join(root, ".specflow", "agentflows", "example-create-specflow-doc-flow.yaml"), "utf8");
+    const docsFlow = parseAgentFlowSource(docsFlowRaw, "example-create-specflow-doc-flow");
+    expect(docsFlow.nodes.find((node) => node.id === "discover-docs")?.kind).toBe("step");
+    expect(docsFlow.nodes.find((node) => node.id === "documentation-basis")?.kind).toBe("gate");
+    expect(docsFlowRaw).toContain(".specflow/product/product.md");
+    expect(docsFlowRaw).toContain("classification: undetermined");
+
+    const docsCanvas = JSON.parse(await readFile(join(root, ".specflow", "canvas", "example-create-specflow-doc-flow.json"), "utf8"));
+    expect(docsCanvas.workflowId).toBe("example-create-specflow-doc-flow");
   });
 
   it("creates a first-run workspace and seeds the selected agent server", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-first-run-"));
     await initWorkspace(root, { createIfMissing: true, seedAgentServerId: "chosen-code-acp" });
 
-    const agentflow = parseAgentFlowSource(await readFile(join(root, ".specflow", "agentflows", "wf1.yaml"), "utf8"), "wf1");
-    expect(agentflow.sessions.map((session) => session.agentServerId)).toEqual([
-      "chosen-code-acp",
-      "chosen-code-acp",
-      "chosen-code-acp",
-      "chosen-code-acp",
-      "chosen-code-acp",
-    ]);
+    for (const workflowId of ["example-code-frontend-flow", "example-create-specflow-doc-flow"]) {
+      const agentflow = parseAgentFlowSource(
+        await readFile(join(root, ".specflow", "agentflows", `${workflowId}.yaml`), "utf8"),
+        workflowId,
+      );
+      expect(agentflow.sessions.map((session) => session.agentServerId)).toEqual([
+        "chosen-code-acp",
+        "chosen-code-acp",
+        "chosen-code-acp",
+        "chosen-code-acp",
+        "chosen-code-acp",
+      ]);
+    }
   });
 
   it("splits legacy canvas yaml into agentflow yaml and canvas json", async () => {
