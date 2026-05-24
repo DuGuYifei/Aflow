@@ -86,3 +86,9 @@ packages/
   ui/           Browser UI, Vite config, index.html, and favicon assets.
   workflow/     Workflow business logic, including graph node and edge models.
 ```
+
+## Architecture Decisions
+
+- [ADR-001: Monorepo package boundaries](docs/decisions/001-monorepo-package-boundaries.md)
+- [ADR-002: UI assets embedded in the compiled binary](docs/decisions/002-ui-embedded-in-binary.md)
+- [ADR-003: ACP connection and workflow session management](docs/decisions/003-acp-session-management.md)
