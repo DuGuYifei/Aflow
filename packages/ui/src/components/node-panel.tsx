@@ -1,8 +1,9 @@
 import { useRef, useState, type ClipboardEvent, type ChangeEvent } from 'react';
-import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, LogLine } from '../types';
+import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
 import { branchAccent, sessionAccent } from '../appearance';
+import { SessionTimeline } from './session-timeline';
 
 function insertAtCaret(el: HTMLTextAreaElement | null, token: string, write: (next: string) => void) {
   if (!el) return;
@@ -22,7 +23,7 @@ interface NodePanelProps {
   nodes: WorkflowNode[];
   edges: Edge[];
   viewMode: 'edit' | 'run';
-  logLines: LogLine[];
+  timelineEvents: TimelineEvent[];
   onClose: () => void;
   onEditNode: (id: string, patch: Record<string, unknown>) => void;
   onChangeSession: (id: string, sid: string) => void;
@@ -59,11 +60,11 @@ function StepPanelContent(props: NodePanelProps & {
   tab: string;
   setTab: (tab: string) => void;
 }) {
-  const { node, run, sessions, logLines, tab, setTab } = props;
+  const { node, run, sessions, timelineEvents, tab, setTab } = props;
   const session = sessions.find((candidate) => candidate.id === node.sessionId);
-  const nodeLogLines = logLines.filter((line) => !line.nodeId || line.nodeId === node.id);
+  const nodeLogEvents = timelineEvents.filter((event) => !('nodeId' in event) || !event.nodeId || event.nodeId === node.id);
   const tabs = run
-    ? [{ key: 'overview', label: 'Overview' }, { key: 'logs', label: 'Logs', count: nodeLogLines.length || undefined }, { key: 'output', label: 'Output' }]
+    ? [{ key: 'overview', label: 'Overview' }, { key: 'logs', label: 'Logs', count: nodeLogEvents.length || undefined }, { key: 'output', label: 'Output' }]
     : [{ key: 'overview', label: 'Definition' }, { key: 'images', label: 'Images', count: node.images?.length || undefined }, { key: 'paths', label: 'Paths', count: node.paths?.length || undefined }];
   const label = (
     <>
@@ -74,7 +75,7 @@ function StepPanelContent(props: NodePanelProps & {
   return (
     <RightPanel label={label} title={node.title} onClose={props.onClose} tabs={tabs} activeTab={tab} onTabChange={setTab}>
       {tab === 'overview' && <StepOverview {...props} session={session} />}
-      {tab === 'logs' && <NodeLogs lines={nodeLogLines} />}
+      {tab === 'logs' && <NodeLogs events={nodeLogEvents} />}
       {tab === 'output' && <NodeOutput output={run?.nodeOutputs?.[node.id]} />}
       {tab === 'images' && <NodeImages {...props} />}
       {tab === 'paths' && <NodePaths {...props} />}
@@ -277,8 +278,8 @@ function EndPanelContent({ node, readonly, onClose, onEditNode }: { node: Extrac
   );
 }
 
-function NodeLogs({ lines }: { lines: LogLine[] }) {
-  return <div className="log-block">{lines.length ? lines.map((line, index) => <div key={index}>{line.chunk}</div>) : 'No output yet.'}</div>;
+function NodeLogs({ events }: { events: TimelineEvent[] }) {
+  return <div className="log-block"><SessionTimeline events={events} /></div>;
 }
 
 function NodeOutput({ output }: { output?: string }) {

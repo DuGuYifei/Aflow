@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { TerminalOutputEvent } from "@specflow/workflow";
 import type {
+  AgentSessionUpdateStatusEvent,
   NodeStatusEvent,
   RunInteraction,
   RunStatusEvent,
@@ -28,6 +29,7 @@ export type RestoreAttemptLogEvent = {
 
 export type RunLogEvent =
   | ({ type: "terminal" } & TerminalOutputEvent & { nodeId?: string })
+  | ({ type: "session_update" } & AgentSessionUpdateStatusEvent)
   | ({ type: "node_status" } & NodeStatusEvent)
   | ({ type: "run_status" } & RunStatusEvent)
   | {

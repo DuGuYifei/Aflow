@@ -105,6 +105,7 @@ interface ActiveConversation {
   promptController?: AbortController;
   interactionInvocationId: string;
   stopInteractionEvents: () => void;
+  waitForLogWrites: () => Promise<void>;
 }
 
 function closesRestoreStream(event: RestoreStreamEvent): boolean {
@@ -295,6 +296,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         bridge.interactions.cancel(interaction.id, reason);
       }
     }
+    await active.waitForLogWrites();
     await active.conversation.close();
   }
 
@@ -382,6 +384,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
               agentInvocationId: event.agentInvocationId,
               replay: true,
             });
+          } else if (event.type === "session_update") {
+            enqueue("session-update", { ...event, replay: true });
           }
         }
 
@@ -399,13 +403,14 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           }
         });
         const offTerm = bus.on(`${runId}:term`, (e) => enqueue("terminal", e));
+        const offSessionUpdate = bus.on(`${runId}:session-update`, (e) => enqueue("session-update", e));
 
         for (const interaction of bridge.interactions.list({ runId, status: "pending" })) {
           enqueue("interaction-requested", interaction);
         }
 
         cleanup = () => {
-          offNode(); offRun(); offTerm(); offInteraction();
+          offNode(); offRun(); offTerm(); offSessionUpdate(); offInteraction();
         };
       },
       cancel() {
@@ -622,6 +627,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           lifecycle,
         });
       },
+      onAgentSessionUpdate: (event) => {
+        const persisted = { type: "session_update" as const, ...event };
+        appendLog(persisted);
+        bus.emit(`${runId}:session-update`, persisted);
+      },
       interactions: bridge.interactions,
       pauses: bridge.pauses,
     });
@@ -705,6 +715,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     });
 
     let conversation: AgentConversation | undefined;
+    let persistContinuedUpdates = false;
+    let continuedLogWrite = Promise.resolve();
     const interactionInvocationId = `restore:${restoreId}`;
     const latestInvocation = session.invocations.find((entry) => entry.invocationId === session.latestInvocationId)
       ?? session.invocations.at(-1);
@@ -749,13 +761,31 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         });
       },
       onSessionUpdate: (event) => {
+        const at = new Date().toISOString();
+        if (persistContinuedUpdates) {
+          continuedLogWrite = continuedLogWrite
+            .then(() => appendRunLogEvent(root, {
+              type: "session_update",
+              runId: session.latestRunId,
+              nodeRunId: latestInvocation?.nodeRunId,
+              nodeId: latestInvocation?.nodeId,
+              edgeId: latestInvocation?.edgeId,
+              agentInvocationId: interactionInvocationId,
+              agentId: session.agentId,
+              agentServerId: session.agentServerId,
+              sessionId: event.sessionId,
+              update: event.update,
+              at,
+            }))
+            .catch((error) => console.error("Failed to append restored conversation session update log", error));
+        }
         publishRestoreEvent({
           type: "session-update",
           restoreId,
           agentSessionId: session.id,
           sessionId: event.sessionId,
           update: event.update,
-          at: new Date().toISOString(),
+          at,
         });
       },
       onPermissionRequest: mode === "continue"
@@ -795,7 +825,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           promptPending: false,
           interactionInvocationId,
           stopInteractionEvents,
+          waitForLogWrites: () => continuedLogWrite,
         });
+        persistContinuedUpdates = true;
       } else {
         await conversation?.close();
       }
@@ -1242,7 +1274,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       const promptController = new AbortController();
       active.promptController = promptController;
       try {
-        return Response.json(await active.conversation.prompt(body.prompt, promptController.signal));
+        const result = await active.conversation.prompt(body.prompt, promptController.signal);
+        await active.waitForLogWrites();
+        return Response.json(result);
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 409 });
       } finally {

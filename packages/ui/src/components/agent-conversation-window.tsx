@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import type { TimelineEvent } from '../types';
 import type { AgentSessionRecord, RestoreMode } from '../api';
 import { Icon } from './icon';
+import { SessionTimeline } from './session-timeline';
 
 export interface ConversationLine {
   role: 'agent' | 'user' | 'system' | 'terminal';
@@ -11,7 +13,7 @@ interface AgentConversationWindowProps {
   session: AgentSessionRecord;
   mode: RestoreMode;
   status: string;
-  lines: ConversationLine[];
+  events: TimelineEvent[];
   canPrompt: boolean;
   busy: boolean;
   onPrompt: (prompt: string) => void;
@@ -46,13 +48,7 @@ export function AgentConversationWindow(props: AgentConversationWindowProps) {
           </div>
         </header>
         <div className="conversation-transcript">
-          {props.lines.map((line, index) => (
-            <div key={index} className={`conversation-message ${line.role}`}>
-              <span className="conversation-role">{line.role}</span>
-              <span className="conversation-text">{line.text}</span>
-            </div>
-          ))}
-          {props.lines.length === 0 && <div className="history-empty">Waiting for ACP session content...</div>}
+          <SessionTimeline events={props.events} emptyMessage="Waiting for ACP session content..." />
         </div>
         {props.mode === 'inspect' ? (
           <footer className="conversation-readonly">

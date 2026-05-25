@@ -55,7 +55,7 @@ describe("agent session restore API", () => {
     ]);
   });
 
-  test("uses resume for continue mode when the indexed ACP agent advertises load and resume", async () => {
+  test("loads context for continue mode and retains that ACP conversation for prompting", async () => {
     const root = await setupProject("load,resume");
     await upsertAgentSessionsFromRun(sampleRun("run1"), root);
     const [session] = await listAgentSessions(root);
@@ -74,8 +74,9 @@ describe("agent session restore API", () => {
 
     const eventResponse = await handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/events`));
     expect(eventResponse?.status).toBe(200);
-    const eventText = await readUntil(eventResponse!, ["\"status\":\"success\""]);
-    expect(eventText).toContain("\"selectedPrimitive\":\"resume\"");
+    const eventText = await readUntil(eventResponse!, ["session-update", "\"status\":\"success\""]);
+    expect(eventText).toContain("loaded:acp-session-1");
+    expect(eventText).toContain("\"selectedPrimitive\":\"load\"");
     const promptPending = handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -98,6 +99,15 @@ describe("agent session restore API", () => {
     const promptBody = await prompt?.json() as { output: string };
     expect(promptBody.output).toContain("prompt:follow up");
     expect(promptBody.output).toContain("permission:allow");
+    const continuedUpdates = (await listRunLogEvents(root, "run1")).filter((event) =>
+      event.type === "session_update" && event.agentInvocationId === `restore:${body.restoreId}`,
+    );
+    expect(continuedUpdates.some((event) =>
+      event.type === "session_update"
+      && event.update.sessionUpdate === "agent_message_chunk"
+      && event.update.content.type === "text"
+      && event.update.content.text.includes("prompt:follow up"),
+    )).toBe(true);
     const blockedPrompt = handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },

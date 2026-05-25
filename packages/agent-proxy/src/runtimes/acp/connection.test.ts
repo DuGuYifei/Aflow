@@ -205,16 +205,22 @@ describe("restoreAcpAgentSession", () => {
     expect(updates.join("")).toContain("loaded:prior-session");
   });
 
-  it("uses resume for continue mode when the agent supports load and resume", async () => {
+  it("uses load for continue mode when it can provide context and retain an interactive session", async () => {
+    const updates: string[] = [];
     const result = await restoreAcpAgentSession(resolved({ restoreCapabilities: "load,resume" }), {
       agentServerId: "fake-acp",
       cwd: await mkdtemp(join(tmpdir(), "specflow-acp-restore-")),
       sessionId: "prior-session",
       mode: "continue",
+      onSessionUpdate: (event) => {
+        if (event.update.sessionUpdate === "agent_message_chunk" && event.update.content.type === "text") {
+          updates.push(event.update.content.text);
+        }
+      },
     });
 
-    expect(result.selectedPrimitive).toBe("resume");
-    expect(result.initializeResponse.agentCapabilities?.sessionCapabilities?.resume).toEqual({});
+    expect(result.selectedPrimitive).toBe("load");
+    expect(updates.join("")).toContain("loaded:prior-session");
   });
 
   it("falls back to resume for inspect mode when load is unavailable", async () => {
@@ -228,7 +234,7 @@ describe("restoreAcpAgentSession", () => {
     expect(result.selectedPrimitive).toBe("resume");
   });
 
-  it("falls back to load for continue mode when resume is unavailable", async () => {
+  it("uses load for continue mode when resume is unavailable", async () => {
     const result = await restoreAcpAgentSession(resolved({ restoreCapabilities: "load" }), {
       agentServerId: "fake-acp",
       cwd: await mkdtemp(join(tmpdir(), "specflow-acp-restore-")),

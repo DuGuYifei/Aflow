@@ -15,19 +15,7 @@ export function handleSessionUpdate(input: {
     const content = update.content;
     if (content?.type === "text" && typeof content.text === "string") {
       input.appendOutput(content.text);
-      input.onTerminalEvent?.({ stream: "stdout", chunk: content.text });
     }
     return;
-  }
-
-  if (kind === "tool_call" || kind === "tool_call_update") {
-    const title = String(update.title ?? update.toolCallId ?? "tool");
-    const status = String(update.status ?? "updated");
-    input.onTerminalEvent?.({ stream: "system", chunk: `[acp:${kind}] ${title} ${status}\n` });
-    return;
-  }
-
-  if (kind) {
-    input.onTerminalEvent?.({ stream: "system", chunk: `[acp:${kind}]\n` });
   }
 }

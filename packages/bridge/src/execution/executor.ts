@@ -3,6 +3,7 @@ import {
   type AgentCommandRequest,
   type AgentCommandResult,
   type AgentLifecycleEvent,
+  type AgentSessionUpdateEvent,
   type AgentTerminalEvent,
 } from "@specflow/agent-proxy";
 import { uuidv7, type NodeStatus } from "@specflow/shared";
@@ -56,6 +57,17 @@ export type AgentLifecycleStatusEvent = AgentLifecycleEvent & {
   agentId: string;
 };
 
+export type AgentSessionUpdateStatusEvent = AgentSessionUpdateEvent & {
+  runId: string;
+  nodeRunId?: string;
+  nodeId?: string;
+  edgeId?: string;
+  agentInvocationId: string;
+  agentId: string;
+  agentServerId: string;
+  at: string;
+};
+
 export interface WorkflowExecutorOptions {
   cwd?: string;
   terminalEvents?: TerminalEventStore;
@@ -65,6 +77,7 @@ export interface WorkflowExecutorOptions {
   onNodeStatus?: (event: NodeStatusEvent) => void;
   onRunStatus?: (event: RunStatusEvent) => void;
   onAgentLifecycle?: (event: AgentLifecycleStatusEvent) => void;
+  onAgentSessionUpdate?: (event: AgentSessionUpdateStatusEvent) => void;
 }
 
 export type AgentRunner = (request: AgentCommandRequest) => Promise<AgentCommandResult>;
@@ -117,6 +130,7 @@ export class WorkflowExecutor {
   readonly #onNodeStatus: ((event: NodeStatusEvent) => void) | undefined;
   readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
   readonly #onAgentLifecycle: ((event: AgentLifecycleStatusEvent) => void) | undefined;
+  readonly #onAgentSessionUpdate: ((event: AgentSessionUpdateStatusEvent) => void) | undefined;
   readonly #forkCounts = new Map<string, number>();
 
   constructor(options: WorkflowExecutorOptions = {}) {
@@ -128,6 +142,7 @@ export class WorkflowExecutor {
     this.#onNodeStatus = options.onNodeStatus;
     this.#onRunStatus = options.onRunStatus;
     this.#onAgentLifecycle = options.onAgentLifecycle;
+    this.#onAgentSessionUpdate = options.onAgentSessionUpdate;
   }
 
   get terminalEvents(): TerminalEventStore {
@@ -529,6 +544,17 @@ export class WorkflowExecutor {
         edgeId: input.invocation.edgeId,
         agentInvocationId: input.invocation.id,
         agentId: input.agentId,
+      }),
+      onSessionUpdate: (event) => this.#onAgentSessionUpdate?.({
+        ...event,
+        runId: input.run.id,
+        nodeRunId: input.nodeRun?.id,
+        nodeId: input.invocation.nodeId,
+        edgeId: input.invocation.edgeId,
+        agentInvocationId: input.invocation.id,
+        agentId: input.agentId,
+        agentServerId: resolveAgentServerId(agent),
+        at: new Date().toISOString(),
       }),
       onPermissionRequest: (request) => this.#interactions.requestPermission(
         this.#interactionContext(input, resolveAgentServerId(agent)),

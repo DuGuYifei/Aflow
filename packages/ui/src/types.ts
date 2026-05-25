@@ -62,6 +62,29 @@ export interface LogLine {
   stream?: 'stdout' | 'stderr' | 'system';
 }
 
+export type TimelineEvent =
+  | {
+      type: 'terminal';
+      chunk: string;
+      nodeId?: string;
+      agentInvocationId?: string;
+      stream?: 'stdout' | 'stderr' | 'system';
+      localContext?: boolean;
+    }
+  | {
+      type: 'session-update';
+      update: unknown;
+      nodeId?: string;
+      agentInvocationId?: string;
+      sessionId?: string;
+      localContext?: boolean;
+    }
+  | {
+      type: 'display-message';
+      role: 'agent' | 'user' | 'system';
+      text: string;
+    };
+
 export interface Branch {
   id: string;
   label: string;

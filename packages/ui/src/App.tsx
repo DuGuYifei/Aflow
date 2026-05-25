@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, LogLine, InputNode } from './types';
+import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode } from './types';
 import { isSymbolKey } from './appearance';
 import {
   fetchCanvases, fetchCanvas, saveCanvas, uploadCanvasAssets, runCanvas,
@@ -8,7 +8,7 @@ import {
   cancelRun as apiCancelRun,
   fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
-  apiRunToUiRun, apiRunLogsToLogLines, summaryToWorkflow, respondToRunInteraction,
+  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
   AgentAuthenticationRequiredError,
   type SseEventType,
   type AgentAuthenticationStatus,
@@ -59,7 +59,7 @@ export function App() {
   const [liveNodeStates, setLiveNodeStates] = useState<RunStateMap>({});
   const runState = useMemo<RunStateMap>(() => ({ ...historicNodeStates, ...liveNodeStates }), [historicNodeStates, liveNodeStates]);
 
-  const [logLines, setLogLines] = useState<LogLine[]>([]);
+  const [logEvents, setLogEvents] = useState<TimelineEvent[]>([]);
   const [agentSessions, setAgentSessions] = useState<AgentSessionRecord[]>([]);
   const [agentServers, setAgentServers] = useState<AgentServerEntry[]>([]);
   const [restoreStatusBySession, setRestoreStatusBySession] = useState<Record<string, string>>({});
@@ -68,7 +68,7 @@ export function App() {
     mode: RestoreMode;
     restoreId?: string;
     status: string;
-    lines: ConversationLine[];
+    events: TimelineEvent[];
     canPrompt: boolean;
     busy: boolean;
   } | null>(null);
@@ -491,7 +491,7 @@ export function App() {
 
   // ── logs ──────────────────────────────────────────────────────────────────
 
-  const onClearLogs = useCallback(() => setLogLines([]), []);
+  const onClearLogs = useCallback(() => setLogEvents([]), []);
 
   // ── selection ─────────────────────────────────────────────────────────────
 
@@ -556,7 +556,7 @@ export function App() {
       ));
     }).catch(console.error);
     fetchRunLogs(id).then((events) => {
-      setLogLines(apiRunLogsToLogLines(events));
+      setLogEvents(apiRunLogsToTimelineEvents(events));
     }).catch(console.error);
     fetchPausedNodes(id).then((paused) => {
       setPausedNode(paused[0] ?? null);
@@ -624,7 +624,7 @@ export function App() {
       for (const n of nodesRef.current) pending[n.id] = 'pending';
       setLiveNodeStates(pending);
       setHistoricNodeStates({});
-      setLogLines([]);
+      setLogEvents([]);
       setPendingInteractions([]);
       setPausedNode(null);
       setPausedLines([]);
@@ -664,8 +664,11 @@ export function App() {
             setPausedNode((paused) => paused?.nodeId === ev.nodeId ? null : paused);
           }
         } else if (type === 'terminal') {
-          const ev = data as { chunk: string; nodeId?: string; stream?: LogLine['stream'] };
-          setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId, stream: ev.stream }]);
+          const ev = data as Extract<TimelineEvent, { type: 'terminal' }>;
+          setLogEvents((prev) => [...prev.slice(-500), { ...ev, type: 'terminal' }]);
+        } else if (type === 'session-update') {
+          const ev = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string };
+          setLogEvents((prev) => [...prev.slice(-500), { ...ev, type: 'session-update' }]);
         } else if (type === 'interaction-requested') {
           onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
@@ -724,7 +727,7 @@ export function App() {
       setActiveRunId(newRunId);
       setLiveNodeStates(initial.nodeStates ?? {});
       setHistoricNodeStates({});
-      setLogLines([]);
+      setLogEvents([]);
       setPendingInteractions([]);
       setPausedNode(null);
       setPausedLines([]);
@@ -746,8 +749,11 @@ export function App() {
             setPausedNode((paused) => paused?.nodeId === ev.nodeId ? null : paused);
           }
         } else if (type === 'terminal') {
-          const ev = data as { chunk: string; nodeId?: string; stream?: LogLine['stream'] };
-          setLogLines((prev) => [...prev.slice(-500), { chunk: ev.chunk, nodeId: ev.nodeId, stream: ev.stream }]);
+          const ev = data as Extract<TimelineEvent, { type: 'terminal' }>;
+          setLogEvents((prev) => [...prev.slice(-500), { ...ev, type: 'terminal' }]);
+        } else if (type === 'session-update') {
+          const ev = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string };
+          setLogEvents((prev) => [...prev.slice(-500), { ...ev, type: 'session-update' }]);
         } else if (type === 'interaction-requested') {
           onRunInteractionEvent(data as RunInteraction);
         } else if (type === 'run-status') {
@@ -812,7 +818,7 @@ export function App() {
       setRuns((prev) => prev.map((r) =>
         r.id === id ? { ...r, status: 'cancelled' } : r,
       ));
-      setLogLines((prev) => [...prev.slice(-500), { chunk: 'Run cancellation requested.\n', stream: 'system' }]);
+      setLogEvents((prev) => [...prev.slice(-500), { type: 'terminal', chunk: 'Run cancellation requested.\n', stream: 'system' }]);
     } catch (err) {
       console.error('Failed to cancel run', err);
     }
@@ -834,12 +840,38 @@ export function App() {
       session,
       mode,
       status: 'starting',
-      lines: [{ role: 'system', text: `${mode === 'inspect' ? 'Loading' : 'Resuming'} ACP session...` }],
+      events: [{ type: 'display-message', role: 'system', text: `${mode === 'inspect' ? 'Loading' : 'Resuming'} ACP session...` }],
       canPrompt: false,
       busy: false,
     });
 
+    let recordedContextLoaded = false;
+    const loadRecordedContext = async () => {
+      if (recordedContextLoaded) return;
+      recordedContextLoaded = true;
+      const recorded = apiRunLogsToTimelineEvents(await fetchRunLogs(session.latestRunId))
+        .filter((event) =>
+          !('agentInvocationId' in event)
+          || !event.agentInvocationId
+          || session.invocationIds.includes(event.agentInvocationId)
+          || (event.type === 'session-update' && event.sessionId === session.acpSessionId))
+        .map((event) => ({ ...event, localContext: true }));
+      setConversation((current) => current?.session.id === session.id
+        ? {
+            ...current,
+            events: [
+              ...current.events,
+              { type: 'display-message', role: 'system', text: 'ACP resume cannot replay history; showing recorded Specflow context.' },
+              ...recorded,
+            ],
+          }
+        : current);
+    };
+
     try {
+      if (mode === 'continue' && !session.acpSupportsLoadSession) {
+        await loadRecordedContext();
+      }
       const started = await restoreAgentSession(session.id, mode);
       if (requestToken !== restoreRequestTokenRef.current) {
         void cancelRestoredSession(started.restoreId).catch(console.error);
@@ -849,15 +881,14 @@ export function App() {
       restoreUnsubscribeRef.current = subscribeToRestore(started.restoreId, (type: RestoreSseEventType, event: RestoreStreamEvent) => {
         if (type === 'terminal' && event.type === 'terminal') {
           setConversation((current) => current?.session.id === session.id
-            ? { ...current, lines: [...current.lines, { role: 'terminal', text: event.chunk }] }
+            ? { ...current, events: [...current.events, { type: 'terminal', chunk: event.chunk, stream: event.stream }] }
             : current);
           return;
         }
 
         if (type === 'session-update' && event.type === 'session-update') {
-          const text = textFromSessionUpdate(event.update);
-          if (text) setConversation((current) => current?.session.id === session.id
-            ? { ...current, lines: [...current.lines, { role: 'agent', text }] }
+          setConversation((current) => current?.session.id === session.id
+            ? { ...current, events: [...current.events, { type: 'session-update', update: event.update, sessionId: event.sessionId }] }
             : current);
           return;
         }
@@ -868,6 +899,9 @@ export function App() {
         }
 
         if (type === 'restore-status' && event.type === 'restore-status') {
+          if (mode === 'continue' && event.status === 'success' && event.selectedPrimitive === 'resume') {
+            void loadRecordedContext().catch(console.error);
+          }
           setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: event.status }));
           const text = event.status === 'success'
             ? `Restored through ACP session/${event.selectedPrimitive}.`
@@ -879,7 +913,7 @@ export function App() {
                 ...current,
                 status: event.status,
                 canPrompt: mode === 'continue' && event.status === 'success',
-                lines: [...current.lines, { role: 'system', text }],
+                events: [...current.events, { type: 'display-message', role: 'system', text }],
               }
             : current);
           if (event.status === 'failure' || (event.status === 'success' && mode === 'inspect')) {
@@ -893,7 +927,7 @@ export function App() {
       const message = err instanceof Error ? err.message : String(err);
       setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: 'failure' }));
       setConversation((current) => current?.session.id === session.id
-        ? { ...current, status: 'failure', lines: [...current.lines, { role: 'system', text: `Restore failed: ${message}` }] }
+        ? { ...current, status: 'failure', events: [...current.events, { type: 'display-message', role: 'system', text: `Restore failed: ${message}` }] }
         : current);
     }
   }, [onRunInteractionEvent, refreshAgentSessions, terminateConversation]);
@@ -901,12 +935,12 @@ export function App() {
   const onPromptConversation = useCallback(async (prompt: string) => {
     const active = conversation;
     if (!active?.restoreId || !active.canPrompt || active.busy) return;
-    setConversation((current) => current ? { ...current, busy: true, lines: [...current.lines, { role: 'user', text: prompt }] } : current);
+    setConversation((current) => current ? { ...current, busy: true, events: [...current.events, { type: 'display-message', role: 'user', text: prompt }] } : current);
     try {
       await promptRestoredSession(active.restoreId, prompt);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setConversation((current) => current ? { ...current, lines: [...current.lines, { role: 'system', text: message }] } : current);
+      setConversation((current) => current ? { ...current, events: [...current.events, { type: 'display-message', role: 'system', text: message }] } : current);
     } finally {
       setConversation((current) => current ? { ...current, busy: false } : current);
     }
@@ -1098,7 +1132,7 @@ export function App() {
           nodes={displayNodes}
           edges={displayEdges}
           viewMode={view}
-          logLines={logLines}
+          timelineEvents={logEvents}
           onClose={onClearSelection}
           onEditNode={onEditNode}
           onChangeSession={onChangeSession}
@@ -1142,7 +1176,7 @@ export function App() {
           setActiveSessionId={setActiveSessionId}
           onAssignSession={onChangeSession}
           addSessionPing={addSessionPing}
-          logLines={logLines}
+          timelineEvents={logEvents}
           onAddSession={onAddSession}
           onEditSession={onEditSession}
           onDeleteSession={onDeleteSession}
@@ -1168,7 +1202,7 @@ export function App() {
           session={conversation.session}
           mode={conversation.mode}
           status={conversation.status}
-          lines={conversation.lines}
+          events={conversation.events}
           canPrompt={conversation.canPrompt}
           busy={conversation.busy}
           onPrompt={onPromptConversation}
@@ -1177,12 +1211,4 @@ export function App() {
       )}
     </div>
   );
-}
-
-function textFromSessionUpdate(update: unknown): string | undefined {
-  if (!update || typeof update !== 'object') return undefined;
-  const maybe = update as { sessionUpdate?: string; content?: unknown };
-  if (maybe.sessionUpdate !== 'agent_message_chunk') return undefined;
-  const content = maybe.content as { type?: string; text?: unknown } | undefined;
-  return content?.type === 'text' && typeof content.text === 'string' ? content.text : undefined;
 }

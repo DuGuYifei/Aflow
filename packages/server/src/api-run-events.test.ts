@@ -1,6 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
@@ -74,6 +75,43 @@ describe("run event API", () => {
     expect(start?.status).toBe(409);
     expect(await start?.text()).toContain("headless agent");
   });
+
+  test("persists and replays structured ACP session updates for a run", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-acp-events-"));
+    await writeFile(join(root, "input.txt"), "fixture input", "utf8");
+    const fakeAgentPath = fileURLToPath(new URL("../../agent-proxy/src/runtimes/acp/test-fixtures/fake-agent.ts", import.meta.url));
+    await upsertLocalAgentServer(root, "fake-acp", {
+      type: "custom",
+      command: "bun",
+      args: [fakeAgentPath],
+    });
+    await saveCanvas("wf-events", sampleCanvas("fake-acp"), root);
+
+    const handle = createApiHandler(createSpecflowBridge(), root);
+    const start = await handle(new Request("http://specflow.test/api/canvases/wf-events/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }));
+    const { runId } = await start!.json() as { runId: string };
+    await eventuallyLoadRun(root, runId, "success");
+
+    const sessionUpdate = (await listRunLogEvents(root, runId)).find((event) =>
+      event.type === "session_update"
+      && event.update.sessionUpdate === "agent_message_chunk"
+      && event.update.content.type === "text"
+      && event.update.content.text.includes("prompt:echo prompt"),
+    );
+    expect(sessionUpdate).toBeDefined();
+    expect((await listRunLogEvents(root, runId)).some((event) =>
+      event.type === "terminal" && event.stream === "stdout" && event.chunk.includes("prompt:echo prompt"),
+    )).toBe(false);
+
+    const eventResponse = await handle(new Request(`http://specflow.test/api/runs/${runId}/events`));
+    const eventText = await readUntil(eventResponse!, "prompt:echo prompt");
+    expect(eventText).toContain("event: session-update");
+    expect(eventText).toContain("prompt:echo prompt");
+  });
 });
 
 async function eventuallyLoadRun(root: string, runId: string, status: string) {
@@ -110,7 +148,7 @@ async function readUntil(response: Response, pattern: string): Promise<string> {
   return text;
 }
 
-function sampleCanvas(): CanvasDoc {
+function sampleCanvas(agentServerId = "echo-headless"): CanvasDoc {
   return {
     id: "wf-events",
     name: "Events test",
@@ -118,7 +156,7 @@ function sampleCanvas(): CanvasDoc {
       {
         id: "s1",
         name: "main",
-        agentServerId: "echo-headless",
+        agentServerId,
       },
     ],
     nodes: [

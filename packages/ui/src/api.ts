@@ -1,4 +1,4 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent } from './types';
 
 export interface CanvasDoc {
   id: string;
@@ -290,6 +290,15 @@ export type ApiRunLogEvent =
       createdAt: string;
     }
   | {
+      type: 'session_update';
+      runId: string;
+      nodeId?: string;
+      agentInvocationId: string;
+      sessionId: string;
+      update: unknown;
+      at: string;
+    }
+  | {
       type: 'node_status' | 'run_status' | 'agent_lifecycle' | 'restore_attempt' | 'interaction';
       runId: string;
       [key: string]: unknown;
@@ -533,7 +542,7 @@ export async function respondToRunInteraction(
   if (!res.ok) throw new Error(`Failed to respond to interaction: ${res.status}`);
 }
 
-export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'run-status' | 'interaction-requested';
+export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'run-status' | 'interaction-requested';
 
 export function subscribeToRun(
   runId: string,
@@ -550,6 +559,7 @@ export function subscribeToRun(
   source.addEventListener('hello',       handle('hello'));
   source.addEventListener('node-status', handle('node-status'));
   source.addEventListener('terminal',    handle('terminal'));
+  source.addEventListener('session-update', handle('session-update'));
   source.addEventListener('run-status',  handle('run-status'));
   source.addEventListener('interaction-requested', handle('interaction-requested'));
 
@@ -622,15 +632,29 @@ export function apiRunToUiRun(rec: ApiRunRecord): Run {
   };
 }
 
-export function apiRunLogsToLogLines(events: ApiRunLogEvent[]): LogLine[] {
+export function apiRunLogsToTimelineEvents(events: ApiRunLogEvent[]): TimelineEvent[] {
   return events
-    .filter((event): event is Extract<ApiRunLogEvent, { type: 'terminal' }> => event.type === 'terminal')
-    .sort((a, b) => a.sequence - b.sequence)
-    .map((event) => ({
-      chunk: event.chunk,
-      nodeId: event.nodeId,
-      stream: event.stream,
-    }));
+    .flatMap((event): TimelineEvent[] => {
+      if (event.type === 'terminal') {
+        return [{
+          type: 'terminal',
+          chunk: event.chunk,
+          nodeId: event.nodeId,
+          agentInvocationId: event.agentInvocationId,
+          stream: event.stream,
+        }];
+      }
+      if (event.type === 'session_update') {
+        return [{
+          type: 'session-update',
+          update: event.update,
+          nodeId: event.nodeId,
+          agentInvocationId: event.agentInvocationId,
+          sessionId: event.sessionId,
+        }];
+      }
+      return [];
+    });
 }
 
 function combineSnapshot(

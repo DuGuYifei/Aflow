@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import type { Session, WorkflowNode, LogLine, Variable } from '../types';
+import type { Session, WorkflowNode, TimelineEvent, Variable } from '../types';
 import type { AgentServerEntry, AgentSessionRecord, PausedNodeSession, RestoreMode } from '../api';
 import { Icon } from './icon';
 import { isSymbolKey, sessionAccent } from '../appearance';
 import type { ConversationLine } from './agent-conversation-window';
+import { SessionTimeline } from './session-timeline';
 
 const UNSCOPED_SESSION_FILTER = '__unscoped__';
 
@@ -18,7 +19,7 @@ interface SessionsBarProps {
   setActiveSessionId: (id: string) => void;
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
-  logLines?: LogLine[];
+  timelineEvents?: TimelineEvent[];
   onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
   onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => void;
   onDeleteSession: (id: string) => void;
@@ -45,7 +46,7 @@ export function SessionsBar({
   barHeight, setBarHeight,
   activeSessionId, setActiveSessionId,
   onAssignSession, addSessionPing,
-  logLines,
+  timelineEvents,
   onAddSession, onEditSession, onDeleteSession, onClearLogs,
   variables, onEditVariable,
   agentSessions = [], agentServers = [], runs = [],
@@ -150,7 +151,7 @@ export function SessionsBar({
           activeSession={activeSession}
           setActiveSessionId={setActiveSessionId}
           stepNodes={stepNodes}
-          logLines={logLines}
+          timelineEvents={timelineEvents}
           onDeleteSession={onDeleteSession}
           pausedNode={pausedNode}
           pausedLines={pausedLines}
@@ -199,7 +200,7 @@ interface LogsTabProps {
   activeSession: Session;
   setActiveSessionId: (id: string) => void;
   stepNodes: WorkflowNode[];
-  logLines?: LogLine[];
+  timelineEvents?: TimelineEvent[];
   onDeleteSession: (id: string) => void;
   pausedNode?: PausedNodeSession | null;
   pausedLines: ConversationLine[];
@@ -209,7 +210,7 @@ interface LogsTabProps {
 }
 
 function LogsTab({
-  sessions, activeSession, setActiveSessionId, stepNodes, logLines, onDeleteSession,
+  sessions, activeSession, setActiveSessionId, stepNodes, timelineEvents, onDeleteSession,
   pausedNode, pausedLines, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
 }: LogsTabProps) {
   const [sideW, setSideW] = useState(() => {
@@ -247,17 +248,17 @@ function LogsTab({
   const termRef = useRef<HTMLDivElement>(null);
   const prevLinesLen = useRef(0);
   useEffect(() => {
-    if (logLines && logLines.length > prevLinesLen.current && termRef.current) {
+    if (timelineEvents && timelineEvents.length > prevLinesLen.current && termRef.current) {
       termRef.current.scrollTop = termRef.current.scrollHeight;
     }
-    prevLinesLen.current = logLines?.length ?? 0;
-  }, [logLines]);
+    prevLinesLen.current = timelineEvents?.length ?? 0;
+  }, [timelineEvents]);
 
   const activeNodeIds = new Set(
     stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).map((n) => n.id),
   );
   const nodeById = new Map(stepNodes.map((n) => [n.id, n]));
-  const visibleLines = (logLines ?? []).filter((line) => !line.nodeId || activeNodeIds.has(line.nodeId));
+  const visibleEvents = (timelineEvents ?? []).filter((event) => !('nodeId' in event) || !event.nodeId || activeNodeIds.has(event.nodeId));
 
   return (
     <div className="sessions-body logs">
@@ -273,20 +274,11 @@ function LogsTab({
           </span>
         </div>
         <div className="term-stream" ref={termRef}>
-          {visibleLines.length > 0 ? (
-            visibleLines.map((line, i) => {
-              const node = line.nodeId ? nodeById.get(line.nodeId) : undefined;
-              return (
-              <div key={i} className="term-line">
-                <span className={`lvl ${line.stream ?? 'stdout'}`}>[{line.stream === 'stderr' ? 'err' : line.stream === 'system' ? 'sys' : 'out'}]</span>
-                {node && <span className="node-ref">{node.num}</span>}
-                <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line.chunk}</span>
-              </div>
-              );
-            })
+          {visibleEvents.length > 0 ? (
+            <SessionTimeline events={visibleEvents} nodeById={nodeById} />
           ) : (
             <>
-              <div className="term-line"><span className="ts">-</span><span className="lvl">[sys]</span><span>{logLines && logLines.length > 0 ? 'No output for this session.' : 'No run output yet. Click Start run when the workflow is ready.'}</span></div>
+              <div className="term-line"><span className="ts">-</span><span className="lvl">[sys]</span><span>{timelineEvents && timelineEvents.length > 0 ? 'No output for this session.' : 'No run output yet. Click Start run when the workflow is ready.'}</span></div>
               <div className="term-line">
                 <span className="ts">—</span>
                 <span style={{ color: 'var(--ink-3)' }}>·</span>

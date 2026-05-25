@@ -524,6 +524,41 @@ describe("WorkflowExecutor", () => {
     expect(lifecycleEvents[0]).toContain("prompt_started:source:");
   });
 
+  test("adds workflow context to structured ACP session updates", async () => {
+    const updates: Array<{ nodeId?: string; agentInvocationId: string; sessionId: string; update: unknown }> = [];
+    const executor = new WorkflowExecutor({
+      onAgentSessionUpdate(event) {
+        updates.push(event);
+      },
+      agentRunner: async (request) => {
+        request.onSessionUpdate?.({
+          sessionId: "acp-session",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "structured output" },
+          },
+        });
+        return {
+          agentServerId: request.agentServerId,
+          sessionId: "acp-session",
+          exitCode: 0,
+          output: "structured output",
+        };
+      },
+    });
+
+    const run = await executor.run(createWorkflow({ nodes: [agentNode("source", "source")], edges: [] }));
+
+    expect(run.status).toBe("done");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      nodeId: "source",
+      sessionId: "acp-session",
+      update: { sessionUpdate: "agent_message_chunk" },
+    });
+    expect(updates[0]?.agentInvocationId).toBe(run.agentInvocations[0]?.id);
+  });
+
   test("fails an agent node when its session belongs to another agent", async () => {
     const workflow = createWorkflow({
       nodes: [agentNode("source", "source")],

@@ -39,6 +39,7 @@ let runAuthRequired = false;
 let holdRunStart = false;
 let releaseRunStart: (() => void) | undefined;
 let agentSessionHistory: unknown[] = [];
+let recordedRunLogs: unknown[] = [];
 let restoredPrompts: string[] = [];
 let pausedContinues = 0;
 let interactionResponses = 0;
@@ -66,6 +67,7 @@ describe("App run integration", () => {
     holdRunStart = false;
     releaseRunStart = undefined;
     agentSessionHistory = [];
+    recordedRunLogs = [];
     restoredPrompts = [];
     pausedContinues = 0;
     interactionResponses = 0;
@@ -95,6 +97,51 @@ describe("App run integration", () => {
 
     await waitForText("live-log-line");
     expect(document.body.textContent).toContain("Back to design");
+  });
+
+  test("renders streamed ACP message chunks as one growing timeline message", async () => {
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    clickButton("Start run");
+    await waitForText("No run inputs for this workflow.");
+    clickButton("Start run", "last");
+
+    await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events"));
+    const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/runs/run1/events")!;
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "streamed " } },
+    });
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "answer" } },
+    });
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      update: { sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Read file", status: "pending" },
+    });
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed" },
+    });
+
+    await waitForText("streamed answer");
+    await waitForText("Read file");
+    await waitForText("completed");
+    const messages = document.querySelectorAll(".term-stream .timeline-message.agent");
+    if (messages.length !== 1) throw new Error(`Expected one merged ACP message, got ${messages.length}`);
+    const tools = document.querySelectorAll(".term-stream .timeline-tool");
+    if (tools.length !== 1) throw new Error(`Expected one updated tool entry, got ${tools.length}`);
   });
 
   test("loads the first existing workflow when the renamed example is absent", async () => {
@@ -245,7 +292,11 @@ describe("App run integration", () => {
     const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/agent-session-restores/restore-1/events")!;
     source.emit("session-update", {
       type: "session-update",
-      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "restored-transcript" } },
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "restored-" } },
+    });
+    source.emit("session-update", {
+      type: "session-update",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "transcript" } },
     });
     await waitForText("restored-transcript");
     clickButton("Logs");
@@ -254,6 +305,8 @@ describe("App run integration", () => {
     const conversation = document.querySelector(".conversation-transcript")?.textContent ?? "";
     expect(logs).not.toContain("restored-transcript");
     expect(conversation).toContain("restored-transcript");
+    const messages = document.querySelectorAll(".conversation-transcript .timeline-message.agent");
+    if (messages.length !== 1) throw new Error(`Expected one restored ACP message, got ${messages.length}`);
   });
 
   test("uses the Resume conversation window to send a follow-up ACP prompt", async () => {
@@ -269,8 +322,13 @@ describe("App run integration", () => {
     clickButton("Resume");
     await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/agent-session-restores/restore-1/events"));
     const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/agent-session-restores/restore-1/events")!;
-    source.emit("restore-status", { type: "restore-status", status: "success", selectedPrimitive: "resume" });
-    await waitForText("Restored through ACP session/resume.");
+    source.emit("session-update", {
+      type: "session-update",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "loaded history" } },
+    });
+    source.emit("restore-status", { type: "restore-status", status: "success", selectedPrimitive: "load" });
+    await waitForText("loaded history");
+    await waitForText("Restored through ACP session/load.");
 
     const input = document.querySelector(".conversation-compose textarea");
     if (!(input instanceof window.HTMLTextAreaElement)) throw new Error("Resume prompt textarea not found");
@@ -299,6 +357,33 @@ describe("App run integration", () => {
     await waitForText("Edit file");
     clickButton("Allow");
     await waitFor(() => interactionResponses === 1);
+  });
+
+  test("shows recorded context when Resume must use ACP resume without load support", async () => {
+    const session = sampleAgentSession("echo-headless", "main", "resume-only") as ReturnType<typeof sampleAgentSession>;
+    session.acpSupportsLoadSession = false;
+    agentSessionHistory = [session];
+    recordedRunLogs = [{
+      type: "session_update",
+      runId: "run1",
+      nodeId: "node-1",
+      agentInvocationId: "resume-only-invocation",
+      sessionId: "resume-only",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "recorded context" } },
+      at: "2026-05-19T10:00:00.000Z",
+    }];
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    clickBottomBarHandle();
+    await waitForText("Agent Sessions");
+    clickButtonContaining("Agent Sessions");
+    await waitForText("resume-only");
+    clickButton("Resume");
+
+    await waitForText("ACP resume cannot replay history; showing recorded Specflow context.");
+    await waitForText("recorded context");
   });
 
   test("shows a paused node composer for its session and continues from the node card", async () => {
@@ -361,7 +446,7 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     return json(sampleRun("running"));
   }
   if (method === "GET" && url === "/api/runs/run1/logs") {
-    return json([]);
+    return json(recordedRunLogs);
   }
   if (method === "GET" && url === "/api/runs/run1/paused-nodes") {
     return json([]);

@@ -523,13 +523,8 @@ export function selectAcpRestorePrimitive(
   const supportsLoad = Boolean(initializeResponse.agentCapabilities?.loadSession);
   const supportsResume = Boolean(initializeResponse.agentCapabilities?.sessionCapabilities?.resume);
 
-  if (mode === "inspect") {
-    if (supportsLoad) return "load";
-    if (supportsResume) return "resume";
-  } else {
-    if (supportsResume) return "resume";
-    if (supportsLoad) return "load";
-  }
+  if (supportsLoad) return "load";
+  if (supportsResume) return "resume";
 
   throw new Error(
     `ACP agent does not support session restore. loadSession=${supportsLoad}, resume=${supportsResume}`,
