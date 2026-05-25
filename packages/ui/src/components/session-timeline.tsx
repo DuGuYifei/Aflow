@@ -24,6 +24,13 @@ type TimelineItem =
       kind: 'plan';
       entries: Array<{ content: string; status?: string }>;
       agentInvocationId?: string;
+    }
+  | {
+      kind: 'gate';
+      branchId: string;
+      reason?: string;
+      branches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
+      nodeId?: string;
     };
 
 interface SessionTimelineProps {
@@ -63,6 +70,27 @@ export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeB
             </div>
           );
         }
+        if (item.kind === 'gate') {
+          return (
+            <div key={index} className="timeline-gate">
+              <div className="timeline-gate-head">
+                <span className="timeline-role">gate</span>
+                {item.nodeId && nodeById?.get(item.nodeId) && <span className="node-ref">{nodeById.get(item.nodeId)!.num}</span>}
+                <span className="timeline-gate-choice">{item.branchId}</span>
+              </div>
+              {item.reason && <div className="timeline-gate-reason">{item.reason}</div>}
+              {item.branches && (
+                <div className="timeline-gate-branches">
+                  {item.branches.map((branch) => (
+                    <span key={branch.branchId} className={`timeline-gate-branch${branch.available ? '' : ' exhausted'}${branch.branchId === item.branchId ? ' chosen' : ''}`}>
+                      {branch.label} {branch.traversalsUsed}/{branch.maxTraversals}{branch.available ? '' : ' exhausted'}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
         const node = item.nodeId ? nodeById?.get(item.nodeId) : undefined;
         return (
           <div key={index} className={`timeline-message ${item.role}${item.stream ? ` ${item.stream}` : ''}${item.localContext ? ' local-context' : ''}`}>
@@ -91,6 +119,16 @@ export function buildTimelineItems(events: TimelineEvent[]): TimelineItem[] {
         nodeId: event.nodeId,
         agentInvocationId: event.agentInvocationId,
         localContext: event.localContext,
+      });
+      continue;
+    }
+    if (event.type === 'gate-decision') {
+      items.push({
+        kind: 'gate',
+        branchId: event.branchId,
+        reason: event.reason,
+        branches: event.branches,
+        nodeId: event.nodeId,
       });
       continue;
     }

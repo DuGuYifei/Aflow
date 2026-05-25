@@ -299,7 +299,15 @@ export type ApiRunLogEvent =
       at: string;
     }
   | {
-      type: 'node_status' | 'run_status' | 'agent_lifecycle' | 'restore_attempt' | 'interaction';
+      type: 'node_status';
+      runId: string;
+      nodeId: string;
+      gateDecision?: { branchId: string; reason?: string };
+      gateBranches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
+      [key: string]: unknown;
+    }
+  | {
+      type: 'run_status' | 'agent_lifecycle' | 'restore_attempt' | 'interaction';
       runId: string;
       [key: string]: unknown;
     };
@@ -651,6 +659,15 @@ export function apiRunLogsToTimelineEvents(events: ApiRunLogEvent[]): TimelineEv
           nodeId: event.nodeId,
           agentInvocationId: event.agentInvocationId,
           sessionId: event.sessionId,
+        }];
+      }
+      if (event.type === 'node_status' && event.gateDecision) {
+        return [{
+          type: 'gate-decision',
+          nodeId: event.nodeId,
+          branchId: event.gateDecision.branchId,
+          reason: event.gateDecision.reason,
+          branches: event.gateBranches,
         }];
       }
       return [];

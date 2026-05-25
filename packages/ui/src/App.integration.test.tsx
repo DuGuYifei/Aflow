@@ -144,6 +144,33 @@ describe("App run integration", () => {
     if (tools.length !== 1) throw new Error(`Expected one updated tool entry, got ${tools.length}`);
   });
 
+  test("renders gate decisions with exhausted branch traversal budgets", async () => {
+    root = createRoot(container);
+    root.render(<App />);
+
+    await waitForText("Start run");
+    clickButton("Start run");
+    await waitForText("No run inputs for this workflow.");
+    clickButton("Start run", "last");
+
+    await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events"));
+    const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/runs/run1/events")!;
+    source.emit("node-status", {
+      nodeId: "node-1",
+      status: "success",
+      gateDecision: { branchId: "revise", reason: "Blueprint still needs complete localized copy." },
+      gateBranches: [
+        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: 1, available: true },
+        { branchId: "revise", label: "revise", traversalsUsed: 2, maxTraversals: 2, available: false },
+      ],
+    });
+
+    await waitForText("Blueprint still needs complete localized copy.");
+    await waitForText("revise 2/2 exhausted");
+    const gates = document.querySelectorAll(".term-stream .timeline-gate");
+    if (gates.length !== 1) throw new Error(`Expected one gate decision entry, got ${gates.length}`);
+  });
+
   test("loads the first existing workflow when the renamed example is absent", async () => {
     const defaultFetch = globalThis.fetch;
     globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

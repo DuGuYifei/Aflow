@@ -1586,7 +1586,8 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .term-line.err .lvl { color: var(--err); }
 .timeline-message,
 .timeline-tool,
-.timeline-plan {
+.timeline-plan,
+.timeline-gate {
   display: flex;
   gap: 8px;
   align-items: flex-start;
@@ -1641,6 +1642,43 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   gap: 3px;
 }
 .timeline-plan-status { margin-right: 7px; }
+.timeline-gate {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 8px;
+  background: var(--bg-panel);
+}
+.timeline-gate-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.timeline-gate-choice {
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.timeline-gate-reason {
+  margin: 6px 0 0 62px;
+  color: var(--ink-2);
+}
+.timeline-gate-branches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 7px 0 0 62px;
+}
+.timeline-gate-branch {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.timeline-gate-branch.chosen { color: var(--accent-ink); border-color: var(--accent); }
+.timeline-gate-branch.exhausted { color: var(--err); }
 
 /* sessions bar collapse handle */
 .bar-handle {

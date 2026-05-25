@@ -386,6 +386,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
             });
           } else if (event.type === "session_update") {
             enqueue("session-update", { ...event, replay: true });
+          } else if (event.type === "node_status" && event.gateDecision) {
+            enqueue("node-status", {
+              nodeId: event.nodeId,
+              status: event.status === "done" ? "success" : event.status,
+              runId,
+              gateDecision: event.gateDecision,
+              gateBranches: event.gateBranches,
+              replay: true,
+            });
           }
         }
 
@@ -565,7 +574,12 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
       void saveRun(record, root);
       appendLog({ type: "node_status", ...e });
-      bus.emit(`${runId}:node`, { nodeId: e.nodeId, status: uiStatus, runId });
+      bus.emit(`${runId}:node`, {
+        nodeId: e.nodeId,
+        status: uiStatus,
+        runId,
+        ...(e.gateDecision ? { gateDecision: e.gateDecision, gateBranches: e.gateBranches } : {}),
+      });
       flushTerminalEvents();
     };
 

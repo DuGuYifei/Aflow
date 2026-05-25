@@ -12,6 +12,7 @@ import {
   type AgentDefinition,
   type AgentInvocation,
   type AgentNode,
+  type GateDecision,
   type NodeRun,
   type TerminalStream,
   type Workflow,
@@ -38,6 +39,16 @@ export interface NodeStatusEvent {
   status: NodeStatus;
   at: string;
   output?: string;
+  gateDecision?: GateDecision;
+  gateBranches?: GateBranchStatus[];
+}
+
+export interface GateBranchStatus {
+  branchId: string;
+  label: string;
+  traversalsUsed: number;
+  maxTraversals: number;
+  available: boolean;
 }
 
 export interface RunStatusEvent {
@@ -210,6 +221,7 @@ export class WorkflowExecutor {
           workflow,
           run,
           node: executableNode,
+          gateBranches: node.kind === "gate" ? gateBranchStatuses(node, branchTraversals) : undefined,
           input: pending.input.filter(Boolean).join("\n\n"),
           edgeValues: pending.edgeValues,
           origin: pending.origin,
@@ -341,6 +353,7 @@ export class WorkflowExecutor {
     workflow: Workflow;
     run: WorkflowRun;
     node: WorkflowNode;
+    gateBranches?: GateBranchStatus[];
     input: string;
     edgeValues: Record<string, string>;
     origin?: TransferOrigin;
@@ -394,13 +407,26 @@ export class WorkflowExecutor {
         signal: input.signal,
       });
       const decision = parseGateDecision(input.node, output);
+      const gateBranches = input.gateBranches?.map((branch) => {
+        if (branch.branchId !== decision.branchId) return branch;
+        const traversalsUsed = branch.traversalsUsed + 1;
+        return { ...branch, traversalsUsed, available: traversalsUsed < branch.maxTraversals };
+      });
       nodeRun.status = "done";
       nodeRun.output = output;
       nodeRun.gateDecision = decision;
       nodeRun.sessionId = invocation.sessionId;
       nodeRun.agentInvocationId = invocation.id;
       nodeRun.completedAt = new Date().toISOString();
-      this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "done", at: nodeRun.completedAt, output });
+      this.#onNodeStatus?.({
+        runId: input.run.id,
+        nodeId: input.node.id,
+        status: "done",
+        at: nodeRun.completedAt,
+        output,
+        gateDecision: decision,
+        gateBranches,
+      });
       return { output, origin: input.origin, chosenBranchId: decision.branchId };
     } catch (error) {
       nodeRun.status = "failed";
@@ -745,4 +771,18 @@ function gateWithAvailableBranches(node: Extract<WorkflowNode, { kind: "gate" }>
     throw new Error(`Gate node "${node.id}" has exhausted all branch traversal limits.`);
   }
   return { ...node, branches };
+}
+
+function gateBranchStatuses(node: Extract<WorkflowNode, { kind: "gate" }>, traversals: Map<string, number>): GateBranchStatus[] {
+  return node.branches.map((branch) => {
+    const maxTraversals = branch.maxTraversals ?? 1;
+    const traversalsUsed = traversals.get(`${node.id}:${branch.id}`) ?? 0;
+    return {
+      branchId: branch.id,
+      label: branch.label,
+      traversalsUsed,
+      maxTraversals,
+      available: traversalsUsed < maxTraversals,
+    };
+  });
 }

@@ -80,6 +80,19 @@ export type TimelineEvent =
       localContext?: boolean;
     }
   | {
+      type: 'gate-decision';
+      nodeId?: string;
+      branchId: string;
+      reason?: string;
+      branches?: Array<{
+        branchId: string;
+        label: string;
+        traversalsUsed: number;
+        maxTraversals: number;
+        available: boolean;
+      }>;
+    }
+  | {
       type: 'display-message';
       role: 'agent' | 'user' | 'system';
       text: string;

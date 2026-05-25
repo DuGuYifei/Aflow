@@ -650,8 +650,23 @@ export function App() {
 
       const unsub = subscribeToRun(runId, (type: SseEventType, data: unknown) => {
         if (type === 'node-status') {
-          const ev = data as { nodeId: string; status: string };
+          const ev = data as {
+            nodeId: string;
+            status: string;
+            gateDecision?: { branchId: string; reason?: string };
+            gateBranches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
+          };
           setLiveNodeStates((prev) => ({ ...prev, [ev.nodeId]: ev.status as import('./types').RunState }));
+          if (ev.gateDecision) {
+            const decision = ev.gateDecision;
+            setLogEvents((prev) => [...prev.slice(-500), {
+              type: 'gate-decision',
+              nodeId: ev.nodeId,
+              branchId: decision.branchId,
+              reason: decision.reason,
+              branches: ev.gateBranches,
+            }]);
+          }
           if (ev.status === 'paused') {
             const node = nodesRef.current.find((candidate) => candidate.id === ev.nodeId);
             if (node?.kind === 'step' && node.sessionId) {
@@ -735,8 +750,23 @@ export function App() {
 
       const unsub = subscribeToRun(newRunId, (type: SseEventType, data: unknown) => {
         if (type === 'node-status') {
-          const ev = data as { nodeId: string; status: string };
+          const ev = data as {
+            nodeId: string;
+            status: string;
+            gateDecision?: { branchId: string; reason?: string };
+            gateBranches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
+          };
           setLiveNodeStates((prev) => ({ ...prev, [ev.nodeId]: ev.status as import('./types').RunState }));
+          if (ev.gateDecision) {
+            const decision = ev.gateDecision;
+            setLogEvents((prev) => [...prev.slice(-500), {
+              type: 'gate-decision',
+              nodeId: ev.nodeId,
+              branchId: decision.branchId,
+              reason: decision.reason,
+              branches: ev.gateBranches,
+            }]);
+          }
           if (ev.status === 'paused') {
             const node = nodesRef.current.find((candidate) => candidate.id === ev.nodeId);
             if (node?.kind === 'step' && node.sessionId) {

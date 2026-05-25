@@ -7,7 +7,7 @@ import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
 import { saveCanvas } from "./canvas-store";
 import { upsertLocalAgentServer } from "./agent-server-config";
-import { listRunLogEvents } from "./run-log-store";
+import { appendRunLogEvent, listRunLogEvents } from "./run-log-store";
 import { loadRun } from "./run-store";
 import type { CanvasDoc } from "./canvas-doc";
 
@@ -111,6 +111,30 @@ describe("run event API", () => {
     const eventText = await readUntil(eventResponse!, "prompt:echo prompt");
     expect(eventText).toContain("event: session-update");
     expect(eventText).toContain("prompt:echo prompt");
+  });
+
+  test("replays structured gate decisions with exhausted branch limits", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-gate-events-"));
+    await appendRunLogEvent(root, {
+      type: "node_status",
+      runId: "run-gate",
+      nodeId: "approval-gate",
+      status: "done",
+      at: "2026-05-25T00:00:00.000Z",
+      gateDecision: { branchId: "unresolved", reason: "revision budget exhausted" },
+      gateBranches: [
+        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: 1, available: true },
+        { branchId: "revise", label: "revise", traversalsUsed: 2, maxTraversals: 2, available: false },
+      ],
+    });
+
+    const handle = createApiHandler(createSpecflowBridge(), root);
+    const eventResponse = await handle(new Request("http://specflow.test/api/runs/run-gate/events"));
+    const eventText = await readUntil(eventResponse!, "revision budget exhausted");
+
+    expect(eventText).toContain("event: node-status");
+    expect(eventText).toContain("\"branchId\":\"unresolved\"");
+    expect(eventText).toContain("\"available\":false");
   });
 });
 

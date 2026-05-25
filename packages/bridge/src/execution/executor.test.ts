@@ -10,7 +10,7 @@ import type {
   WorkflowEdge,
   WorkflowNode,
 } from "@specflow/workflow";
-import { WorkflowExecutor, type AgentRunner } from "./executor";
+import { WorkflowExecutor, type AgentRunner, type NodeStatusEvent } from "./executor";
 import { RunPauseStore } from "./pause-store";
 import { TerminalEventStore } from "./terminal-store";
 
@@ -182,10 +182,14 @@ describe("WorkflowExecutor", () => {
 
   test("runs a bounded gate loopback through revision and review again", async () => {
     const prompts: string[] = [];
+    const gateStatuses: NodeStatusEvent[] = [];
     let gateRuns = 0;
     const gate = gateNode("gate", ["pass", "revise"]);
     gate.branches = gate.branches.map((branch) => ({ ...branch, maxTraversals: 1 }));
     const executor = new WorkflowExecutor({
+      onNodeStatus: (event) => {
+        if (event.gateDecision) gateStatuses.push(event);
+      },
       agentRunner: createAgentRunner((request) => {
         prompts.push(request.prompt);
         if (request.forkFromWorkflowSessionId) {
@@ -218,6 +222,20 @@ describe("WorkflowExecutor", () => {
       "writer", "reviewer", "gate", "fix", "reviewer", "gate", "done",
     ]);
     expect(prompts.filter((prompt) => prompt.includes("Available branches:"))[1]).not.toContain('"id":"revise"');
+    expect(gateStatuses[0]).toMatchObject({
+      gateDecision: { branchId: "revise", reason: "review" },
+      gateBranches: [
+        { branchId: "pass", traversalsUsed: 0, maxTraversals: 1, available: true },
+        { branchId: "revise", traversalsUsed: 1, maxTraversals: 1, available: false },
+      ],
+    });
+    expect(gateStatuses[1]).toMatchObject({
+      gateDecision: { branchId: "pass", reason: "review" },
+      gateBranches: [
+        { branchId: "pass", traversalsUsed: 1, maxTraversals: 1, available: false },
+        { branchId: "revise", traversalsUsed: 1, maxTraversals: 1, available: false },
+      ],
+    });
   });
 
   test("injects tagged output into the target prompt", async () => {
@@ -296,11 +314,11 @@ describe("WorkflowExecutor", () => {
     );
 
     expect(run.status).toBe("done");
-    expect(prompts).toEqual([
-      "source",
-      "handoff raw content",
-      "target <component_tree>handled content</component_tree>",
-    ]);
+    expect(prompts[0]).toBe("source");
+    expect(prompts[1]).toContain("handoff raw content");
+    expect(prompts[1]).toContain("The receiving workflow session cannot see this conversation history.");
+    expect(prompts[1]).toContain("Do not refer to a prior, previous, above, or preceding message");
+    expect(prompts[2]).toBe("target <component_tree>handled content</component_tree>");
   });
 
   test("keeps terminal events when an agent fails", async () => {

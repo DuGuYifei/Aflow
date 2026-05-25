@@ -24,12 +24,19 @@ export function renderNodePrompt(context: PromptRenderContext): string {
 }
 
 export function renderHandoffPrompt(template: PromptTemplate, input: string): string {
-  return renderPromptTemplate({
+  const prompt = renderPromptTemplate({
     template,
     variables: {
       specflow_input: input,
     },
   });
+  return [
+    prompt,
+    "",
+    "The receiving workflow session cannot see this conversation history.",
+    "Your response is the only handoff content it receives. Include all information needed by the receiving session in this response.",
+    "Do not refer to a prior, previous, above, or preceding message instead of reproducing required content.",
+  ].join("\n");
 }
 
 export function renderGatePrompt(node: GateNode, input: string): string {

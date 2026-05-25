@@ -503,7 +503,12 @@ edges:
     to: audit-blueprint
     transmit: true
     outputTag: page_blueprint
-    handoffPrompt: Forward the full creative blueprint for strict content and UX approval.
+    handoffPrompt: Forward the full creative blueprint for strict content and UX
+      approval. The reviewer is in a separate session and cannot see the design
+      conversation. Reproduce the complete reviewable blueprint, including
+      evidence references, localized copy, visual specification, design tokens,
+      accessibility requirements and acceptance criteria; never refer to prior
+      messages in place of content.
   - from: audit-blueprint
     to: blueprint-decision
   - from: blueprint-decision
@@ -517,7 +522,9 @@ edges:
     transmit: true
     outputTag: blueprint_findings
     handoffPrompt: Forward the rejected blueprint audit and required corrections for
-      a complete design revision.
+      a complete design revision. The designer is in a separate session; include
+      the complete actionable audit findings and required populated fields rather
+      than referring to the review conversation.
     branch: revise
     maxTraversals: 2
   - from: revise-blueprint
@@ -525,7 +532,10 @@ edges:
     transmit: true
     outputTag: revised_blueprint
     handoffPrompt: Forward the revised localized and evidence-grounded blueprint for
-      another independent approval review.
+      another independent approval review. The reviewer cannot see any preceding
+      designer messages. Reproduce the complete replacement blueprint and all
+      evidence, copy, visual, accessibility and implementation details required
+      for approval in this handoff response.
     loopback: true
   - from: blueprint-decision
     to: report-blueprint-unresolved
@@ -544,7 +554,10 @@ edges:
     to: verify-release
     transmit: true
     outputTag: polish_report
-    handoffPrompt: Forward the polished implementation report for release verification.
+    handoffPrompt: Forward the complete polished implementation report for release
+      verification. The reviewer is in a separate session; include all changed
+      files, validation results, constraints and evidence needed to judge release
+      readiness without referring to prior messages.
   - from: verify-release
     to: release-decision
   - from: release-decision
@@ -554,7 +567,10 @@ edges:
     to: repair-site
     transmit: true
     outputTag: release_findings
-    handoffPrompt: Forward the file-specific release defects for implementation repair.
+    handoffPrompt: Forward the complete file-specific release defects for
+      implementation repair. The builder is in a separate session; reproduce
+      each actionable issue and acceptance condition rather than referencing
+      prior review output.
     branch: fix
     maxTraversals: 2
   - from: repair-site
@@ -562,7 +578,9 @@ edges:
     transmit: true
     outputTag: repair_report
     handoffPrompt: Forward repaired files and validation results for another
-      independent release review.
+      independent release review. The reviewer is in a separate session; include
+      the complete repair report, changed files, validation output and remaining
+      limitations required for approval.
     loopback: true
   - from: release-decision
     to: report-unresolved
