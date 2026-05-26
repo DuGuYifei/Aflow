@@ -124,6 +124,13 @@ export interface AgentRunRequest {
   runId?: string;
   workflowSessionId?: string;
   forkFromWorkflowSessionId?: string;
+  /**
+   * Resume an existing ACP session under this workflowSessionId rather than
+   * creating a fresh one. Honored only on the first prompt for a given
+   * workflowSessionId within a pooled connection — subsequent prompts reuse
+   * the already-bound session.
+   */
+  restoreFromAcpSessionId?: string;
   signal?: AbortSignal;
   onTerminalEvent?: (event: AgentTerminalEvent) => void;
   onLifecycleEvent?: (event: AgentLifecycleEvent) => void;

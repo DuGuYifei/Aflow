@@ -7,7 +7,7 @@ import {
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
   cancelRun as apiCancelRun,
   fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
-  fetchAgentSession, fetchResumableSession, fetchRunLogsRange,
+  fetchAgentSession, fetchResumableSession, fetchRunLogsRange, resumeWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
   apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
   AgentAuthenticationRequiredError,
@@ -1006,21 +1006,32 @@ export function App() {
     }
   }, [onRunInteractionEvent, refreshAgentSessions, terminateConversation]);
 
-  const onResumeRun = useCallback(async (runId: string) => {
+  const onResumeRun = useCallback(async (sourceRunId: string) => {
     try {
-      const suggestion = await fetchResumableSession(runId);
-      if (!suggestion) {
-        window.alert('No resumable ACP session was recorded for this run. The run may have crashed before any agent step started.');
+      const { runId: newRunId } = await resumeWorkflowRun(sourceRunId);
+      const initial = await fetchRun(newRunId);
+      const placeholder = apiRunToUiRun(initial);
+      setRuns((prev) => [placeholder, ...prev]);
+      setActiveRunId(newRunId);
+      setLiveNodeStates(initial.nodeStates ?? {});
+      setHistoricNodeStates({});
+      setLogEvents([]);
+      setLogHistoryTotal(0);
+      setLogHistoryEarliestIndex(0);
+      setPendingInteractions([]);
+      setPausedNode(null);
+      setPausedLines([]);
+      setBarExpanded(true);
+      attachToRun(newRunId);
+    } catch (err) {
+      if (err instanceof AgentAuthenticationRequiredError) {
+        requestAuth(err.statuses, () => onResumeRun(sourceRunId));
         return;
       }
-      const session = await fetchAgentSession(suggestion.agentSessionId);
-      setBarExpanded(true);
-      await onRestoreHistoricalSession(session, 'continue', { autoPrompt: suggestion.continuationPrompt });
-    } catch (err) {
       console.error('Failed to resume run', err);
       window.alert(`Resume failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [onRestoreHistoricalSession]);
+  }, [attachToRun, requestAuth]);
 
   const onPromptConversation = useCallback(async (prompt: string) => {
     const active = conversation;

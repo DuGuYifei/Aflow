@@ -102,6 +102,24 @@ export type AgentRunner = (request: AgentCommandRequest) => Promise<AgentCommand
 export interface WorkflowRunOptions {
   runId?: string;
   signal?: AbortSignal;
+  resumeFrom?: WorkflowResumeState;
+}
+
+/**
+ * Snapshot of a previous run that lets a new executor pick up where it left off.
+ * Built from a persisted RunRecord plus the JSONL run log.
+ */
+export interface WorkflowResumeState {
+  /** Node-id → status as recorded by the prior run. */
+  nodeStates: Record<string, "done" | "success" | "running" | "paused" | "failed" | "error" | "cancelled" | "pending">;
+  /** Node-id → output text (for nodes that finished cleanly). */
+  nodeOutputs: Record<string, string>;
+  /** Gate-node-id → which branch was chosen previously. */
+  gateDecisions?: Record<string, { branchId: string }>;
+  /** Workflow sessionId → existing ACP sessionId. The executor uses load/resume on first prompt. */
+  acpSessionByWorkflowSession: Record<string, string>;
+  /** `${gateNodeId}:${branchId}` → traversal count, to honor loop bounds across resumes. */
+  branchTraversals?: Record<string, number>;
 }
 
 interface TransferOrigin {
@@ -174,7 +192,24 @@ export class WorkflowExecutor {
 
   async run(workflow: Workflow, initialInput = "", options: WorkflowRunOptions = {}): Promise<WorkflowRun> {
     const sessionPool = this.#agentRunnerOverride ? undefined : new AgentProxySessionPool({ root: this.#cwd });
-    const agentRunner = this.#agentRunnerOverride ?? ((request: AgentCommandRequest) => sessionPool!.run(request));
+    const baseAgentRunner = this.#agentRunnerOverride ?? ((request: AgentCommandRequest) => sessionPool!.run(request));
+    // Inject restoreFromAcpSessionId on the first prompt for any workflow session
+    // that already has a recorded ACP session from a prior run.
+    const sessionRestoreMap = new Map<string, string>(
+      Object.entries(options.resumeFrom?.acpSessionByWorkflowSession ?? {}),
+    );
+    const restoredSessions = new Set<string>();
+    const agentRunner: AgentRunner = async (request) => {
+      const wsid = request.workflowSessionId;
+      if (wsid && !restoredSessions.has(wsid)) {
+        const acpSessionId = sessionRestoreMap.get(wsid);
+        if (acpSessionId) {
+          restoredSessions.add(wsid);
+          return baseAgentRunner({ ...request, restoreFromAcpSessionId: acpSessionId });
+        }
+      }
+      return baseAgentRunner(request);
+    };
     const run: WorkflowRun = {
       id: options.runId ?? uuidv7(),
       workflowId: workflow.id,
@@ -200,6 +235,34 @@ export class WorkflowExecutor {
       const inactiveEdges = new Set<string>();
       const branchTraversals = new Map<string, number>();
 
+      // Resume bootstrap: classify each node by its prior status.
+      //   - "done"/"success"   → use persisted output, fire downstream edges without re-invoking agent
+      //   - "running"/"paused"/"failed"/"error"/"cancelled" with output → re-invoke with continuation prompt
+      //   - anything else      → execute normally
+      const resumeFrom = options.resumeFrom;
+      const completedFromResume = new Set<string>();
+      const interruptedFromResume = new Set<string>();
+      const resumeOutputs = new Map<string, string>(Object.entries(resumeFrom?.nodeOutputs ?? {}));
+      const resumeGateDecisions = new Map<string, { branchId: string }>(Object.entries(resumeFrom?.gateDecisions ?? {}));
+      if (resumeFrom) {
+        for (const [nodeId, state] of Object.entries(resumeFrom.nodeStates)) {
+          if (state === "done" || state === "success") {
+            if (resumeOutputs.has(nodeId)) {
+              completedFromResume.add(nodeId);
+            } else {
+              interruptedFromResume.add(nodeId);
+            }
+          } else if (state === "running" || state === "paused" || state === "failed" || state === "error") {
+            interruptedFromResume.add(nodeId);
+          }
+          // "cancelled" / "pending" / unknown → fall through to normal execution
+        }
+        // Re-seed already-used branch traversal counts so gate loop bounds carry across resumes.
+        for (const [key, count] of Object.entries(resumeFrom.branchTraversals ?? {})) {
+          branchTraversals.set(key, count);
+        }
+      }
+
       for (const entryNode of findEntryNodes(workflow)) {
         pendingInputs.set(executionKey(entryNode.id, 0), { input: [initialInput], edgeValues: {} });
       }
@@ -224,17 +287,38 @@ export class WorkflowExecutor {
           ? gateWithAvailableBranches(node, branchTraversals)
           : node;
         const pending = pendingInputs.get(key) ?? { input: [], edgeValues: {} };
-        const nodeResult = await this.#executeNode({
-          agentRunner,
-          workflow,
-          run,
-          node: executableNode,
-          gateBranches: node.kind === "gate" ? gateBranchStatuses(node, branchTraversals) : undefined,
-          input: pending.input.filter(Boolean).join("\n\n"),
-          edgeValues: pending.edgeValues,
-          origin: pending.origin,
-          signal: options.signal,
-        });
+        // Resume short-circuit: if this node finished successfully in a prior
+        // run AND we have its persisted output, skip the agent invocation and
+        // synthesize the result from the recorded data. Only applies to the
+        // first traversal — gate loopbacks must re-execute against the live
+        // branch state.
+        const useResumeShortcut = queued.traversal === 0
+          && completedFromResume.has(node.id)
+          && resumeOutputs.has(node.id);
+        const isInterrupted = queued.traversal === 0 && interruptedFromResume.has(node.id);
+        let nodeResult: NodeExecutionResult;
+        if (useResumeShortcut) {
+          nodeResult = this.#synthesizeResumeResult({
+            run,
+            node,
+            output: resumeOutputs.get(node.id)!,
+            chosenBranchId: node.kind === "gate" ? resumeGateDecisions.get(node.id)?.branchId : undefined,
+            origin: pending.origin,
+          });
+        } else {
+          nodeResult = await this.#executeNode({
+            agentRunner,
+            workflow,
+            run,
+            node: executableNode,
+            gateBranches: node.kind === "gate" ? gateBranchStatuses(node, branchTraversals) : undefined,
+            input: pending.input.filter(Boolean).join("\n\n"),
+            edgeValues: pending.edgeValues,
+            origin: pending.origin,
+            signal: options.signal,
+            resumeMode: isInterrupted ? "continuation" : undefined,
+          });
+        }
         if (node.kind === "agent" && node.pauseAfterRun) {
           if (!this.#pauses) {
             throw new Error(`Node "${node.id}" requires interactive pause support.`);
@@ -356,6 +440,61 @@ export class WorkflowExecutor {
     }
   }
 
+  #synthesizeResumeResult(input: {
+    run: WorkflowRun;
+    node: WorkflowNode;
+    output: string;
+    chosenBranchId?: string;
+    origin?: TransferOrigin;
+  }): NodeExecutionResult {
+    // Record a synthetic nodeRun so downstream consumers (saveRun, logs) see
+    // the resumed node in the same shape as a freshly-executed one.
+    const at = new Date().toISOString();
+    input.run.nodeRuns.push({
+      id: uuidv7(),
+      nodeId: input.node.id,
+      status: "done",
+      startedAt: at,
+      completedAt: at,
+      output: input.output,
+      ...(input.chosenBranchId ? { gateDecision: { branchId: input.chosenBranchId } } : {}),
+    });
+    this.#onNodeStatus?.({
+      runId: input.run.id,
+      nodeId: input.node.id,
+      status: "running",
+      at,
+    });
+    this.#onNodeStatus?.({
+      runId: input.run.id,
+      nodeId: input.node.id,
+      status: "done",
+      at,
+      output: input.output,
+      ...(input.chosenBranchId ? { gateDecision: { branchId: input.chosenBranchId } } : {}),
+    });
+    if (input.node.kind === "agent") {
+      return {
+        output: input.output,
+        origin: { agentId: input.node.agentId, sessionId: input.node.sessionId, output: input.output },
+      };
+    }
+    if (!input.origin) {
+      // Resume of a gate without a preceding origin (e.g. first run lost the
+      // chain context): fall back to a synthetic origin from the gate itself.
+      return {
+        output: input.output,
+        origin: { agentId: "gate", sessionId: input.node.id, output: input.output },
+        chosenBranchId: input.chosenBranchId,
+      };
+    }
+    return {
+      output: input.output,
+      origin: input.origin,
+      chosenBranchId: input.chosenBranchId,
+    };
+  }
+
   async #executeNode(input: {
     agentRunner: AgentRunner;
     workflow: Workflow;
@@ -366,6 +505,7 @@ export class WorkflowExecutor {
     edgeValues: Record<string, string>;
     origin?: TransferOrigin;
     signal?: AbortSignal;
+    resumeMode?: "continuation";
   }): Promise<NodeExecutionResult> {
     throwIfCancelled(input.signal);
     const nodeRun: NodeRun = {
@@ -380,7 +520,7 @@ export class WorkflowExecutor {
 
     try {
       if (input.node.kind === "agent") {
-        const output = await this.#executeAgentNode({ ...input, node: input.node, nodeRun });
+        const output = await this.#executeAgentNode({ ...input, node: input.node, nodeRun, resumeMode: input.resumeMode });
         nodeRun.status = input.node.pauseAfterRun ? "paused" : "done";
         nodeRun.output = output;
         if (!input.node.pauseAfterRun) {
@@ -454,10 +594,19 @@ export class WorkflowExecutor {
     input: string;
     edgeValues: Record<string, string>;
     signal?: AbortSignal;
+    resumeMode?: "continuation";
   }): Promise<string> {
     assertValidAgentNodeSession(input.workflow, input.node);
-    const prompt = renderNodePrompt({ node: input.node, input: input.input, edgeValues: input.edgeValues });
-    const promptBlocks = await buildPromptBlocksForNode({ node: input.node, prompt, cwd: this.#cwd });
+    // Interrupted nodes already have the original task in their ACP session
+    // history (via session/load or session/resume on first prompt). Send a
+    // continuation prompt instead of re-running the original to avoid telling
+    // the agent to do everything over.
+    const prompt = input.resumeMode === "continuation"
+      ? buildWorkflowContinuationPrompt({ nodeTitle: input.node.title })
+      : renderNodePrompt({ node: input.node, input: input.input, edgeValues: input.edgeValues });
+    const promptBlocks = input.resumeMode === "continuation"
+      ? undefined
+      : await buildPromptBlocksForNode({ node: input.node, prompt, cwd: this.#cwd });
     const invocation = this.#createInvocation({
       run: input.run,
       nodeRun: input.nodeRun,
@@ -798,4 +947,23 @@ function gateBranchStatuses(node: Extract<WorkflowNode, { kind: "gate" }>, trave
       available: traversalsUsed < maxTraversals,
     };
   });
+}
+
+/**
+ * Prompt used when re-entering an ACP session to finish an interrupted step
+ * inside a workflow. The agent's original task is already in its session
+ * history, so this only nudges it to produce final contract output instead of
+ * starting over. There is no live user — the output is consumed automatically.
+ */
+function buildWorkflowContinuationPrompt(input: { nodeTitle?: string }): string {
+  const node = input.nodeTitle ? `"${input.nodeTitle}"` : "the previous step";
+  return [
+    `[Workflow resume]`,
+    `Specflow is resuming this ACP session to finish step ${node}, which was interrupted before producing its final output. The original task and your prior reasoning are already in this conversation's history.`,
+    `Please:`,
+    `1. Briefly note what you already completed in this step (one short paragraph; do not redo the work).`,
+    `2. If your prior work already satisfies the step's contract, emit the final output now — follow every formatting rule the original task laid out.`,
+    `3. If essential work remains, finish it using the same approach you were already taking. Do not start over.`,
+    `4. No live user is listening; do not ask clarifying questions. If you genuinely cannot complete the step, emit whatever failure marker the original task defined and explain what is missing.`,
+  ].join("\n\n");
 }

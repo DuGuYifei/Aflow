@@ -330,6 +330,12 @@ export class AcpAgentConnection {
     const existing = this.#sessions.get(key);
     if (existing) return { sessionId: existing, workflowSessionId: key };
 
+    if (request.restoreFromAcpSessionId) {
+      const sessionId = await this.#restoreSession(request, request.restoreFromAcpSessionId);
+      this.#sessions.set(key, sessionId);
+      return { sessionId, workflowSessionId: key };
+    }
+
     if (request.forkFromWorkflowSessionId) {
       const parentKey = request.forkFromWorkflowSessionId;
       const parentSessionId = this.#sessions.get(parentKey);
@@ -384,6 +390,41 @@ export class AcpAgentConnection {
     });
     await applySessionDefaults(this.#client.connection, session.sessionId, session, this.#resolved);
     return session.sessionId;
+  }
+
+  async #restoreSession(request: AgentRunRequest, acpSessionId: string): Promise<string> {
+    const supportsLoad = Boolean(this.#initializeResponse?.agentCapabilities?.loadSession);
+    const supportsResume = Boolean(this.#initializeResponse?.agentCapabilities?.sessionCapabilities?.resume);
+    if (!supportsLoad && !supportsResume) {
+      throw new Error(
+        `Agent "${request.agentServerId}" does not support session load/resume; cannot continue ACP session ${acpSessionId}.`,
+      );
+    }
+    if (supportsLoad) {
+      await this.#client.connection.loadSession({
+        sessionId: acpSessionId,
+        cwd: this.#cwd,
+        additionalDirectories: this.#additionalDirectories,
+        mcpServers: request.mcpServers ?? [],
+      });
+    } else {
+      await this.#client.connection.resumeSession({
+        sessionId: acpSessionId,
+        cwd: this.#cwd,
+        additionalDirectories: this.#additionalDirectories,
+        mcpServers: request.mcpServers ?? [],
+      });
+    }
+    // The session is already "created" historically; emit a normal
+    // session_created so downstream attribution treats it the same as a fresh
+    // session belonging to this connection.
+    request.onLifecycleEvent?.({
+      type: "session_created",
+      agentServerId: request.agentServerId,
+      sessionId: acpSessionId,
+      at: new Date().toISOString(),
+    });
+    return acpSessionId;
   }
 }
 

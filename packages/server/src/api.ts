@@ -1,5 +1,5 @@
 import { WorkflowExecutor } from "@specflow/bridge";
-import type { SpecflowBridge } from "@specflow/bridge";
+import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
 import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
 import { supportedRegistryAgentProfile } from "@specflow/bridge";
 import { uuidv7 } from "@specflow/shared";
@@ -287,6 +287,36 @@ interface LifecyclePayload {
   stopReason?: string;
   error?: string;
   [key: string]: unknown;
+}
+
+/**
+ * Build a WorkflowResumeState snapshot from a prior run record + its log.
+ * Powers POST /api/runs/:id/resume-workflow.
+ */
+async function buildResumeStateFromRun(root: string, record: RunRecord): Promise<WorkflowResumeState> {
+  // Session map: specflowSessionId → ACP sessionId, from invocations.
+  const acpSessionByWorkflowSession: Record<string, string> = {};
+  for (const inv of record.agentInvocations) {
+    if (inv.sessionId && inv.acpSessionId && !acpSessionByWorkflowSession[inv.sessionId]) {
+      acpSessionByWorkflowSession[inv.sessionId] = inv.acpSessionId;
+    }
+  }
+  // Gate decisions + branch traversal counts: scan node_status log events.
+  const gateDecisions: Record<string, { branchId: string }> = {};
+  const branchTraversals: Record<string, number> = {};
+  for (const event of await listRunLogEvents(root, record.id)) {
+    if (event.type !== "node_status" || !event.gateDecision) continue;
+    gateDecisions[event.nodeId] = { branchId: event.gateDecision.branchId };
+    const key = `${event.nodeId}:${event.gateDecision.branchId}`;
+    branchTraversals[key] = (branchTraversals[key] ?? 0) + 1;
+  }
+  return {
+    nodeStates: { ...record.nodeStates } as WorkflowResumeState["nodeStates"],
+    nodeOutputs: { ...record.nodeOutputs },
+    gateDecisions,
+    acpSessionByWorkflowSession,
+    branchTraversals,
+  };
 }
 
 async function reconstructInvocationsFromRunLog(root: string, record: RunRecord): Promise<RunRecord["agentInvocations"]> {
@@ -610,6 +640,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     initialInput: string,
     variableValues: Record<string, string>,
     snapshot?: { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc },
+    resumeFrom?: { state: WorkflowResumeState; sourceRunId: string },
   ): Promise<Response> {
     let agentflow: AgentFlowDoc;
     let layout: CanvasLayoutDoc;
@@ -664,6 +695,20 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       initialNodeStates[n.id] = "pending";
     }
 
+    // Resumed runs inherit the prior node-state map so the canvas reflects
+    // progress immediately. Pending nodes still re-execute; completed nodes are
+    // short-circuited inside the executor via resumeFrom.
+    const seededNodeStates: Record<string, RunState> = { ...initialNodeStates };
+    if (resumeFrom) {
+      for (const [nodeId, state] of Object.entries(resumeFrom.state.nodeStates)) {
+        if (state === "done" || state === "success") seededNodeStates[nodeId] = "success";
+        else if (state === "failed" || state === "error") seededNodeStates[nodeId] = "error";
+        else if (state === "cancelled") seededNodeStates[nodeId] = "cancelled";
+        else if (state === "paused") seededNodeStates[nodeId] = "paused";
+        else if (state === "running") seededNodeStates[nodeId] = "running";
+        // "pending" and unknown: leave as initial "pending"
+      }
+    }
     const record: RunRecord = {
       id: runId,
       workflowId,
@@ -671,14 +716,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       status: "running",
       startedAt: new Date().toISOString(),
       agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "unconfigured",
-      nodeStates: initialNodeStates,
-      nodeOutputs: {},
+      nodeStates: seededNodeStates,
+      nodeOutputs: resumeFrom ? { ...resumeFrom.state.nodeOutputs } : {},
       agentInvocations: [],
       agentSessions: [],
       agentflowSnapshot: agentflow, // store pre-substitution snapshots
       canvasSnapshot: layout,
       initialInput,
       variableValues,
+      ...(resumeFrom ? { resumedFromRunId: resumeFrom.sourceRunId } : {}),
     };
 
     await saveRun(record, root);
@@ -866,7 +912,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       pauses: bridge.pauses,
     });
 
-    void executor.run(workflow, prepared.initialInput, { runId, signal: runController.signal })
+    void executor.run(workflow, prepared.initialInput, {
+        runId,
+        signal: runController.signal,
+        ...(resumeFrom ? { resumeFrom: resumeFrom.state } : {}),
+      })
       .then(async (workflowRun) => {
         await logWrite;
         record.agentInvocations = workflowRun.agentInvocations;
@@ -1663,6 +1713,37 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         const status = message.includes("not found") ? 404 : 500;
         return Response.json({ error: message }, { status });
       }
+    }
+
+    // POST /api/runs/:id/resume-workflow — start a new run that picks up where
+    // the source run left off: completed nodes get short-circuited with their
+    // recorded outputs, interrupted nodes are re-invoked with a continuation
+    // prompt against their existing ACP sessions.
+    const resumeWorkflowMatch = pathname.match(/^\/api\/runs\/([^/]+)\/resume-workflow$/);
+    if (resumeWorkflowMatch && request.method === "POST") {
+      const id = resumeWorkflowMatch[1];
+      let source: RunRecord;
+      try {
+        source = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (source.status === "running") {
+        return Response.json({ error: "Cannot resume a run that is still running" }, { status: 409 });
+      }
+      const layout = source.canvasSnapshot;
+      const agentflow = source.agentflowSnapshot;
+      if (!agentflow || !layout) {
+        return Response.json({ error: "Run snapshot is missing; cannot resume" }, { status: 409 });
+      }
+      const state = await buildResumeStateFromRun(root, source);
+      return handleRun(
+        source.workflowId,
+        source.initialInput,
+        source.variableValues,
+        { agentflow, layout },
+        { state, sourceRunId: source.id },
+      );
     }
 
     // POST /api/runs/:id/rerun — re-execute the snapshot of an existing run

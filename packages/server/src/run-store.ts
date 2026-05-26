@@ -29,6 +29,8 @@ export interface RunRecord {
   canvasSnapshot: CanvasLayoutDoc;
   initialInput: string;
   variableValues: Record<string, string>;
+  /** Set when this run was created by resuming another run; identifies the source. */
+  resumedFromRunId?: string;
 }
 
 function runsDir(root: string) {

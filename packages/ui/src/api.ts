@@ -539,6 +539,17 @@ export async function fetchResumableSession(runId: string): Promise<ResumableSes
   return res.json();
 }
 
+/**
+ * Start a new run that picks up the workflow where {runId} left off: completed
+ * nodes are skipped using their recorded output, interrupted nodes get a
+ * continuation prompt against their existing ACP session.
+ */
+export async function resumeWorkflowRun(runId: string): Promise<{ runId: string }> {
+  const res = await fetch(`/api/runs/${runId}/resume-workflow`, { method: 'POST' });
+  if (!res.ok) await throwRunStartError(res, 'Failed to resume workflow');
+  return res.json();
+}
+
 export async function promptPausedNode(runId: string, nodeId: string, prompt: string): Promise<{ output: string }> {
   const res = await fetch(`/api/runs/${runId}/paused-nodes/${nodeId}/prompt`, {
     method: 'POST',
