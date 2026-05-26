@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Workflow, Run } from '../types';
+import { useI18n } from '../i18n';
 import { Icon } from './icon';
 
 interface SidebarProps {
@@ -17,6 +18,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWorkflow, onSelectRun, onNewRun, onRerunRun, onResumeRun, onDeleteRun, onCreateWorkflow }: SidebarProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const wf = workflows.find((w) => w.id === activeWorkflow) || workflows[0];
@@ -47,9 +49,9 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
       <div className="col">
         <div className="col-head">
           <div>
-            <div className="col-title">Workflows</div>
+            <div className="col-title">{t('sidebar.workflows')}</div>
           </div>
-          <button className="btn sm icon" title="New workflow" onClick={onCreateWorkflow}>
+          <button className="btn sm icon" title={t('sidebar.newWorkflow')} onClick={onCreateWorkflow}>
             <Icon name="plus" size={12} />
           </button>
         </div>
@@ -57,7 +59,7 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
           <Icon name="search" size={12} />
           <input
             ref={searchRef}
-            placeholder="Search…"
+            placeholder={t('sidebar.search')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
@@ -74,7 +76,7 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
               <div className="name">{w.name}</div>
               <div className="meta">
                 <span><Icon name="flow" size={10} style={{ verticalAlign: -1 }} /> {w.meta}</span>
-                <span><Icon name="history" size={10} style={{ verticalAlign: -1 }} /> {w.runs} runs</span>
+                <span><Icon name="history" size={10} style={{ verticalAlign: -1 }} /> {t('sidebar.runsCount', { count: w.runs })}</span>
               </div>
             </div>
           ))}
@@ -84,11 +86,11 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
       <div className="col">
         <div className="col-head">
           <div>
-            <div className="col-title">Runs</div>
+            <div className="col-title">{t('sidebar.runs')}</div>
             <div className="col-sub">{wf?.name}</div>
           </div>
-          <button className="btn sm primary" title="Start a new run" onClick={onNewRun}>
-            <Icon name="play-circle" size={12} />Start
+          <button className="btn sm primary" title={t('sidebar.startRunTitle')} onClick={onNewRun}>
+            <Icon name="play-circle" size={12} />{t('sidebar.start')}
           </button>
         </div>
         <div className="col-list">
@@ -103,14 +105,14 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
                 <span className="label">{r.label}</span>
                 <div className="actions" onClick={(e) => e.stopPropagation()}>
                   {onResumeRun && (r.status === 'cancelled' || r.status === 'error') && (
-                    <button className="btn sm icon" title="Resume the last ACP session for this run" onClick={() => onResumeRun(r.id)}>
+                    <button className="btn sm icon" title={t('sidebar.resumeSessionTitle')} onClick={() => onResumeRun(r.id)}>
                       <Icon name="play-circle" size={11} />
                     </button>
                   )}
-                  <button className="btn sm icon" title="Run this snapshot again" onClick={() => onRerunRun(r.id)}>
+                  <button className="btn sm icon" title={t('sidebar.rerunTitle')} onClick={() => onRerunRun(r.id)}>
                     <Icon name="rotate" size={11} />
                   </button>
-                  <button className="btn sm icon" title="Delete" onClick={() => onDeleteRun(r.id)}>
+                  <button className="btn sm icon" title={t('sidebar.delete')} onClick={() => onDeleteRun(r.id)}>
                     <Icon name="trash" size={11} />
                   </button>
                 </div>

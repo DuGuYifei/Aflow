@@ -1,4 +1,5 @@
 import type { TimelineEvent, WorkflowNode } from '../types';
+import { useI18n } from '../i18n';
 
 type TimelineRole = 'agent' | 'user' | 'thought' | 'terminal' | 'system';
 
@@ -40,15 +41,16 @@ interface SessionTimelineProps {
 }
 
 export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeById }: SessionTimelineProps) {
+  const { t } = useI18n();
   const items = buildTimelineItems(events);
-  if (items.length === 0) return <div className="history-empty">{emptyMessage}</div>;
+  if (items.length === 0) return <div className="history-empty">{emptyMessage === 'No output yet.' ? t('timeline.empty') : emptyMessage}</div>;
   return (
     <>
       {items.map((item, index) => {
         if (item.kind === 'tool') {
           return (
             <div key={index} className="timeline-tool">
-              <span className="timeline-role">tool</span>
+              <span className="timeline-role">{t('timeline.tool')}</span>
               {item.nodeId && nodeById?.get(item.nodeId) && <span className="node-ref">{nodeById.get(item.nodeId)!.num}</span>}
               <span className="timeline-tool-title">{item.title}</span>
               {item.status && <span className="timeline-tool-status">{item.status}</span>}
@@ -58,7 +60,7 @@ export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeB
         if (item.kind === 'plan') {
           return (
             <div key={index} className="timeline-plan">
-              <span className="timeline-role">plan</span>
+              <span className="timeline-role">{t('timeline.plan')}</span>
               <div className="timeline-plan-entries">
                 {item.entries.map((entry, entryIndex) => (
                   <div key={entryIndex}>
@@ -74,7 +76,7 @@ export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeB
           return (
             <div key={index} className="timeline-gate">
               <div className="timeline-gate-head">
-                <span className="timeline-role">gate</span>
+                <span className="timeline-role">{t('timeline.gate')}</span>
                 {item.nodeId && nodeById?.get(item.nodeId) && <span className="node-ref">{nodeById.get(item.nodeId)!.num}</span>}
                 <span className="timeline-gate-choice">{item.branchId}</span>
               </div>
@@ -83,7 +85,7 @@ export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeB
                 <div className="timeline-gate-branches">
                   {item.branches.map((branch) => (
                     <span key={branch.branchId} className={`timeline-gate-branch${branch.available ? '' : ' exhausted'}${branch.branchId === item.branchId ? ' chosen' : ''}`}>
-                      {branch.label} {branch.traversalsUsed}/{branch.maxTraversals}{branch.available ? '' : ' exhausted'}
+                      {branch.label} {branch.traversalsUsed}/{branch.maxTraversals}{branch.available ? '' : ` ${t('timeline.exhausted')}`}
                     </span>
                   ))}
                 </div>

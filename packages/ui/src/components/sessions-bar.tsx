@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Session, WorkflowNode, TimelineEvent, Variable } from '../types';
 import type { AgentServerEntry, AgentSessionRecord, PausedNodeSession, RestoreMode } from '../api';
+import { useI18n } from '../i18n';
 import { Icon } from './icon';
 import { isSymbolKey, sessionAccent } from '../appearance';
 import type { ConversationLine } from './agent-conversation-window';
@@ -62,6 +63,7 @@ export function SessionsBar({
   onPromptPausedNode, onContinuePausedNode,
   readonly,
 }: SessionsBarProps) {
+  const { t, language } = useI18n();
   const [tab, setTab] = useState<'logs' | 'agent-sessions' | 'settings' | 'vars'>('logs');
   const barHeightRef = useRef(barHeight);
   const stepNodes = nodes.filter((n) => n.kind === 'step');
@@ -97,13 +99,13 @@ export function SessionsBar({
             <Icon name="chevron-up" size={12} />
           </button>
           <span className="title">
-            <Icon name="terminal" size={11} style={{ verticalAlign: -2, marginRight: 4 }} />Sessions
+            <Icon name="terminal" size={11} style={{ verticalAlign: -2, marginRight: 4 }} />{t('sessions.title')}
           </span>
           <span style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>
-            {sessions.length} sessions · {stepNodes.length} nodes
+            {t('sessions.sessionsCount', { count: sessions.length })} · {t('sessions.nodesCount', { count: stepNodes.length })}
           </span>
           <div style={{ flex: 1 }} />
-          <span style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>activity:</span>
+          <span style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{t('sessions.activity')}</span>
           {sessions.slice(0, 4).map((s) => (
             <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--ink-2)' }}>
               <span className="ses-dot" style={{ width: 6, height: 6, borderRadius: 2, background: sessionAccent(s) }} />{s.name}
@@ -120,7 +122,7 @@ export function SessionsBar({
       <div
         className="bar-resize-handle"
         onMouseDown={onResizeDown}
-        title="Drag to resize"
+        title={t('sessions.dragToResize')}
       />
       <div className="sessions-head">
         <button className="bar-handle" onClick={() => setExpanded(false)} style={{ marginRight: 4 }}>
@@ -128,24 +130,24 @@ export function SessionsBar({
         </button>
         <div className="bar-tabs">
           <button className={`bar-tab${tab === 'logs' ? ' active' : ''}`} onClick={() => setTab('logs')}>
-            <Icon name="terminal" size={11} />Logs
+            <Icon name="terminal" size={11} />{t('sessions.logs')}
           </button>
           <button className={`bar-tab${tab === 'agent-sessions' ? ' active' : ''}`} onClick={() => setTab('agent-sessions')}>
-            <Icon name="history" size={11} />Agent Sessions
+            <Icon name="history" size={11} />{t('sessions.agentSessions')}
             {agentSessions.length > 0 && <span className="count">{agentSessions.length}</span>}
           </button>
           <button className={`bar-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
-            <Icon name="settings" size={11} />Sessions
+            <Icon name="settings" size={11} />{t('sessions.title')}
             <span className="count">{sessions.length}</span>
           </button>
           <button className={`bar-tab${tab === 'vars' ? ' active' : ''}`} onClick={() => setTab('vars')}>
-            <Icon name="tag" size={11} />Variables
+            <Icon name="tag" size={11} />{t('sessions.variables')}
             {variables.length > 0 && <span className="count">{variables.length}</span>}
           </button>
         </div>
         <div style={{ flex: 1 }} />
         {tab === 'logs' && (
-          <button className="bar-handle" title="Clear logs" onClick={onClearLogs}>
+          <button className="bar-handle" title={t('sessions.clearLogs')} onClick={onClearLogs}>
             <Icon name="trash" size={11} />
           </button>
         )}
@@ -169,6 +171,7 @@ export function SessionsBar({
           pausedPromptBusy={pausedPromptBusy}
           onPromptPausedNode={onPromptPausedNode}
           onContinuePausedNode={onContinuePausedNode}
+          t={t}
         />
       )}
       {tab === 'agent-sessions' && (
@@ -178,6 +181,8 @@ export function SessionsBar({
           onOpenInvocationLog={onOpenInvocationLog}
           onRestoreSession={onRestoreSession}
           restoreStatusBySession={restoreStatusBySession}
+          t={t}
+          language={language}
         />
       )}
       {tab === 'settings' && (
@@ -191,6 +196,7 @@ export function SessionsBar({
           onDeleteSession={onDeleteSession}
           agentServers={agentServers}
           readonly={readonly}
+          t={t}
         />
       )}
       {tab === 'vars' && (
@@ -198,6 +204,7 @@ export function SessionsBar({
           variables={variables}
           onEditVariable={onEditVariable}
           readonly={readonly}
+          t={t}
         />
       )}
     </div>
@@ -223,12 +230,14 @@ interface LogsTabProps {
   pausedPromptBusy: boolean;
   onPromptPausedNode?: (prompt: string) => void;
   onContinuePausedNode?: () => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
 function LogsTab({
   sessions, activeSession, setActiveSessionId, stepNodes, timelineEvents, onDeleteSession,
   onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
   pausedNode, pausedLines, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
+  t,
 }: LogsTabProps) {
   const [sideW, setSideW] = useState(() => {
     try {
@@ -320,7 +329,7 @@ function LogsTab({
             <span className="dot" style={{ background: activeSession ? sessionAccent(activeSession) : 'var(--ink-3)' }} />{activeSession?.agentServerId ?? activeSession?.agent}
           </span>
           <span style={{ color: 'var(--ink-3)', fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
-            · {stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).length} nodes
+            · {t('sessions.nodesCount', { count: stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).length })}
           </span>
         </div>
         <div className="term-stream" ref={termRef}>
@@ -342,10 +351,10 @@ function LogsTab({
                 onClick={onLoadEarlierLogs}
               >
                 <Icon name="chevron-up" size={10} />
-                {loadingEarlierLogs ? 'Loading...' : 'Load earlier'}
+                {loadingEarlierLogs ? t('common.loading') : t('sessions.loadEarlier')}
               </button>
               {typeof historicLogTotal === 'number' && typeof historicLogLoadedFromIndex === 'number' && (
-                <span>{historicLogTotal - historicLogLoadedFromIndex}/{historicLogTotal} events</span>
+                <span>{t('sessions.eventsCount', { loaded: historicLogTotal - historicLogLoadedFromIndex, total: historicLogTotal })}</span>
               )}
             </div>
           )}
@@ -353,7 +362,7 @@ function LogsTab({
             <SessionTimeline events={visibleEvents} nodeById={nodeById} />
           ) : (
             <>
-              <div className="term-line"><span className="ts">-</span><span className="lvl">[sys]</span><span>{timelineEvents && timelineEvents.length > 0 ? 'No output for this session.' : 'No run output yet. Click Start run when the workflow is ready.'}</span></div>
+              <div className="term-line"><span className="ts">-</span><span className="lvl">[sys]</span><span>{timelineEvents && timelineEvents.length > 0 ? t('sessions.noOutputForSession') : t('sessions.noRunOutputYet')}</span></div>
               <div className="term-line">
                 <span className="ts">—</span>
                 <span style={{ color: 'var(--ink-3)' }}>·</span>
@@ -369,17 +378,18 @@ function LogsTab({
             busy={pausedPromptBusy}
             onPrompt={onPromptPausedNode}
             onContinue={onContinuePausedNode}
+            t={t}
           />
         )}
       </div>
       <div
         className={`term-resizer${dragging ? ' dragging' : ''}`}
         onMouseDown={onResizerDown}
-        title="Drag to resize"
+        title={t('sessions.dragToResize')}
       />
       <div className="term-sidebar" style={{ width: sideW }}>
         <div className="term-sidebar-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>Sessions</span>
+          <span>{t('sessions.title')}</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--ink-4)' }}>{sessions.length}</span>
         </div>
         <div className="term-sidebar-list">
@@ -397,7 +407,7 @@ function LogsTab({
                 <span className="count">{count}</span>
                 <button
                   className="ses-del"
-                  title="Delete session"
+                  title={t('sessions.deleteSession')}
                   disabled={sessions.length <= 1}
                   onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id); }}
                 >
@@ -418,6 +428,7 @@ function PausedNodeComposer(props: {
   busy: boolean;
   onPrompt?: (prompt: string) => void;
   onContinue?: () => void;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }) {
   const [prompt, setPrompt] = useState('');
   const submit = () => {
@@ -428,9 +439,9 @@ function PausedNodeComposer(props: {
   return (
     <div className="paused-composer">
       <div className="paused-composer-head">
-        <span><Icon name="pause" size={11} /> Paused after {props.node?.title ?? 'node'}</span>
+        <span><Icon name="pause" size={11} /> {props.t('sessions.pausedAfter', { node: props.node?.title ?? 'node' })}</span>
         <button className="btn sm primary" disabled={props.busy} onClick={props.onContinue}>
-          <Icon name="play" size={10} />Continue workflow
+          <Icon name="play" size={10} />{props.t('sessions.continueWorkflow')}
         </button>
       </div>
       {props.lines.length > 0 && (
@@ -448,14 +459,14 @@ function PausedNodeComposer(props: {
           rows={2}
           value={prompt}
           disabled={props.busy}
-          placeholder="Send a prompt to the paused agent session..."
+          placeholder={props.t('sessions.promptPausedSession')}
           onInput={(event) => setPrompt(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit();
           }}
         />
         <button className="btn sm" disabled={props.busy || !prompt.trim()} onClick={submit}>
-          {props.busy ? 'Sending...' : 'Send'}
+          {props.busy ? props.t('sessions.sending') : props.t('sessions.send')}
         </button>
       </div>
     </div>
@@ -470,6 +481,8 @@ interface AgentSessionsTabProps {
   onOpenInvocationLog?: (runId: string, nodeId?: string, specflowSessionId?: string) => void;
   onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
   restoreStatusBySession: Record<string, string>;
+  t: (key: string, params?: Record<string, string | number>) => string;
+  language: string;
 }
 
 function AgentSessionsTab({
@@ -478,6 +491,8 @@ function AgentSessionsTab({
   onOpenInvocationLog,
   onRestoreSession,
   restoreStatusBySession,
+  t,
+  language,
 }: AgentSessionsTabProps) {
   const [agentFilter, setAgentFilter] = useState('');
   const [workflowSessionFilter, setWorkflowSessionFilter] = useState('');
@@ -503,7 +518,7 @@ function AgentSessionsTab({
     <div className="sessions-body agent-sessions">
       <div className="history-filters">
         <label className="history-filter">
-          <span>Agent</span>
+          <span>{t('agentSession.agent')}</span>
           <select
             className="input agent-session-agent-select"
             value={selectedAgentId}
@@ -513,31 +528,31 @@ function AgentSessionsTab({
               setWorkflowSessionFilter('');
             }}
           >
-            {agentIds.length === 0 && <option value="">No agents</option>}
+            {agentIds.length === 0 && <option value="">{t('agentSession.noAgents')}</option>}
             {agentIds.map((agentId) => (
               <option key={agentId} value={agentId}>{agentId}</option>
             ))}
           </select>
         </label>
         <label className="history-filter">
-          <span>Workflow session</span>
+          <span>{t('agentSession.workflowSession')}</span>
           <select
             className="input agent-session-workflow-select"
             value={selectedWorkflowSession}
             disabled={workflowSessionIds.length === 0}
             onChange={(e) => setWorkflowSessionFilter(e.target.value)}
           >
-            <option value="">All sessions</option>
+            <option value="">{t('agentSession.allSessions')}</option>
             {workflowSessionIds.filter(Boolean).map((sessionId) => (
               <option key={sessionId} value={sessionId}>{sessionId}</option>
             ))}
-            {workflowSessionIds.includes('') && <option value={UNSCOPED_SESSION_FILTER}>Unscoped</option>}
+            {workflowSessionIds.includes('') && <option value={UNSCOPED_SESSION_FILTER}>{t('agentSession.unscoped')}</option>}
           </select>
         </label>
         {selectedAgentId && (
           <div className="history-agent-summary">
             <span className="agent-badge"><span className="dot" />{selectedAgentId}</span>
-            <span>{agentScopedSessions.length} runtime sessions</span>
+            <span>{t('agentSession.runtimeSessions', { count: agentScopedSessions.length })}</span>
           </div>
         )}
       </div>
@@ -545,15 +560,15 @@ function AgentSessionsTab({
       <div className="history-list">
         {groupedSessions.length === 0 && (
           <div className="history-empty">
-            No ACP sessions for the selected agent and workflow session.
+            {t('agentSession.empty')}
           </div>
         )}
 
         {groupedSessions.map((group) => (
           <section key={group.id} className="history-session-group">
             <div className="history-session-group-head">
-              <span>Workflow session</span>
-              <span className="mono-id">{group.id || 'unscoped'}</span>
+              <span>{t('agentSession.workflowSession')}</span>
+              <span className="mono-id">{group.id || t('agentSession.unscoped')}</span>
               <span className="count">{group.sessions.length}</span>
             </div>
             <div className="history-session-cards">
@@ -568,10 +583,10 @@ function AgentSessionsTab({
                           <span className="mono-id">{session.acpSessionId}</span>
                         </div>
                         <div className="history-meta">
-                          <span>{session.invocations.length} invocations</span>
+                          <span>{t('agentSession.invocations', { count: session.invocations.length })}</span>
                           <span>·</span>
-                          <span>{formatShortDate(session.lastSeenAt)}</span>
-                          {session.parentSpecflowSessionId && <span>· fork of {session.parentSpecflowSessionId}</span>}
+                          <span>{formatShortDate(session.lastSeenAt, language)}</span>
+                          {session.parentSpecflowSessionId && <span>· {t('agentSession.forkOf', { id: session.parentSpecflowSessionId })}</span>}
                         </div>
                       </div>
                       <div className="history-actions">
@@ -582,24 +597,24 @@ function AgentSessionsTab({
                           className="btn sm"
                           disabled={!session.acpSupportsLoadSession && !session.acpSupportsResumeSession}
                           onClick={() => onRestoreSession?.(session, 'inspect')}
-                          title="Inspect historical session"
+                          title={t('agentSession.inspectTitle')}
                         >
-                          <Icon name="search" size={10} />Inspect
+                          <Icon name="search" size={10} />{t('agentSession.inspect')}
                         </button>
                         <button
                           className="btn sm primary"
                           disabled={!session.acpSupportsLoadSession && !session.acpSupportsResumeSession}
                           onClick={() => onRestoreSession?.(session, 'continue')}
-                          title="Resume historical session"
+                          title={t('agentSession.resumeTitle')}
                         >
-                          <Icon name="play-circle" size={10} />Resume
+                          <Icon name="play-circle" size={10} />{t('agentSession.resume')}
                         </button>
                       </div>
                     </div>
 
                     {status && (
                       <div className={`history-restore-status ${status === 'failure' ? 'failed' : ''}`}>
-                        restore: {status}
+                        {t('agentSession.restoreStatus', { status })}
                       </div>
                     )}
 
@@ -612,11 +627,11 @@ function AgentSessionsTab({
                             className="history-invocation"
                             disabled={runMissing}
                             onClick={() => onOpenInvocationLog?.(ref.runId, ref.nodeId, session.specflowSessionId)}
-                            title={runMissing ? 'Run record was deleted' : 'Open run log'}
+                            title={runMissing ? t('agentSession.deletedRun') : t('agentSession.openRunLog')}
                           >
                             <span className={`status-dot ${ref.status === 'done' ? 'success' : ref.status === 'failed' ? 'error' : 'running'}`} />
                             <span className="mono-id">{ref.nodeId ?? ref.edgeId ?? ref.invocationId}</span>
-                            <span>{runMissing ? 'missing run' : runLabelById.get(ref.runId) ?? ref.runId}</span>
+                            <span>{runMissing ? t('agentSession.missingRun') : runLabelById.get(ref.runId) ?? ref.runId}</span>
                           </button>
                         );
                       })}
@@ -624,7 +639,7 @@ function AgentSessionsTab({
 
                     {latestRunMissing && (
                       <div className="history-warning">
-                        Latest run reference is unavailable. Older invocation links may still work.
+                        {t('agentSession.latestRunUnavailable')}
                       </div>
                     )}
                   </div>
@@ -659,10 +674,10 @@ function CapabilityBadge({ label, enabled }: { label: string; enabled: boolean }
   );
 }
 
-function formatShortDate(iso: string): string {
+function formatShortDate(iso: string, language: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString([], { month: 'short', day: '2-digit' });
+  return date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', { month: 'short', day: '2-digit' });
 }
 
 // ── settings tab ──────────────────────────────────────────────────────────────
@@ -677,6 +692,7 @@ interface SettingsTabProps {
   onDeleteSession: (id: string) => void;
   agentServers: AgentServerEntry[];
   readonly?: boolean;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
 // ── variables tab ─────────────────────────────────────────────────────────────
@@ -685,15 +701,16 @@ interface VariablesTabProps {
   variables: Variable[];
   onEditVariable: (name: string, patch: Partial<Variable>) => void;
   readonly?: boolean;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps) {
+function VariablesTab({ variables, onEditVariable, readonly, t }: VariablesTabProps) {
   if (variables.length === 0) {
     return (
       <div className="sessions-body settings">
         <div style={{ padding: '12px 16px', color: 'var(--ink-3)', fontSize: 11, fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
-          No input variables declared.<br />
-          Add a <strong>Run input</strong> node on the canvas and connect it to a step; its variable will appear here for editing.
+          {t('variables.empty')}<br />
+          {t('variables.emptyHint')}
         </div>
       </div>
     );
@@ -703,9 +720,9 @@ function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps
     <div className="sessions-body settings">
       <div className="assn-list" style={{ overflow: 'auto', flex: 1 }}>
         <div className="assn-list-head">
-          <span>Variable (from canvas)</span>
-          <span>Default value</span>
-          <span>Description</span>
+          <span>{t('variables.name')}</span>
+          <span>{t('variables.defaultValue')}</span>
+          <span>{t('variables.description')}</span>
         </div>
         {variables.map((v) => (
           <div key={v.name} className="assn-row" style={{ gap: 8, alignItems: 'center' }}>
@@ -735,7 +752,7 @@ function VariablesTab({ variables, onEditVariable, readonly }: VariablesTabProps
   );
 }
 
-function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onEditSession, onDeleteSession, agentServers, readonly }: SettingsTabProps) {
+function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onEditSession, onDeleteSession, agentServers, readonly, t }: SettingsTabProps) {
   const [draftName, setDraftName] = useState('');
   const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('unconfigured');
   const [editingId, setEditingId] = useState('');
@@ -786,12 +803,12 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
     <div className="sessions-body settings">
       <div className="add-session-row">
         <span style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginRight: 4 }}>
-          New agent session
+          {t('settings.newAgentSession')}
         </span>
         <input
           ref={inputRef}
           className="input sm"
-          placeholder="session name"
+          placeholder={t('settings.sessionName')}
           value={draftName}
           disabled={readonly}
           onChange={(e) => setDraftName(e.target.value)}
@@ -803,16 +820,16 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
             <option key={server.id} value={server.id}>{server.id}</option>
           ))}
         </select>
-        <button className="btn sm primary" disabled={readonly} onClick={handleAdd}><Icon name="plus" size={11} />Add</button>
+        <button className="btn sm primary" disabled={readonly} onClick={handleAdd}><Icon name="plus" size={11} />{t('settings.add')}</button>
         {draftName && (!isSymbolKey(draftName.trim()) || sessions.some((session) => session.id === draftName.trim())) && (
-          <span className="field-error">Use a unique lowercase key with letters, digits, or hyphens.</span>
+          <span className="field-error">{t('settings.invalidSessionName')}</span>
         )}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>{sessions.length} sessions</span>
+        <span style={{ fontSize: 10.5, color: 'var(--ink-3)', fontFamily: 'var(--font-mono)' }}>{t('sessions.sessionsCount', { count: sessions.length })}</span>
       </div>
 
       <div className="session-list-row">
-        <span className="label">Sessions</span>
+        <span className="label">{t('sessions.title')}</span>
         {sessions.map((s) => {
           if (editingId === s.id) {
             return (
@@ -840,10 +857,10 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
                     <option key={server.id} value={server.id}>{server.id}</option>
                   ))}
                 </select>
-                <button className="ses-x save" title={`Save ${s.name}`} disabled={readonly || !isSymbolKey(editingName.trim()) || sessions.some((session) => session.id === editingName.trim() && session.id !== editingId)} onClick={saveEdit}>
+                <button className="ses-x save" title={t('settings.saveSession', { name: s.name })} disabled={readonly || !isSymbolKey(editingName.trim()) || sessions.some((session) => session.id === editingName.trim() && session.id !== editingId)} onClick={saveEdit}>
                   <Icon name="check" size={10} />
                 </button>
-                <button className="ses-x" title="Cancel" onClick={cancelEdit}>
+                <button className="ses-x" title={t('settings.cancelEdit')} onClick={cancelEdit}>
                   <Icon name="x" size={10} />
                 </button>
               </span>
@@ -854,10 +871,10 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
               <span className="ses-dot" style={{ background: sessionAccent(s) }} />
               {s.name}
               <span className="agent">{s.agentServerId ?? s.agent}</span>
-              <button className="ses-x" title={`Edit ${s.name}`} disabled={readonly} onClick={() => startEdit(s)}>
+              <button className="ses-x" title={t('settings.editSession', { name: s.name })} disabled={readonly} onClick={() => startEdit(s)}>
                 <Icon name="edit" size={10} />
               </button>
-              <button className="ses-x" title={`Delete ${s.name}`} disabled={readonly || sessions.length <= 1} onClick={() => onDeleteSession(s.id)}>
+              <button className="ses-x" title={t('settings.deleteSession', { name: s.name })} disabled={readonly || sessions.length <= 1} onClick={() => onDeleteSession(s.id)}>
                 <Icon name="x" size={10} />
               </button>
             </span>
@@ -867,8 +884,8 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
 
       <div className="assn-list">
         <div className="assn-list-head">
-          <span>Node</span>
-          <span>Session assignment</span>
+          <span>{t('settings.node')}</span>
+          <span>{t('settings.sessionAssignment')}</span>
         </div>
         {(stepNodes.filter((n) => n.kind === 'step') as Extract<WorkflowNode, { kind: 'step' }>[]).map((n) => (
           <div key={n.id} className="assn-row">

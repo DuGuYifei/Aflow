@@ -1,4 +1,5 @@
 import type { Theme } from '../types';
+import { useI18n } from '../i18n';
 import { Icon } from './icon';
 
 interface TopBarProps {
@@ -30,6 +31,8 @@ export function TopBar({
   view,
   onExitRunView,
 }: TopBarProps) {
+  const { language, setLanguage, t } = useI18n();
+
   return (
     <div className="topbar">
       <div className="brand">
@@ -38,8 +41,8 @@ export function TopBar({
       </div>
       <div className="crumbs">
         <span>Acme</span><span className="sep">/</span>
-        <span>Workflows</span><span className="sep">/</span>
-        <span className="current">{workflowName ?? 'Loading…'}</span>
+        <span>{t('topbar.workspace')}</span><span className="sep">/</span>
+        <span className="current">{workflowName ?? t('topbar.loadingWorkflow')}</span>
         {runLabel && view === 'run' && (
           <>
             <span className="sep">/</span>
@@ -53,47 +56,63 @@ export function TopBar({
         <button
           className="topbar-tab active"
           onClick={onExitRunView}
-          title="Return to the live workflow"
+          title={t('topbar.backToDesignTitle')}
         >
-          <Icon name="edit" size={13} />Back to design
+          <Icon name="edit" size={13} />{t('topbar.backToDesign')}
         </button>
       )}
 
       <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' }} />
-      <button className="btn sm agent-update-button" onClick={onAgentServers} title="Manage ACP agent servers">
-        <Icon name="settings" size={11} />Agents
-        {hasAgentUpdates && <span className="agent-update-dot" aria-label="Agent updates available" />}
+      <button className="btn sm agent-update-button" onClick={onAgentServers} title={t('topbar.agentsTitle')}>
+        <Icon name="settings" size={11} />{t('topbar.agents')}
+        {hasAgentUpdates && <span className="agent-update-dot" aria-label={t('topbar.agentUpdatesAvailable')} />}
       </button>
+      <div className="language-toggle" aria-label={t('language.label')}>
+        <button
+          className={language === 'en' ? 'active' : ''}
+          onClick={() => setLanguage('en')}
+          title="English"
+        >
+          {t('language.english')}
+        </button>
+        <button
+          className={language === 'zh-CN' ? 'active' : ''}
+          onClick={() => setLanguage('zh-CN')}
+          title="简体中文"
+        >
+          {t('language.chinese')}
+        </button>
+      </div>
       <div className="theme-toggle">
         <button
           className={theme === 'light' ? 'active' : ''}
           onClick={() => onThemeChange('light')}
-          title="Light"
+          title={t('topbar.light')}
         >
           <Icon name="sun" size={12} />
         </button>
         <button
           className={theme === 'dark' ? 'active' : ''}
           onClick={() => onThemeChange('dark')}
-          title="Dark"
+          title={t('topbar.dark')}
         >
           <Icon name="moon" size={12} />
         </button>
       </div>
 
       {view === 'run' && onRerun && (
-        <button className="btn sm" onClick={onRerun} title="Start a new run from this saved snapshot">
-          <Icon name="rotate" size={11} />Run again
+        <button className="btn sm" onClick={onRerun} title={t('topbar.runAgainTitle')}>
+          <Icon name="rotate" size={11} />{t('topbar.runAgain')}
         </button>
       )}
       {view === 'run' && canCancelRun && onCancelRun && (
-        <button className="btn sm" onClick={onCancelRun} title="Cancel the active run">
-          <Icon name="x" size={11} />Cancel
+        <button className="btn sm" onClick={onCancelRun} title={t('topbar.cancelRunTitle')}>
+          <Icon name="x" size={11} />{t('topbar.cancelRun')}
         </button>
       )}
       {view === 'edit' && (
         <button className="btn sm primary" onClick={onNewRun}>
-          <Icon name="play-circle" size={12} />Start run
+          <Icon name="play-circle" size={12} />{t('topbar.startRun')}
         </button>
       )}
     </div>

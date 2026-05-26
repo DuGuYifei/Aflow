@@ -33,6 +33,7 @@ import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
 import { AgentConversationWindow, type ConversationLine } from './components/agent-conversation-window';
 import { normalizeTransferConfiguration, resolveTransferSource } from './edge-semantics';
+import { useI18n } from './i18n';
 
 function runStatusFromEvent(status: string): RunStatus {
   if (status === 'success') return 'success';
@@ -44,6 +45,7 @@ function runStatusFromEvent(status: string): RunStatus {
 }
 
 export function App() {
+  const { t } = useI18n();
   const [activeWorkflow, setActiveWorkflow] = useState('');
   const [activeCanvasName, setActiveCanvasName] = useState('');
 
@@ -777,12 +779,12 @@ export function App() {
       } catch {
         placeholder = {
           id: runId,
-          label: 'Starting run...',
+          label: t('app.startingRun'),
           ticket: '',
           status: 'running',
-          time: 'just now',
+          time: t('app.justNow'),
           duration: '—',
-          agent: sessionsRef.current[0]?.agentServerId ?? 'unconfigured',
+          agent: sessionsRef.current[0]?.agentServerId ?? t('app.unconfigured'),
         };
       }
       setRuns((prev) => [placeholder, ...prev]);
@@ -849,7 +851,7 @@ export function App() {
   }, [attachToRun, requestAuth]);
 
   const onDeleteRun = useCallback(async (id: string) => {
-    if (!window.confirm('Delete this run?')) return;
+    if (!window.confirm(t('app.deleteRunConfirm'))) return;
     try {
       await apiDeleteRun(id);
       setRuns((prev) => prev.filter((r) => r.id !== id));
@@ -871,7 +873,7 @@ export function App() {
       setRuns((prev) => prev.map((r) =>
         r.id === id ? { ...r, status: 'cancelled' } : r,
       ));
-      setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: 'Run cancellation requested.\n', stream: 'system' }]);
+      setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.cancelRequested'), stream: 'system' }]);
     } catch (err) {
       console.error('Failed to cancel run', err);
     }
@@ -897,7 +899,7 @@ export function App() {
       session,
       mode,
       status: 'starting',
-      events: [{ type: 'display-message', role: 'system', text: `${mode === 'inspect' ? 'Loading' : 'Resuming'} ACP session...` }],
+      events: [{ type: 'display-message', role: 'system', text: mode === 'inspect' ? t('app.restoreLoading') : t('app.restoreResuming') }],
       canPrompt: false,
       busy: false,
     });
@@ -918,7 +920,7 @@ export function App() {
             ...current,
             events: [
               ...current.events,
-              { type: 'display-message', role: 'system', text: 'ACP resume cannot replay history; showing recorded Specflow context.' },
+              { type: 'display-message', role: 'system', text: t('app.restoreCannotReplay') },
               ...recorded,
             ],
           }
@@ -961,10 +963,10 @@ export function App() {
           }
           setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: event.status }));
           const text = event.status === 'success'
-            ? `Restored through ACP session/${event.selectedPrimitive}.`
+            ? t('app.restoreSuccess', { primitive: event.selectedPrimitive ?? 'resume' })
             : event.status === 'failure'
-              ? `Restore failed: ${event.error ?? 'unknown error'}`
-              : 'Restore requested.';
+              ? t('app.restoreFailed', { error: event.error ?? t('app.restoreUnknownError') })
+              : t('app.restoreRequested');
           setConversation((current) => current?.session.id === session.id
             ? {
                 ...current,
@@ -988,7 +990,7 @@ export function App() {
               .catch((promptError) => {
                 const message = promptError instanceof Error ? promptError.message : String(promptError);
                 setConversation((current) => current?.session.id === session.id
-                  ? { ...current, events: [...current.events, { type: 'display-message', role: 'system', text: `Auto-continuation failed: ${message}` }] }
+                  ? { ...current, events: [...current.events, { type: 'display-message', role: 'system', text: t('app.autoContinuationFailed', { message }) }] }
                   : current);
               })
               .finally(() => {
@@ -1001,7 +1003,7 @@ export function App() {
       const message = err instanceof Error ? err.message : String(err);
       setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: 'failure' }));
       setConversation((current) => current?.session.id === session.id
-        ? { ...current, status: 'failure', events: [...current.events, { type: 'display-message', role: 'system', text: `Restore failed: ${message}` }] }
+        ? { ...current, status: 'failure', events: [...current.events, { type: 'display-message', role: 'system', text: t('app.restoreFailed', { error: message }) }] }
         : current);
     }
   }, [onRunInteractionEvent, refreshAgentSessions, terminateConversation]);
@@ -1029,7 +1031,7 @@ export function App() {
         return;
       }
       console.error('Failed to resume run', err);
-      window.alert(`Resume failed: ${err instanceof Error ? err.message : String(err)}`);
+      window.alert(t('app.resumeFailed', { message: err instanceof Error ? err.message : String(err) }));
     }
   }, [attachToRun, requestAuth]);
 
@@ -1086,7 +1088,7 @@ export function App() {
 
   const onCreateWorkflow = useCallback(async () => {
     try {
-      const doc = await createCanvas('Untitled workflow');
+      const doc = await createCanvas(t('app.untitledWorkflow'));
       const summary = { id: doc.id, name: doc.name, runs: 0 };
       setWorkflows((prev) => [summaryToWorkflow(summary), ...prev]);
       setActiveWorkflow(doc.id);
@@ -1172,7 +1174,7 @@ export function App() {
           <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 6 }}>
             <div className="run-pill">
               <span className={`status-dot ${activeRun.status}`} />
-              <span className="label">RUN</span>
+              <span className="label">{t('app.runLabel')}</span>
               <span className="value">{activeRun.label}</span>
               <span style={{ color: 'var(--ink-4)' }}>·</span>
               <span className="value" style={{ color: 'var(--ink-3)' }}>{activeRun.duration}</span>
@@ -1182,7 +1184,7 @@ export function App() {
         {runStartBusy && !runConfigOpen && (
           <div className="run-start-busy" role="status">
             <span className="run-start-spinner" />
-            Checking ACP agents...
+            {t('app.checkingAgents')}
           </div>
         )}
       </div>

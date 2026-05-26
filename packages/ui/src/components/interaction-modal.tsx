@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RunInteraction } from '../api';
+import { useI18n } from '../i18n';
 
 type ElicitationContent = Record<string, string | number | boolean | string[]>;
 
@@ -16,9 +17,10 @@ export function InteractionModal({ interaction, onRespond }: InteractionModalPro
 }
 
 function PermissionModal({ interaction, onRespond }: InteractionModalProps) {
+  const { t } = useI18n();
   const toolCall = asRecord(interaction.toolCall);
-  const title = stringValue(toolCall.title) || stringValue(toolCall.name) || 'Permission required';
-  const description = stringValue(toolCall.description) || stringValue(toolCall.kind) || 'The agent needs approval before continuing.';
+  const title = stringValue(toolCall.title) || stringValue(toolCall.name) || t('interaction.permissionRequired');
+  const description = stringValue(toolCall.description) || stringValue(toolCall.kind) || t('interaction.permissionDescription');
   const status = stringValue(toolCall.status);
   const options = interaction.options ?? [];
   const allowOption = pickAllowOption(options);
@@ -35,7 +37,7 @@ function PermissionModal({ interaction, onRespond }: InteractionModalProps) {
         <div className="run-modal-head">
           <div style={{ flex: 1 }}>
             <div className="label">
-              Agent permission
+              {t('interaction.agentPermission')}
               {interaction.agentServerId && <span style={{ marginLeft: 6, color: 'var(--ink-3)' }}>· {interaction.agentServerId}</span>}
             </div>
             <h2>{title}</h2>
@@ -59,16 +61,16 @@ function PermissionModal({ interaction, onRespond }: InteractionModalProps) {
             }}>{command}</pre>
           )}
           {justification && <p className="interaction-muted" style={{ fontStyle: 'italic' }}>{justification}</p>}
-          {status && <p className="interaction-muted">Status: {status}</p>}
+          {status && <p className="interaction-muted">{t('interaction.status', { status })}</p>}
           {interaction.nodeId && (
             <p className="interaction-muted" style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5 }}>
-              node {interaction.nodeId}
-              {interaction.acpSessionId && <> · session {interaction.acpSessionId.slice(0, 8)}…</>}
+              {t('interaction.node', { id: interaction.nodeId })}
+              {interaction.acpSessionId && <> · {t('interaction.session', { id: `${interaction.acpSessionId.slice(0, 8)}…` })}</>}
             </p>
           )}
           {remaining && (
             <p className="interaction-muted" style={{ color: 'var(--accent, #f0a020)' }}>
-              Auto-{interaction.timeoutAction ?? 'accept'} in {remaining}
+              {t('interaction.autoAction', { action: interaction.timeoutAction ?? 'accept', remaining })}
             </p>
           )}
           {otherOptions.length > 0 && (
@@ -91,7 +93,7 @@ function PermissionModal({ interaction, onRespond }: InteractionModalProps) {
               className="btn"
               onClick={() => onRespond(interaction, { outcome: 'selected', optionId: denyOption.optionId })}
             >
-              {denyOption.name || 'Deny'}
+              {denyOption.name || t('interaction.deny')}
             </button>
           )}
           {allowOption && (
@@ -99,11 +101,11 @@ function PermissionModal({ interaction, onRespond }: InteractionModalProps) {
               className="btn primary"
               onClick={() => onRespond(interaction, { outcome: 'selected', optionId: allowOption.optionId })}
             >
-              {allowOption.name || 'Allow'}
+              {allowOption.name || t('interaction.allow')}
             </button>
           )}
           {!allowOption && !denyOption && (
-            <button className="btn" onClick={() => onRespond(interaction, { outcome: 'cancelled' })}>Dismiss</button>
+            <button className="btn" onClick={() => onRespond(interaction, { outcome: 'cancelled' })}>{t('interaction.dismiss')}</button>
           )}
         </div>
       </div>
@@ -172,9 +174,10 @@ function useTimeoutCountdown(timeoutAt?: string): string | undefined {
 }
 
 function ElicitationModal({ interaction, onRespond }: InteractionModalProps) {
+  const { t } = useI18n();
   const request = asRecord(interaction.request);
   const mode = stringValue(request.mode);
-  const message = stringValue(request.message) || 'The agent is asking for more information.';
+  const message = stringValue(request.message) || t('interaction.moreInfo');
 
   if (mode === 'url') {
     const url = stringValue(request.url);
@@ -183,8 +186,8 @@ function ElicitationModal({ interaction, onRespond }: InteractionModalProps) {
         <div className="run-modal interaction-modal">
           <div className="run-modal-head">
             <div style={{ flex: 1 }}>
-              <div className="label">Agent request</div>
-              <h2>Open external step</h2>
+              <div className="label">{t('interaction.agentRequest')}</div>
+              <h2>{t('interaction.openExternalStep')}</h2>
             </div>
           </div>
           <div className="run-modal-body">
@@ -192,8 +195,8 @@ function ElicitationModal({ interaction, onRespond }: InteractionModalProps) {
             {url && <a className="interaction-url" href={url} target="_blank" rel="noreferrer">{url}</a>}
           </div>
           <div className="run-modal-actions">
-            <button className="btn" onClick={() => onRespond(interaction, { action: 'decline' })}>Decline</button>
-            <button className="btn primary" onClick={() => onRespond(interaction, { action: 'accept', content: {} })}>Done</button>
+            <button className="btn" onClick={() => onRespond(interaction, { action: 'decline' })}>{t('interaction.decline')}</button>
+            <button className="btn primary" onClick={() => onRespond(interaction, { action: 'accept', content: {} })}>{t('interaction.done')}</button>
           </div>
         </div>
       </div>
@@ -208,6 +211,7 @@ function FormElicitationModal({
   message,
   onRespond,
 }: InteractionModalProps & { message: string }) {
+  const { t } = useI18n();
   const request = asRecord(interaction.request);
   const schema = asRecord(request.requestedSchema);
   const properties = asRecord(schema.properties);
@@ -239,8 +243,8 @@ function FormElicitationModal({
       <div className="run-modal interaction-modal">
         <div className="run-modal-head">
           <div style={{ flex: 1 }}>
-            <div className="label">Agent request</div>
-            <h2>{stringValue(schema.title) || 'Provide details'}</h2>
+            <div className="label">{t('interaction.agentRequest')}</div>
+            <h2>{stringValue(schema.title) || t('interaction.provideDetails')}</h2>
           </div>
         </div>
         <div className="run-modal-body">
@@ -259,9 +263,9 @@ function FormElicitationModal({
           </div>
         </div>
         <div className="run-modal-actions">
-          <button className="btn" onClick={() => onRespond(interaction, { action: 'cancel' })}>Cancel</button>
-          <button className="btn" onClick={() => onRespond(interaction, { action: 'decline' })}>Decline</button>
-          <button className="btn primary" onClick={() => onRespond(interaction, { action: 'accept', content: values })}>Submit</button>
+          <button className="btn" onClick={() => onRespond(interaction, { action: 'cancel' })}>{t('common.cancel')}</button>
+          <button className="btn" onClick={() => onRespond(interaction, { action: 'decline' })}>{t('interaction.decline')}</button>
+          <button className="btn primary" onClick={() => onRespond(interaction, { action: 'accept', content: values })}>{t('interaction.submit')}</button>
         </div>
       </div>
     </div>
@@ -281,6 +285,7 @@ function ElicitationField({
   value: string | number | boolean | string[] | undefined;
   setValue: (name: string, value: string | number | boolean | string[]) => void;
 }) {
+  const { t } = useI18n();
   const title = stringValue(property.title) || name;
   const description = stringValue(property.description);
   const type = stringValue(property.type);
@@ -291,7 +296,7 @@ function ElicitationField({
     <div className="run-var-row">
       <label>
         {title}
-        {required && <span className="run-var-required">required</span>}
+        {required && <span className="run-var-required">{t('interaction.required')}</span>}
       </label>
       {renderFieldControl({ name, type, property, value, enumValues, oneOf, setValue })}
       {description && <div className="hint">{description}</div>}
@@ -308,6 +313,7 @@ function renderFieldControl(input: {
   oneOf?: Record<string, unknown>[];
   setValue: (name: string, value: string | number | boolean | string[]) => void;
 }) {
+  const { t } = useI18n();
   if (input.type === 'boolean') {
     return (
       <label className="interaction-checkbox">
@@ -316,7 +322,7 @@ function renderFieldControl(input: {
           checked={Boolean(input.value)}
           onChange={(e) => input.setValue(input.name, e.currentTarget.checked)}
         />
-        <span>Enabled</span>
+        <span>{t('common.enabled')}</span>
       </label>
     );
   }
@@ -333,7 +339,7 @@ function renderFieldControl(input: {
         value={String(input.value ?? '')}
         onChange={(e) => input.setValue(input.name, e.currentTarget.value)}
       >
-        <option value="">Choose...</option>
+        <option value="">{t('interaction.choose')}</option>
         {enumOptions.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
         ))}

@@ -1715,6 +1715,30 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   cursor: pointer;
 }
 .theme-toggle button.active { background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-sm); }
+.language-toggle {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 1px;
+  height: 26px;
+}
+.language-toggle button {
+  background: transparent;
+  border: none;
+  min-width: 30px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+.language-toggle button.active { background: var(--bg-elev); color: var(--ink); box-shadow: var(--shadow-sm); }
 
 /* === LEFT RAIL — two columns === */
 .left.two-col {

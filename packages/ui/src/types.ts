@@ -1,4 +1,5 @@
 export type Theme = 'light' | 'dark';
+export type Language = 'en' | 'zh-CN';
 
 export interface Variable {
   name: string;           // always prefixed: "specflow_branch"

@@ -4,6 +4,7 @@ import {
   type AgentAuthenticationMethod,
   type AgentAuthenticationStatus,
 } from '../api';
+import { useI18n } from '../i18n';
 import { Icon } from './icon';
 
 interface AgentAuthModalProps {
@@ -14,6 +15,7 @@ interface AgentAuthModalProps {
 }
 
 export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, onChanged }: AgentAuthModalProps) {
+  const { t } = useI18n();
   const [statuses, setStatuses] = useState(initialStatuses);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
@@ -63,10 +65,10 @@ export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, on
       <div className="agent-auth-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="run-modal-head">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="label"><Icon name="lock" size={11} /> ACP auth</div>
-            <h2>Authenticate agents</h2>
+            <div className="label"><Icon name="lock" size={11} /> {t('auth.label')}</div>
+            <h2>{t('auth.title')}</h2>
           </div>
-          <button className="close" onClick={onClose} title="Close">
+          <button className="close" onClick={onClose} title={t('common.close')}>
             <Icon name="x" size={14} />
           </button>
         </div>
@@ -78,11 +80,11 @@ export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, on
             <section className="agent-auth-status" key={status.agentServerId}>
               <div className="agent-server-title">
                 <span>{status.agentServerId}</span>
-                <span className="cap-badge update">auth required</span>
+                <span className="cap-badge update">{t('auth.required')}</span>
               </div>
 
               {status.methods.length === 0 && (
-                <div className="agent-server-desc">The agent requires ACP authentication but did not advertise a method.</div>
+                <div className="agent-server-desc">{t('auth.noMethod')}</div>
               )}
 
               {status.methods.map((method) => (
@@ -91,7 +93,7 @@ export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, on
                     <span>{method.name}</span>
                     <span className="mono-id">{method.type}</span>
                     {method.type === 'env_var' && method.link && (
-                      <a href={method.link} target="_blank" rel="noreferrer" title={`${method.name} credentials`}>
+                      <a href={method.link} target="_blank" rel="noreferrer" title={t('auth.credentialsTitle', { name: method.name })}>
                         <Icon name="external" size={10} />
                       </a>
                     )}
@@ -108,19 +110,19 @@ export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, on
                             className="input sm"
                             type={variable.secret ? 'password' : 'text'}
                             value={values[authValueKey(status.agentServerId, method.id, variable.name)] ?? ''}
-                            placeholder={variable.optional ? `${variable.name}, optional` : variable.name}
+                            placeholder={variable.optional ? t('auth.optionalVarPlaceholder', { name: variable.name }) : variable.name}
                             onChange={(event) => updateValue(status, method, variable.name, event.target.value)}
                           />
                         </label>
                       ))}
                       {method.missingVars.length > 0 && (
-                        <div className="agent-auth-missing">Missing {method.missingVars.join(', ')}</div>
+                        <div className="agent-auth-missing">{t('auth.missing', { names: method.missingVars.join(', ') })}</div>
                       )}
                     </div>
                   )}
 
                   {method.type === 'terminal' && !method.terminalEnabled && (
-                    <div className="agent-auth-missing">Terminal auth is disabled for this server.</div>
+                    <div className="agent-auth-missing">{t('auth.terminalDisabled')}</div>
                   )}
 
                   <button
@@ -130,8 +132,8 @@ export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, on
                   >
                     <Icon name={method.type === 'env_var' ? 'check' : 'external'} size={10} />
                     {busy === `${status.agentServerId}:${method.id}`
-                      ? 'Checking auth...'
-                      : method.type === 'env_var' ? 'Save key and auth' : 'Authenticate'}
+                      ? t('auth.checking')
+                      : method.type === 'env_var' ? t('auth.saveAndAuth') : t('auth.authenticate')}
                   </button>
                 </div>
               ))}

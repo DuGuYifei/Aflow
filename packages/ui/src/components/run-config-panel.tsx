@@ -1,4 +1,5 @@
 import type { Variable } from '../types';
+import { useI18n } from '../i18n';
 import { Icon } from './icon';
 
 interface RunConfigPanelProps {
@@ -20,6 +21,7 @@ export function RunConfigPanel({
   onStart,
   busy,
 }: RunConfigPanelProps) {
+  const { t } = useI18n();
   const missingVariables = variables.filter((v) => (values[v.name] ?? v.defaultValue ?? '').trim() === '');
   const canStart = !busy && missingVariables.length === 0;
 
@@ -36,10 +38,10 @@ export function RunConfigPanel({
       <div className="run-modal" onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
         <div className="run-modal-head">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="label"><Icon name="play-circle" size={11} /> Start run</div>
+            <div className="label"><Icon name="play-circle" size={11} /> {t('runConfig.startRun')}</div>
             <h2>{workflowName}</h2>
           </div>
-          <button className="close" onClick={onCancel} title="Close">
+          <button className="close" onClick={onCancel} title={t('common.close')}>
             <Icon name="x" size={14} />
           </button>
         </div>
@@ -48,7 +50,7 @@ export function RunConfigPanel({
           {variables.length > 0 && (
             <>
               <div className="section-title">
-                Run inputs
+                {t('runConfig.runInputs')}
                 <span style={{ color: 'var(--ink-4)', fontWeight: 400, marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>
                   {variables.length}
                 </span>
@@ -61,7 +63,7 @@ export function RunConfigPanel({
                     <div key={v.name} className="run-var-row">
                       <label htmlFor={`run-var-${index}`}>{v.name}</label>
                       {(values[v.name] ?? v.defaultValue ?? '').trim() === '' && (
-                        <span className="run-var-required">Required</span>
+                        <span className="run-var-required">{t('common.required')}</span>
                       )}
                       <div className="run-var-control">
                         <input
@@ -74,7 +76,7 @@ export function RunConfigPanel({
                         {!isDefault && (
                           <button
                             className="btn sm ghost"
-                            title="Reset to default"
+                            title={t('runConfig.resetToDefault')}
                             onClick={() => setValue(v.name, v.defaultValue ?? '')}
                           >
                             <Icon name="rotate" size={10} />
@@ -82,7 +84,7 @@ export function RunConfigPanel({
                         )}
                       </div>
                       {v.description && <div className="hint">{v.description}</div>}
-                      {isDefault && v.defaultValue && <div className="hint mono">default: {v.defaultValue}</div>}
+                      {isDefault && v.defaultValue && <div className="hint mono">{t('runConfig.defaultValue', { value: v.defaultValue })}</div>}
                     </div>
                   );
                 })}
@@ -93,21 +95,21 @@ export function RunConfigPanel({
           {variables.length === 0 && (
             <div className="run-confirm-only">
               <Icon name="play-circle" size={18} />
-              <span>No run inputs for this workflow.</span>
+              <span>{t('runConfig.noInputs')}</span>
             </div>
           )}
         </div>
 
         <div className="run-modal-actions">
-          <button className="btn sm" onClick={onCancel}>Cancel</button>
+          <button className="btn sm" onClick={onCancel}>{t('common.cancel')}</button>
           <button
             className="btn sm primary"
             onClick={onStart}
-            title="Start run (Ctrl+Enter)"
+            title={t('runConfig.startRunHotkey')}
             disabled={!canStart}
           >
             <Icon name="play-circle" size={12} />
-            {busy ? 'Checking agents...' : 'Start run'}
+            {busy ? t('runConfig.checkingAgents') : t('runConfig.startRun')}
           </button>
         </div>
       </div>
