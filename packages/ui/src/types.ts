@@ -68,6 +68,7 @@ export type TimelineEvent =
       chunk: string;
       nodeId?: string;
       agentInvocationId?: string;
+      specflowSessionId?: string;
       stream?: 'stdout' | 'stderr' | 'system';
       localContext?: boolean;
     }
@@ -77,6 +78,7 @@ export type TimelineEvent =
       nodeId?: string;
       agentInvocationId?: string;
       sessionId?: string;
+      specflowSessionId?: string;
       localContext?: boolean;
     }
   | {

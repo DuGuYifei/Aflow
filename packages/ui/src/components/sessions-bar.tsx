@@ -258,7 +258,18 @@ function LogsTab({
     stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).map((n) => n.id),
   );
   const nodeById = new Map(stepNodes.map((n) => [n.id, n]));
-  const visibleEvents = (timelineEvents ?? []).filter((event) => !('nodeId' in event) || !event.nodeId || activeNodeIds.has(event.nodeId));
+  const visibleEvents = (timelineEvents ?? []).filter((event) => {
+    // Events explicitly tagged with this session win.
+    if ('specflowSessionId' in event && event.specflowSessionId) {
+      return event.specflowSessionId === activeSession?.id;
+    }
+    // Events with a nodeId: only show if that node belongs to the active session.
+    if ('nodeId' in event && event.nodeId) {
+      return activeNodeIds.has(event.nodeId);
+    }
+    // Unscoped run-level events (system messages, cancellation, etc) appear in every tab.
+    return true;
+  });
 
   return (
     <div className="sessions-body logs">
