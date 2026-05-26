@@ -58,9 +58,18 @@
 - [ ] MCP系统接入
 - [ ] 无头模式
 - [x] Gate 循环的上限
+- [ ] 从某一个节点继续它的session运行
+- [ ] token计数
+- [ ] 辅助build workflow的agent
+- [ ] 优化workflow的agent
+- [ ] registry选择模型，选择permission
+- [ ] 合并inspect和resume的界面到logs
+- [ ] 个人页面风格骗号等，没有记录
 
 ## Bug
 
 - [ ] fork不实时显示session
 - [ ] variable页签不显示正在运行的已经填过的变量。
 - [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
+- [ ] session似乎在显示时候共享了session
+- [ ] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？
