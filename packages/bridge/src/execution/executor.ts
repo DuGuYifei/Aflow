@@ -67,6 +67,8 @@ export type AgentLifecycleStatusEvent = AgentLifecycleEvent & {
   edgeId?: string;
   agentInvocationId: string;
   agentId: string;
+  /** Specflow session id this invocation belongs to (covers edge-handoff invocations that have no nodeId). */
+  specflowSessionId?: string;
 };
 
 export type AgentSessionUpdateStatusEvent = AgentSessionUpdateEvent & {
@@ -78,6 +80,8 @@ export type AgentSessionUpdateStatusEvent = AgentSessionUpdateEvent & {
   agentId: string;
   agentServerId: string;
   at: string;
+  /** Specflow session id this invocation belongs to (covers edge-handoff invocations that have no nodeId). */
+  specflowSessionId?: string;
 };
 
 export interface WorkflowExecutorOptions {
@@ -727,6 +731,7 @@ export class WorkflowExecutor {
         edgeId: input.invocation.edgeId,
         agentInvocationId: input.invocation.id,
         agentId: input.agentId,
+        specflowSessionId: input.invocation.sessionId,
       }),
       onSessionUpdate: (event) => this.#onAgentSessionUpdate?.({
         ...event,
@@ -738,6 +743,7 @@ export class WorkflowExecutor {
         agentId: input.agentId,
         agentServerId: resolveAgentServerId(agent),
         at: new Date().toISOString(),
+        specflowSessionId: input.invocation.sessionId,
       }),
       onPermissionRequest: async (request) => {
         const agentServerId = resolveAgentServerId(agent);

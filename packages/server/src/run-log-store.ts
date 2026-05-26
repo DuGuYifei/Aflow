@@ -28,8 +28,8 @@ export type RestoreAttemptLogEvent = {
 };
 
 export type RunLogEvent =
-  | ({ type: "terminal" } & TerminalOutputEvent & { nodeId?: string })
-  | ({ type: "session_update" } & AgentSessionUpdateStatusEvent)
+  | ({ type: "terminal" } & TerminalOutputEvent & { nodeId?: string; specflowSessionId?: string })
+  | ({ type: "session_update" } & AgentSessionUpdateStatusEvent & { specflowSessionId?: string })
   | ({ type: "node_status" } & NodeStatusEvent)
   | ({ type: "run_status" } & RunStatusEvent)
   | {

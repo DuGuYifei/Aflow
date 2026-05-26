@@ -574,6 +574,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
                 stream: event.stream,
                 nodeId: event.nodeId,
                 agentInvocationId: event.agentInvocationId,
+                specflowSessionId: event.specflowSessionId,
                 replay: true,
               });
             } else if (event.type === "session_update") {
@@ -762,7 +763,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           const specflowSessionId = te.agentInvocationId
             ? invocationSessionMap.get(te.agentInvocationId)
             : undefined;
-          const event = { type: "terminal" as const, ...te, nodeId: attributedNodeId };
+          const event = { type: "terminal" as const, ...te, nodeId: attributedNodeId, specflowSessionId };
           appendLog(event);
           bus.emit(`${runId}:term`, {
             chunk: te.chunk,
@@ -858,6 +859,13 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         } = event;
         if (agentInvocationId && nodeId) {
           invocationNodeMap.set(agentInvocationId, nodeId);
+        }
+        // Prefer the executor-provided sessionId (covers edge-handoff
+        // invocations which have no nodeId). Fall back to deriving from the
+        // node for older code paths.
+        if (agentInvocationId && event.specflowSessionId) {
+          invocationSessionMap.set(agentInvocationId, event.specflowSessionId);
+        } else if (agentInvocationId && nodeId) {
           const node = agentflow.nodes.find((candidate) => candidate.id === nodeId);
           if (node?.kind === "step" && node.sessionId) {
             invocationSessionMap.set(agentInvocationId, node.sessionId);
@@ -904,7 +912,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
             void saveRun(record, root);
           }
         }
-        const persisted = { type: "session_update" as const, ...event };
+        const specflowSessionId = event.specflowSessionId
+          ?? (event.agentInvocationId ? invocationSessionMap.get(event.agentInvocationId) : undefined);
+        // Persist specflowSessionId in the log too so SSE replay on a later
+        // page load routes events to the correct session tab.
+        const persisted = { type: "session_update" as const, ...event, specflowSessionId };
         appendLog(persisted);
         bus.emit(`${runId}:session-update`, persisted);
       },
