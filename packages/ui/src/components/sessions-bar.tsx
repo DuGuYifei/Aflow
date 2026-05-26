@@ -20,6 +20,11 @@ interface SessionsBarProps {
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
   timelineEvents?: TimelineEvent[];
+  onLoadEarlierLogs?: () => void;
+  canLoadEarlierLogs?: boolean;
+  loadingEarlierLogs?: boolean;
+  historicLogTotal?: number;
+  historicLogLoadedFromIndex?: number;
   onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
   onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => void;
   onDeleteSession: (id: string) => void;
@@ -47,6 +52,7 @@ export function SessionsBar({
   activeSessionId, setActiveSessionId,
   onAssignSession, addSessionPing,
   timelineEvents,
+  onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
   onAddSession, onEditSession, onDeleteSession, onClearLogs,
   variables, onEditVariable,
   agentSessions = [], agentServers = [], runs = [],
@@ -152,6 +158,11 @@ export function SessionsBar({
           setActiveSessionId={setActiveSessionId}
           stepNodes={stepNodes}
           timelineEvents={timelineEvents}
+          onLoadEarlierLogs={onLoadEarlierLogs}
+          canLoadEarlierLogs={canLoadEarlierLogs}
+          loadingEarlierLogs={loadingEarlierLogs}
+          historicLogTotal={historicLogTotal}
+          historicLogLoadedFromIndex={historicLogLoadedFromIndex}
           onDeleteSession={onDeleteSession}
           pausedNode={pausedNode}
           pausedLines={pausedLines}
@@ -201,6 +212,11 @@ interface LogsTabProps {
   setActiveSessionId: (id: string) => void;
   stepNodes: WorkflowNode[];
   timelineEvents?: TimelineEvent[];
+  onLoadEarlierLogs?: () => void;
+  canLoadEarlierLogs?: boolean;
+  loadingEarlierLogs?: boolean;
+  historicLogTotal?: number;
+  historicLogLoadedFromIndex?: number;
   onDeleteSession: (id: string) => void;
   pausedNode?: PausedNodeSession | null;
   pausedLines: ConversationLine[];
@@ -211,6 +227,7 @@ interface LogsTabProps {
 
 function LogsTab({
   sessions, activeSession, setActiveSessionId, stepNodes, timelineEvents, onDeleteSession,
+  onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
   pausedNode, pausedLines, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
 }: LogsTabProps) {
   const [sideW, setSideW] = useState(() => {
@@ -246,12 +263,34 @@ function LogsTab({
   };
 
   const termRef = useRef<HTMLDivElement>(null);
-  const prevLinesLen = useRef(0);
+  const prevLenRef = useRef(0);
+  const prevFirstRef = useRef<TimelineEvent | undefined>(undefined);
+  const prevHeightRef = useRef(0);
   useEffect(() => {
-    if (timelineEvents && timelineEvents.length > prevLinesLen.current && termRef.current) {
-      termRef.current.scrollTop = termRef.current.scrollHeight;
+    const events = timelineEvents ?? [];
+    const el = termRef.current;
+    if (!el) {
+      prevLenRef.current = events.length;
+      prevFirstRef.current = events[0];
+      return;
     }
-    prevLinesLen.current = timelineEvents?.length ?? 0;
+    const prevLen = prevLenRef.current;
+    const prevFirst = prevFirstRef.current;
+    const currFirst = events[0];
+    const grew = events.length > prevLen;
+    const firstChanged = prevLen > 0 && currFirst !== prevFirst;
+    if (grew && firstChanged) {
+      // Prepend (Load earlier): keep the currently-visible content under the
+      // user's eye by compensating scrollTop for the height added at the top.
+      const delta = el.scrollHeight - prevHeightRef.current;
+      el.scrollTop = el.scrollTop + delta;
+    } else if (grew) {
+      // Live append: pin to bottom.
+      el.scrollTop = el.scrollHeight;
+    }
+    prevLenRef.current = events.length;
+    prevFirstRef.current = currFirst;
+    prevHeightRef.current = el.scrollHeight;
   }, [timelineEvents]);
 
   const activeNodeIds = new Set(
@@ -285,6 +324,31 @@ function LogsTab({
           </span>
         </div>
         <div className="term-stream" ref={termRef}>
+          {canLoadEarlierLogs && onLoadEarlierLogs && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: '6px 12px',
+              borderBottom: '1px solid var(--rule-2, #2a2a2a)',
+              fontSize: 10.5,
+              color: 'var(--ink-3)',
+              fontFamily: 'var(--font-mono)',
+            }}>
+              <button
+                className="btn sm"
+                disabled={loadingEarlierLogs}
+                onClick={onLoadEarlierLogs}
+              >
+                <Icon name="chevron-up" size={10} />
+                {loadingEarlierLogs ? 'Loading...' : 'Load earlier'}
+              </button>
+              {typeof historicLogTotal === 'number' && typeof historicLogLoadedFromIndex === 'number' && (
+                <span>{historicLogTotal - historicLogLoadedFromIndex}/{historicLogTotal} events</span>
+              )}
+            </div>
+          )}
           {visibleEvents.length > 0 ? (
             <SessionTimeline events={visibleEvents} nodeById={nodeById} />
           ) : (

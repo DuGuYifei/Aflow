@@ -7,7 +7,7 @@ import {
   createCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
   cancelRun as apiCancelRun,
   fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
-  fetchAgentSession, fetchResumableSession,
+  fetchAgentSession, fetchResumableSession, fetchRunLogsRange,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
   apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
   AgentAuthenticationRequiredError,
@@ -61,6 +61,16 @@ export function App() {
   const runState = useMemo<RunStateMap>(() => ({ ...historicNodeStates, ...liveNodeStates }), [historicNodeStates, liveNodeStates]);
 
   const [logEvents, setLogEvents] = useState<TimelineEvent[]>([]);
+  // Window into the persisted run log for the active run. Used to drive "Load
+  // earlier" pagination. `earliestIndex` is the absolute position (in the
+  // full persisted log) of the first item currently in `logEvents` that came
+  // from history, or `total` if we haven't loaded any historic events yet.
+  const [logHistoryTotal, setLogHistoryTotal] = useState(0);
+  const [logHistoryEarliestIndex, setLogHistoryEarliestIndex] = useState(0);
+  const [logHistoryLoading, setLogHistoryLoading] = useState(false);
+  const LOG_TAIL_INITIAL = 500;
+  const LOG_PAGE_SIZE = 500;
+  const LOG_LIVE_CAP = 5000;
   const [agentSessions, setAgentSessions] = useState<AgentSessionRecord[]>([]);
   const [agentServers, setAgentServers] = useState<AgentServerEntry[]>([]);
   const [restoreStatusBySession, setRestoreStatusBySession] = useState<Record<string, string>>({});
@@ -563,7 +573,7 @@ export function App() {
     });
   }, []);
 
-  const attachToRun = useCallback((runId: string) => {
+  const attachToRun = useCallback((runId: string, options: { replay?: boolean } = {}) => {
     if (subscribedRunIdRef.current === runId && runUnsubscribeRef.current) return;
     runUnsubscribeRef.current?.();
     subscribedRunIdRef.current = runId;
@@ -597,7 +607,7 @@ export function App() {
             if (last && last.type === 'gate-decision' && last.nodeId === ev.nodeId && last.branchId === decision.branchId) {
               return prev;
             }
-            return [...prev.slice(-500), {
+            return [...prev.slice(-LOG_LIVE_CAP), {
               type: 'gate-decision',
               nodeId: ev.nodeId,
               branchId: decision.branchId,
@@ -619,10 +629,10 @@ export function App() {
         }
       } else if (type === 'terminal') {
         const ev = data as Extract<TimelineEvent, { type: 'terminal' }> & { specflowSessionId?: string };
-        setLogEvents((prev) => [...prev.slice(-500), { ...ev, type: 'terminal' }]);
+        setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { ...ev, type: 'terminal' }]);
       } else if (type === 'session-update') {
         const ev = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string; specflowSessionId?: string };
-        setLogEvents((prev) => [...prev.slice(-500), { ...ev, type: 'session-update' }]);
+        setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { ...ev, type: 'session-update' }]);
       } else if (type === 'interaction-requested') {
         onRunInteractionEvent(data as RunInteraction);
       } else if (type === 'run-status') {
@@ -658,11 +668,12 @@ export function App() {
     setActiveRunId(id);
     setLiveNodeStates({});
     setLogEvents([]);
+    setLogHistoryTotal(0);
+    setLogHistoryEarliestIndex(0);
     setPendingInteractions([]);
     fetchRun(id).then((rec) => {
       const uiRun = apiRunToUiRun(rec);
       setHistoricNodeStates(uiRun.nodeStates ?? {});
-      // Hydrate the active run with its snapshot for read-only display.
       setRuns((prev) => prev.map((r) =>
         r.id === id ? { ...r, canvasSnapshot: uiRun.canvasSnapshot, nodeStates: uiRun.nodeStates, nodeOutputs: uiRun.nodeOutputs } : r,
       ));
@@ -675,10 +686,38 @@ export function App() {
         setBarExpanded(true);
       }
     }).catch(console.error);
-    // Subscribe: server replays historical log events + pending interactions on connect,
-    // then closes the stream immediately if the run is already terminated.
-    attachToRun(id);
+    // Load the most recent slice of historical events in one shot (cheap on
+    // the client), then connect SSE with replay=false so we only get live
+    // updates. This avoids flooding the UI with 70k+ session_update events
+    // on long runs.
+    fetchRunLogsRange(id, { tail: LOG_TAIL_INITIAL }).then((page) => {
+      setLogEvents(apiRunLogsToTimelineEvents(page.events));
+      setLogHistoryTotal(page.total);
+      setLogHistoryEarliestIndex(page.startIndex);
+    }).catch(console.error);
+    attachToRun(id, { replay: false });
   }, [attachToRun]);
+
+  const onLoadEarlierLogs = useCallback(async () => {
+    if (!activeRunId || logHistoryLoading || logHistoryEarliestIndex <= 0) return;
+    setLogHistoryLoading(true);
+    try {
+      const from = Math.max(0, logHistoryEarliestIndex - LOG_PAGE_SIZE);
+      const page = await fetchRunLogsRange(activeRunId, { from, to: logHistoryEarliestIndex });
+      if (page.events.length === 0) {
+        setLogHistoryEarliestIndex(0);
+        return;
+      }
+      const olderEvents = apiRunLogsToTimelineEvents(page.events);
+      setLogEvents((prev) => [...olderEvents, ...prev]);
+      setLogHistoryEarliestIndex(page.startIndex);
+      setLogHistoryTotal(page.total);
+    } catch (err) {
+      console.error('Failed to load earlier logs', err);
+    } finally {
+      setLogHistoryLoading(false);
+    }
+  }, [activeRunId, logHistoryEarliestIndex, logHistoryLoading]);
 
   const onExitRunView = useCallback(() => {
     runUnsubscribeRef.current?.();
@@ -832,7 +871,7 @@ export function App() {
       setRuns((prev) => prev.map((r) =>
         r.id === id ? { ...r, status: 'cancelled' } : r,
       ));
-      setLogEvents((prev) => [...prev.slice(-500), { type: 'terminal', chunk: 'Run cancellation requested.\n', stream: 'system' }]);
+      setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: 'Run cancellation requested.\n', stream: 'system' }]);
     } catch (err) {
       console.error('Failed to cancel run', err);
     }
@@ -1229,6 +1268,11 @@ export function App() {
           onAssignSession={onChangeSession}
           addSessionPing={addSessionPing}
           timelineEvents={logEvents}
+          onLoadEarlierLogs={onLoadEarlierLogs}
+          canLoadEarlierLogs={logHistoryEarliestIndex > 0}
+          loadingEarlierLogs={logHistoryLoading}
+          historicLogTotal={logHistoryTotal}
+          historicLogLoadedFromIndex={logHistoryEarliestIndex}
           onAddSession={onAddSession}
           onEditSession={onEditSession}
           onDeleteSession={onDeleteSession}

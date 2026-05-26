@@ -19,7 +19,7 @@ import {
   recordAgentSessionRestoreAttempt,
   upsertAgentSessionsFromRun,
 } from "./agent-session-store";
-import { appendRunLogEvent, deleteRunLog, listRunLogEvents } from "./run-log-store";
+import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./run-log-store";
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
 import type { CanvasSession } from "./canvas-doc";
@@ -289,6 +289,54 @@ interface LifecyclePayload {
   [key: string]: unknown;
 }
 
+async function reconstructInvocationsFromRunLog(root: string, record: RunRecord): Promise<RunRecord["agentInvocations"]> {
+  const events = await listRunLogEvents(root, record.id);
+  const byInvocationId = new Map<string, RunRecord["agentInvocations"][number]>();
+  for (const event of events) {
+    if (event.type === "agent_lifecycle") {
+      const lifecycle = (event.lifecycle ?? {}) as { type?: string; at?: string; sessionId?: string; parentSessionId?: string; error?: string };
+      if (!event.agentInvocationId) continue;
+      let existing = byInvocationId.get(event.agentInvocationId);
+      if (!existing) {
+        existing = {
+          id: event.agentInvocationId,
+          runId: event.runId,
+          nodeRunId: event.nodeRunId,
+          nodeId: event.nodeId,
+          edgeId: event.edgeId,
+          agentId: event.agentId,
+          agentServerId: event.agentServerId,
+          prompt: "",
+          status: "running",
+          startedAt: lifecycle.at ?? record.startedAt,
+        };
+        byInvocationId.set(event.agentInvocationId, existing);
+      }
+      if (lifecycle.sessionId && !existing.acpSessionId) existing.acpSessionId = lifecycle.sessionId;
+      if (lifecycle.parentSessionId && !existing.parentSessionId) existing.parentSessionId = lifecycle.parentSessionId;
+      if (lifecycle.type === "session_closed" || lifecycle.type === "prompt_stopped") {
+        if (existing.status === "running") existing.status = "done";
+        if (!existing.completedAt) existing.completedAt = lifecycle.at ?? new Date().toISOString();
+      }
+      if (lifecycle.type === "prompt_failed") {
+        existing.status = "failed";
+        existing.completedAt = lifecycle.at ?? new Date().toISOString();
+        if (lifecycle.error) existing.error = lifecycle.error;
+      }
+    } else if (event.type === "session_update") {
+      // session_update fires per agent chunk and carries both agentInvocationId
+      // and the ACP sessionId. Invocations that REUSE an existing ACP session
+      // (no fresh `session_created` of their own) only get their acpSessionId
+      // populated this way.
+      const evt = event as { agentInvocationId?: string; sessionId?: string; agentServerId?: string };
+      if (!evt.agentInvocationId || !evt.sessionId) continue;
+      const existing = byInvocationId.get(evt.agentInvocationId);
+      if (existing && !existing.acpSessionId) existing.acpSessionId = evt.sessionId;
+    }
+  }
+  return [...byInvocationId.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
 function pickResumableInvocation(record: RunRecord): RunRecord["agentInvocations"][number] | undefined {
   if (!record.agentInvocations?.length) return undefined;
   const sortByStartDesc = [...record.agentInvocations].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -466,7 +514,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     });
   }
 
-  function sseResponse(runId: string): Response {
+  function sseResponse(runId: string, options: { replay: boolean } = { replay: true }): Response {
     const encoder = new TextEncoder();
     let cleanup = () => {};
 
@@ -485,25 +533,30 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           // Run may not exist yet; subscribe optimistically.
         }
 
-        for (const event of await listRunLogEvents(root, runId)) {
-          if (event.type === "terminal") {
-            enqueue("terminal", {
-              chunk: event.chunk,
-              stream: event.stream,
-              nodeId: event.nodeId,
-              agentInvocationId: event.agentInvocationId,
-              replay: true,
-            });
-          } else if (event.type === "session_update") {
-            enqueue("session-update", { ...event, replay: true });
-          } else if (event.type === "node_status") {
-            enqueue("node-status", {
-              nodeId: event.nodeId,
-              status: event.status === "done" ? "success" : event.status,
-              runId,
-              ...(event.gateDecision ? { gateDecision: event.gateDecision, gateBranches: event.gateBranches } : {}),
-              replay: true,
-            });
+        // Skip replay when the caller already loaded history in bulk via /logs.
+        // Replaying 70k+ session_update events through SSE one-by-one floods
+        // the client; batch load is O(1) on the React side.
+        if (options.replay) {
+          for (const event of await listRunLogEvents(root, runId)) {
+            if (event.type === "terminal") {
+              enqueue("terminal", {
+                chunk: event.chunk,
+                stream: event.stream,
+                nodeId: event.nodeId,
+                agentInvocationId: event.agentInvocationId,
+                replay: true,
+              });
+            } else if (event.type === "session_update") {
+              enqueue("session-update", { ...event, replay: true });
+            } else if (event.type === "node_status") {
+              enqueue("node-status", {
+                nodeId: event.nodeId,
+                status: event.status === "done" ? "success" : event.status,
+                runId,
+                ...(event.gateDecision ? { gateDecision: event.gateDecision, gateBranches: event.gateBranches } : {}),
+                replay: true,
+              });
+            }
           }
         }
 
@@ -794,6 +847,16 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       onAgentSessionUpdate: (event) => {
         if (event.agentInvocationId && event.nodeId) {
           invocationNodeMap.set(event.agentInvocationId, event.nodeId);
+        }
+        // Catch invocations that REUSE an ACP session (no fresh session_created
+        // event of their own) — their acpSessionId only shows up on session_update.
+        // Seed once per invocation to avoid saving on every chunk.
+        if (event.agentInvocationId && event.sessionId) {
+          const inv = record.agentInvocations.find((candidate) => candidate.id === event.agentInvocationId);
+          if (inv && !inv.acpSessionId) {
+            inv.acpSessionId = event.sessionId;
+            void saveRun(record, root);
+          }
         }
         const persisted = { type: "session_update" as const, ...event };
         appendLog(persisted);
@@ -1324,8 +1387,23 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     // GET /api/runs/:id/logs
+    // No query → full array (back-compat). With ?tail=N or ?from=X&to=Y →
+    // paginated `{ events, total, startIndex }` for lazy load.
     const runLogsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/logs$/);
     if (runLogsMatch && request.method === "GET") {
+      const tailParam = url.searchParams.get("tail");
+      const fromParam = url.searchParams.get("from");
+      const toParam = url.searchParams.get("to");
+      if (tailParam || fromParam || toParam) {
+        const tail = tailParam ? Number.parseInt(tailParam, 10) : undefined;
+        const from = fromParam ? Number.parseInt(fromParam, 10) : undefined;
+        const to = toParam ? Number.parseInt(toParam, 10) : undefined;
+        return Response.json(await listRunLogEventsRange(root, runLogsMatch[1], {
+          ...(Number.isFinite(tail) ? { tail } : {}),
+          ...(Number.isFinite(from) ? { from } : {}),
+          ...(Number.isFinite(to) ? { to } : {}),
+        }));
+      }
       return Response.json(await listRunLogEvents(root, runLogsMatch[1]));
     }
 
@@ -1499,6 +1577,37 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       const id = resumableMatch[1];
       try {
         const record = await loadRun(id, root);
+        // Pre-fix runs that crashed mid-flight never persisted their invocations,
+        // and invocations that reused an existing ACP session may have been
+        // written without an acpSessionId. Either case: rebuild from the log
+        // and merge missing fields back into the record.
+        const empty = !record.agentInvocations?.length;
+        const needsEnrichment = !empty && record.agentInvocations.some((inv) => !inv.acpSessionId);
+        if (empty || needsEnrichment) {
+          const reconstructed = await reconstructInvocationsFromRunLog(root, record);
+          if (reconstructed.length > 0) {
+            if (empty) {
+              record.agentInvocations = reconstructed;
+            } else {
+              const byId = new Map(record.agentInvocations.map((inv) => [inv.id, inv]));
+              for (const inv of reconstructed) {
+                const existing = byId.get(inv.id);
+                if (!existing) {
+                  record.agentInvocations.push(inv);
+                  continue;
+                }
+                if (!existing.acpSessionId && inv.acpSessionId) existing.acpSessionId = inv.acpSessionId;
+                if (!existing.parentSessionId && inv.parentSessionId) existing.parentSessionId = inv.parentSessionId;
+                if (existing.status === "running" && (inv.status === "done" || inv.status === "failed")) {
+                  existing.status = inv.status;
+                  if (!existing.completedAt && inv.completedAt) existing.completedAt = inv.completedAt;
+                }
+              }
+            }
+            await saveRun(record, root);
+            await upsertAgentSessionsFromRun(record, root);
+          }
+        }
         const suggested = pickResumableInvocation(record);
         if (!suggested) {
           return Response.json({ error: "No resumable agent session found for this run" }, { status: 404 });
@@ -1560,7 +1669,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     // GET /api/runs/:id/events  (SSE)
     const eventsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/events$/);
     if (eventsMatch && request.method === "GET") {
-      return sseResponse(eventsMatch[1]);
+      const replay = url.searchParams.get("replay") !== "false";
+      return sseResponse(eventsMatch[1], { replay });
     }
 
     return null; // not handled

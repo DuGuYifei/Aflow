@@ -79,6 +79,39 @@ export async function listRunLogEvents(root: string, runId: string): Promise<Run
   return events;
 }
 
+export interface RunLogEventPage {
+  events: RunLogEvent[];
+  total: number;
+  /** Index of the first event in `events` within the full log (0-based). */
+  startIndex: number;
+}
+
+/**
+ * Range-query the run log. Supports tail-loading and pagination by index.
+ * Lazy-load entry point: client first asks for `tail`, then for ranges with
+ * `to` set to whatever index it already has.
+ *
+ * Reads the whole file in one shot; for the 40MB / 74k-event runs we have so
+ * far this is around 100ms, while reading via SSE-per-event would block the
+ * UI for many seconds.
+ */
+export async function listRunLogEventsRange(
+  root: string,
+  runId: string,
+  options: { from?: number; to?: number; tail?: number } = {},
+): Promise<RunLogEventPage> {
+  const all = await listRunLogEvents(root, runId);
+  const total = all.length;
+  if (typeof options.tail === "number" && options.tail > 0) {
+    const startIndex = Math.max(0, total - options.tail);
+    return { events: all.slice(startIndex), total, startIndex };
+  }
+  const from = Math.max(0, options.from ?? 0);
+  const to = Math.min(total, options.to ?? total);
+  if (to <= from) return { events: [], total, startIndex: from };
+  return { events: all.slice(from, to), total, startIndex: from };
+}
+
 export async function deleteRunLog(root: string, runId: string): Promise<void> {
   await rm(runLogPath(root, runId), { force: true });
 }

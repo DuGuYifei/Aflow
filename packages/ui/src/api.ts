@@ -397,6 +397,25 @@ export async function fetchRun(id: string): Promise<ApiRunRecord> {
   return res.json();
 }
 
+export interface RunLogPage {
+  events: ApiRunLogEvent[];
+  total: number;
+  startIndex: number;
+}
+
+export async function fetchRunLogsRange(
+  id: string,
+  opts: { tail?: number; from?: number; to?: number },
+): Promise<RunLogPage> {
+  const params = new URLSearchParams();
+  if (typeof opts.tail === 'number') params.set('tail', String(opts.tail));
+  if (typeof opts.from === 'number') params.set('from', String(opts.from));
+  if (typeof opts.to === 'number') params.set('to', String(opts.to));
+  const res = await fetch(`/api/runs/${id}/logs?${params.toString()}`);
+  if (!res.ok) throw new Error(`Run logs ${id} not found`);
+  return res.json();
+}
+
 export async function fetchRunLogs(id: string): Promise<ApiRunLogEvent[]> {
   const res = await fetch(`/api/runs/${id}/logs`);
   if (!res.ok) throw new Error(`Run logs ${id} not found`);
@@ -575,8 +594,10 @@ export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-updat
 export function subscribeToRun(
   runId: string,
   onEvent: (type: SseEventType, data: unknown) => void,
+  options: { replay?: boolean } = {},
 ): () => void {
-  const source = new EventSource(`/api/runs/${runId}/events`);
+  const query = options.replay === false ? "?replay=false" : "";
+  const source = new EventSource(`/api/runs/${runId}/events${query}`);
 
   const handle = (type: SseEventType) => (e: MessageEvent) => {
     try {
