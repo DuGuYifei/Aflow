@@ -1612,6 +1612,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
                 }
                 if (!existing.acpSessionId && inv.acpSessionId) existing.acpSessionId = inv.acpSessionId;
                 if (!existing.parentSessionId && inv.parentSessionId) existing.parentSessionId = inv.parentSessionId;
+                // Older invocation rows could be saved without agentServerId/agentId
+                // (e.g. legacy code paths). buildAgentSessionsForRun silently drops
+                // invocations missing those fields, so backfill from the log too.
+                if (!existing.agentServerId && inv.agentServerId) existing.agentServerId = inv.agentServerId;
+                if (!existing.agentId && inv.agentId) existing.agentId = inv.agentId;
                 if (existing.status === "running" && (inv.status === "done" || inv.status === "failed")) {
                   existing.status = inv.status;
                   if (!existing.completedAt && inv.completedAt) existing.completedAt = inv.completedAt;
