@@ -19,6 +19,8 @@
   --err-soft: oklch(0.94 0.05 25);
   --running: oklch(0.55 0.12 200);
   --running-soft: oklch(0.94 0.05 200);
+  --brand-mark-bg: #0b0f0c;
+  --brand-mark-border: #232a25;
 
   --radius-sm: 6px;
   --radius: 10px;
@@ -89,12 +91,15 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   font-size: 14px;
 }
 .brand-mark {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  object-fit: cover;
+  width: 28px;
+  height: 28px;
+  background: var(--brand-mark-bg);
+  border: 1px solid var(--brand-mark-border);
+  border-radius: 7px;
+  object-fit: contain;
+  padding: 3px;
   display: block;
-  box-shadow: var(--shadow-sm);
+  flex: 0 0 auto;
 }
 
 .crumbs { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 12px; }

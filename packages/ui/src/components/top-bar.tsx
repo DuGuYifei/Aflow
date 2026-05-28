@@ -36,7 +36,7 @@ export function TopBar({
   return (
     <div className="topbar">
       <div className="brand">
-        <img className="brand-mark" src="/aflow.png" alt="Aflow" />
+        <img className="brand-mark" src="/favicon.svg" alt="Aflow" />
         <span>Aflow</span>
       </div>
       <div className="crumbs">

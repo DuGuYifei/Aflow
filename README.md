@@ -73,22 +73,3 @@ bun run dev        # start server + Vite dev proxy
 bun run build      # build:ui then build:bin → ./specflow binary
 bun run typecheck  # type-check all packages
 ```
-
-## Package Layout
-
-```text
-packages/
-  agent-proxy/  Adapter boundary for agent CLIs such as Codex or Claude Code.
-  bridge/       Orchestration layer shared by server and future headless modes.
-  cli/          The specflow command entrypoint.
-  server/       HTTP entrypoint that serves UI and calls bridge.
-  shared/       Shared constants and types.
-  ui/           Browser UI, Vite config, index.html, and favicon assets.
-  workflow/     Workflow business logic, including graph node and edge models.
-```
-
-## Architecture Decisions
-
-- [ADR-001: Monorepo package boundaries](docs/decisions/001-monorepo-package-boundaries.md)
-- [ADR-002: UI assets embedded in the compiled binary](docs/decisions/002-ui-embedded-in-binary.md)
-- [ADR-003: ACP connection and workflow session management](docs/decisions/003-acp-session-management.md)
