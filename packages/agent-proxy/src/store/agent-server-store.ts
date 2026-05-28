@@ -1,6 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type {
+  AgentAvailableCommand,
+  AgentServerCapabilitiesCache,
   AgentServerConfigFile,
   AgentServerCommand,
   AgentServerEntry,
@@ -18,19 +20,34 @@ export interface AgentServerStoreOptions {
   cacheDir?: string;
 }
 
+interface CapabilitiesCacheFile {
+  capabilities?: Record<AgentServerId, AgentServerCapabilitiesCache>;
+}
+
 export class AgentServerStore {
   readonly #root: string;
   readonly #cacheDir: string;
+  readonly #capabilitiesFile: string;
   #settings: Map<AgentServerId, AgentServerSettings> | undefined;
+  #capabilities: Map<AgentServerId, AgentServerCapabilitiesCache> | undefined;
 
   constructor(options: AgentServerStoreOptions) {
     this.#root = options.root;
     this.#cacheDir = options.cacheDir ?? process.env.SPECFLOW_AGENT_CACHE_DIR ?? join(options.root, ".specflow", "cache", "agents");
+    this.#capabilitiesFile = join(this.#cacheDir, "capabilities.json");
   }
 
   async listAgentServers(): Promise<AgentServerEntry[]> {
     await this.#load();
-    return [...this.#settings!.entries()].map(([id, settings]) => ({ id, settings }));
+    await this.#loadCapabilities();
+    return [...this.#settings!.entries()].map(([id, settings]) => {
+      const entry: AgentServerEntry = { id, settings };
+      const cached = this.#capabilities!.get(id);
+      if (cached && capabilityCacheStillValid(cached, settings)) {
+        entry.capabilities = cached;
+      }
+      return entry;
+    });
   }
 
   async resolve(agentServerId: AgentServerId): Promise<ResolvedAgentServer> {
@@ -39,6 +56,53 @@ export class AgentServerStore {
     if (!settings) throw new Error(`Unknown agent server: ${agentServerId}`);
     const command = await resolveCommand(settings, this.#cacheDir);
     return { id: agentServerId, source: settings.type, settings, command };
+  }
+
+  /**
+   * Look up cached capabilities for an agent server. Returns undefined when
+   * either no probe has run yet, or the cached probe pre-dates the current
+   * installedVersion. Stale entries are not auto-removed here — call
+   * `clearCapabilities` if you want them gone from disk.
+   */
+  async getCapabilities(agentServerId: AgentServerId): Promise<AgentServerCapabilitiesCache | undefined> {
+    await this.#load();
+    await this.#loadCapabilities();
+    const settings = this.#settings!.get(agentServerId);
+    if (!settings) return undefined;
+    const cached = this.#capabilities!.get(agentServerId);
+    if (!cached) return undefined;
+    if (!capabilityCacheStillValid(cached, settings)) return undefined;
+    return cached;
+  }
+
+  /**
+   * Persist a freshly probed capability snapshot. Overwrites any prior
+   * entry for the same agent server. Auto-stamps installedVersion from
+   * the resolved settings so invalidation works on the next read.
+   */
+  async setCapabilities(agentServerId: AgentServerId, snapshot: Omit<AgentServerCapabilitiesCache, "installedVersion" | "probedAt"> & {
+    probedAt?: string;
+  }): Promise<void> {
+    await this.#load();
+    await this.#loadCapabilities();
+    const settings = this.#settings!.get(agentServerId);
+    const installedVersion = installedVersionOf(settings);
+    const entry: AgentServerCapabilitiesCache = {
+      probedAt: snapshot.probedAt ?? new Date().toISOString(),
+      installedVersion,
+      agentCapabilities: snapshot.agentCapabilities,
+      modes: snapshot.modes,
+      configOptions: snapshot.configOptions,
+      availableCommands: snapshot.availableCommands,
+    };
+    this.#capabilities!.set(agentServerId, entry);
+    await this.#writeCapabilities();
+  }
+
+  async clearCapabilities(agentServerId: AgentServerId): Promise<void> {
+    await this.#loadCapabilities();
+    if (!this.#capabilities!.delete(agentServerId)) return;
+    await this.#writeCapabilities();
   }
 
   async #load(): Promise<void> {
@@ -50,6 +114,47 @@ export class AgentServerStore {
       ...Object.entries(local.agentServers ?? local.agent_servers ?? {}),
     ].map(([id, settings]) => [id, applySupportedRegistryAgentDefaults(settings)]));
   }
+
+  async #loadCapabilities(): Promise<void> {
+    if (this.#capabilities) return;
+    this.#capabilities = new Map();
+    try {
+      const raw = await readFile(this.#capabilitiesFile, "utf8");
+      const parsed = JSON.parse(raw) as CapabilitiesCacheFile;
+      for (const [id, entry] of Object.entries(parsed.capabilities ?? {})) {
+        if (!entry || typeof entry !== "object") continue;
+        // Trust on-disk shape; this file is owned by the proxy and isn't user-edited.
+        this.#capabilities.set(id, entry);
+      }
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return;
+      throw error;
+    }
+  }
+
+  async #writeCapabilities(): Promise<void> {
+    const payload: CapabilitiesCacheFile = {
+      capabilities: Object.fromEntries(this.#capabilities!.entries()),
+    };
+    await mkdir(dirname(this.#capabilitiesFile), { recursive: true });
+    await writeFile(this.#capabilitiesFile, JSON.stringify(payload, null, 2));
+  }
+}
+
+function capabilityCacheStillValid(
+  cached: AgentServerCapabilitiesCache,
+  settings: AgentServerSettings,
+): boolean {
+  const current = installedVersionOf(settings);
+  // Both undefined (custom/headless agents that don't pin a version) →
+  // treat as still valid; user must hit refresh after changing command/env.
+  return cached.installedVersion === current;
+}
+
+function installedVersionOf(settings: AgentServerSettings | undefined): string | undefined {
+  if (!settings) return undefined;
+  if (settings.type === "registry") return settings.installedVersion;
+  return undefined;
 }
 
 async function resolveCommand(settings: AgentServerSettings, cacheDir: string): Promise<AgentServerCommand> {
@@ -174,3 +279,6 @@ type HeadlessRawSettings = Extract<AgentServerSettings, { type: "headless" }> & 
   args_template?: string[];
   timeout_ms?: number;
 } & CommonRawSettings;
+
+// Re-export for backwards-compat in case downstream code referenced via deep import.
+export type { AgentAvailableCommand, AgentServerCapabilitiesCache };

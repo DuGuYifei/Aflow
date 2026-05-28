@@ -11,6 +11,7 @@ import type {
 import {
   authenticateAcpAgent,
   inspectAcpAgentAuthentication,
+  probeAcpAgentCapabilities,
   restoreAcpAgentSession,
   AcpRestoredConversation,
   runAcpAgent,
@@ -23,6 +24,7 @@ export type AgentCommandRequest = AgentRunRequest;
 export type AgentCommandResult = AgentRunResult;
 export type { AgentRestoreRequest, AgentRestoreResult, AgentRunRequest, AgentRunResult };
 export type {
+  AgentAvailableCommand,
   AgentConversation,
   AgentConversationPromptResult,
   AgentPermissionRequest,
@@ -30,6 +32,7 @@ export type {
   AgentRestoreMode,
   AgentRestorePrimitive,
   AgentLifecycleEvent,
+  AgentServerCapabilitiesCache,
   AgentServerCommand,
   AgentServerConfigFile,
   AgentServerSettings,
@@ -38,6 +41,7 @@ export type {
   AgentTerminalStream,
 } from "./types";
 export { AgentServerStore };
+export { probeAcpAgentCapabilities };
 
 export async function runAgentCommand(request: AgentRunRequest): Promise<AgentRunResult> {
   const store = new AgentServerStore({ root: request.cwd });
@@ -45,7 +49,9 @@ export async function runAgentCommand(request: AgentRunRequest): Promise<AgentRu
   if (resolved.source === "headless") {
     return runHeadlessAgent(resolved, request);
   }
-  return runAcpAgent(resolved, withPolicyDirectories(resolved, request));
+  return runAcpAgent(resolved, withPolicyDirectories(resolved, request), {
+    onCapabilities: (probe) => store.setCapabilities(request.agentServerId, probe),
+  });
 }
 
 export async function restoreAgentSession(request: AgentRestoreRequest): Promise<AgentRestoreResult> {

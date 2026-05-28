@@ -476,6 +476,17 @@ export function App() {
     scheduleSave();
   }, [scheduleSave]);
 
+  const onUpdateSessionMcpServers = useCallback((id: string, mcpServers: string | undefined) => {
+    setSessions((ss) => {
+      const updated = ss.map((session) =>
+        session.id === id ? { ...session, mcpServers: mcpServers || undefined } : session,
+      );
+      sessionsRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+  }, [scheduleSave]);
+
   const onEditSession = useCallback((id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => {
     const nextId = patch.name?.trim() ?? id;
     if (!isSymbolKey(nextId) || sessionsRef.current.some((session) => session.id === nextId && session.id !== id)) {
@@ -1249,6 +1260,9 @@ export function App() {
           onClose={onClearSelection}
           onEditNode={onEditNode}
           onChangeSession={onChangeSession}
+          onEditSession={(id, patch) => {
+            if ('mcpServers' in patch) onUpdateSessionMcpServers(id, patch.mcpServers ?? undefined);
+          }}
           onAddSessionRequest={onAddSessionRequest}
           onAddBranch={onAddBranch}
           onEditBranch={onEditBranch}

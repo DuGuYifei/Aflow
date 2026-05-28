@@ -1,8 +1,10 @@
+import { AgentServerStore, probeAcpAgentCapabilities } from "@specflow/agent-proxy";
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
 import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
 import { supportedRegistryAgentProfile } from "@specflow/bridge";
 import { uuidv7 } from "@specflow/shared";
+import { SkillStore } from "./skills";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import {
   listCanvases,
@@ -1275,6 +1277,65 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     if (agentServerMatch && request.method === "DELETE") {
       await removeLocalAgentServer(root, decodeURIComponent(agentServerMatch[1]));
       return Response.json(redactAgentServerEntries(await listAgentServerEntries(bridge, root)));
+    }
+
+    // GET /api/agent-servers/:id/capabilities
+    // Returns the cached InitializeResponse.agentCapabilities + first session's
+    // modes / configOptions / availableCommands snapshot. 404 means no probe yet
+    // — the UI should fall back to a generic editor and offer the refresh button.
+    const agentServerCapabilitiesMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)\/capabilities$/);
+    if (agentServerCapabilitiesMatch && request.method === "GET") {
+      const id = decodeURIComponent(agentServerCapabilitiesMatch[1]);
+      const cached = await new AgentServerStore({ root }).getCapabilities(id);
+      if (!cached) return Response.json({ error: "No capability snapshot cached for this agent." }, { status: 404 });
+      return Response.json(cached);
+    }
+
+    // POST /api/agent-servers/:id/capabilities/refresh
+    // Spawns a throwaway ACP session purely to refresh the cache. Used when
+    // the user knows their settings changed without an installedVersion bump
+    // (env vars / args / etc.) and wants the UI to see new modes immediately.
+    const agentServerCapabilitiesRefreshMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)\/capabilities\/refresh$/);
+    if (agentServerCapabilitiesRefreshMatch && request.method === "POST") {
+      const id = decodeURIComponent(agentServerCapabilitiesRefreshMatch[1]);
+      const store = new AgentServerStore({ root });
+      try {
+        const resolved = await store.resolve(id);
+        if (resolved.source === "headless") {
+          return Response.json({ error: "Headless agent runtimes do not advertise ACP capabilities." }, { status: 409 });
+        }
+        const probe = await probeAcpAgentCapabilities({ resolved, cwd: root });
+        await store.setCapabilities(id, probe);
+        const refreshed = await store.getCapabilities(id);
+        return Response.json(refreshed ?? probe);
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+    }
+
+    // GET /api/skills
+    // Lists every skill the user has authored under `~/.agents/skills/` or
+    // `<workspace>/.agents/skills/`. Powers the UI slash-command popup. Body
+    // payloads are omitted from this listing — they ship with the prompt
+    // when the executor injects them, not over a separate fetch.
+    if (request.method === "GET" && pathname === "/api/skills") {
+      const all = await new SkillStore({ root }).list();
+      // Dedupe for display: list() returns both scopes, but the popup only
+      // needs the winning skill per name. list() is sorted projectLocal-first
+      // within a name group, so the first occurrence is the winner.
+      const seen = new Set<string>();
+      const skills = all.filter((skill) => {
+        if (seen.has(skill.name)) return false;
+        seen.add(skill.name);
+        return true;
+      });
+      return Response.json(skills.map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        source: skill.source,
+        filePath: skill.filePath,
+        bodyPreview: skill.body.slice(0, 200),
+      })));
     }
 
     // GET /api/canvases

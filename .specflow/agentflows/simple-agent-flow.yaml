@@ -36,7 +36,5 @@ edges:
     to: n1
   - from: n1
     to: n2
-    transmit: true
-    outputTag: test
   - from: n2
     to: end1

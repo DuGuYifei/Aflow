@@ -15,7 +15,13 @@ import {
   type AgentTerminalEvent,
   type RegistryIndex,
 } from "@specflow/agent-proxy";
-import { RunInteractionStore, RunPauseStore, TerminalEventStore, WorkflowExecutor } from "./execution";
+import {
+  RunInteractionStore,
+  RunPauseStore,
+  TerminalEventStore,
+  WorkflowExecutor,
+  type PromptTransformer,
+} from "./execution";
 import { createBridgeRuntime, type BridgeRuntime } from "./runtime";
 import { SessionRegistry } from "./sessions";
 
@@ -60,11 +66,25 @@ export interface SpecflowBridge {
   listAgentRegistry(root: string): Promise<RegistryIndex>;
 }
 
-export function createSpecflowBridge(): SpecflowBridge {
+export interface CreateSpecflowBridgeOptions {
+  /**
+   * Per-prompt transformer (used by the server to apply slash-command /
+   * skill body injection). Receives the rendered prompt and the agent
+   * server id, returns the text to actually send.
+   */
+  promptTransformer?: PromptTransformer;
+}
+
+export function createSpecflowBridge(options: CreateSpecflowBridgeOptions = {}): SpecflowBridge {
   const terminalEvents = new TerminalEventStore();
   const interactions = new RunInteractionStore();
   const pauses = new RunPauseStore();
-  const executor = new WorkflowExecutor({ terminalEvents, interactions, pauses });
+  const executor = new WorkflowExecutor({
+    terminalEvents,
+    interactions,
+    pauses,
+    promptTransformer: options.promptTransformer,
+  });
 
   return {
     runtime: createBridgeRuntime(),

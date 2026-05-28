@@ -48,6 +48,7 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
     name: session.name,
     agentId: agentIdForServer(agentServerIdForSession(session)),
     createdAt: new Date().toISOString(),
+    ...(session.mcpServers && session.mcpServers.trim() ? { mcpServers: session.mcpServers } : {}),
   }));
 
   const nodes: Workflow["nodes"] = doc.nodes
@@ -67,6 +68,9 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
           description: branch.description,
           maxTraversals: doc.edges.find((edge) => edge.from === node.id && edge.branch === branch.id)?.maxTraversals ?? 1,
         })),
+        ...(node.configOptions && Object.keys(node.configOptions).length > 0
+          ? { configOptions: node.configOptions }
+          : {}),
       } satisfies GateNode;
     });
 
@@ -102,6 +106,10 @@ function buildAgentNode(node: AgentFlowStepNode, doc: AgentFlowDoc): AgentNode {
       kind: "file",
       path,
     })),
+    ...(node.modeId ? { modeId: node.modeId } : {}),
+    ...(node.configOptions && Object.keys(node.configOptions).length > 0
+      ? { configOptions: node.configOptions }
+      : {}),
   };
 }
 

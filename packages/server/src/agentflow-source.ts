@@ -49,6 +49,7 @@ export function stringifyAgentFlowSource(doc: AgentFlowDoc): string {
       {
         agentServerId: session.agentServerId,
         ...(session.agent ? { agent: session.agent } : {}),
+        ...(session.mcpServers && session.mcpServers.trim() ? { mcpServers: session.mcpServers } : {}),
       },
     ])),
     nodes: Object.fromEntries(doc.nodes.map((node) => [node.id, serializeNode(node)])),
@@ -85,8 +86,33 @@ function parseSessions(raw: Record<string, unknown>): CanvasSession[] {
       name: id,
       agentServerId: requireString(session.agentServerId, `session "${id}".agentServerId`),
       ...(typeof session.agent === "string" ? { agent: session.agent } : {}),
+      ...(typeof session.mcpServers === "string"
+        ? { mcpServers: assertMcpServersString(session.mcpServers, id) }
+        : {}),
     };
   });
+}
+
+/**
+ * MCP servers are stored as a JSON string so users can paste a McpServer[]
+ * config from Claude Desktop / Cursor / etc. without inventing a parallel
+ * YAML schema. We do basic JSON validity + array-shape checks here so the
+ * error fires at parse time, not when the agent finally fails to start.
+ */
+function assertMcpServersString(value: string, sessionId: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`session "${sessionId}".mcpServers must be valid JSON: ${detail}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`session "${sessionId}".mcpServers must be a JSON array of McpServer objects.`);
+  }
+  return value;
 }
 
 function parseNodes(raw: Record<string, unknown>, sessionIds: Set<string>): AgentFlowNode[] {
@@ -126,6 +152,8 @@ function parseNodes(raw: Record<string, unknown>, sessionIds: Set<string>): Agen
         throw new Error(`Node "${id}" references missing session "${sessionId}".`);
       }
       stepNumber += 1;
+      const modeId = optionalString(node.modeId);
+      const configOptions = parseConfigOptions(node.configOptions, id);
       return {
         kind,
         id,
@@ -137,10 +165,16 @@ function parseNodes(raw: Record<string, unknown>, sessionIds: Set<string>): Agen
         ...(node.locked === true ? { locked: true } : {}),
         ...(Array.isArray(node.images) ? { images: parseImages(node.images, id) } : {}),
         ...(Array.isArray(node.paths) ? { paths: parsePaths(node.paths, id) } : {}),
+        ...(modeId ? { modeId } : {}),
+        ...(configOptions ? { configOptions } : {}),
       };
     }
     if (kind === "gate") {
       gateNumber += 1;
+      if (node.modeId !== undefined) {
+        throw new Error(`Gate node "${id}" must not define modeId — only step nodes accept a per-node ACP mode override.`);
+      }
+      const configOptions = parseConfigOptions(node.configOptions, id);
       return {
         kind,
         id,
@@ -148,6 +182,7 @@ function parseNodes(raw: Record<string, unknown>, sessionIds: Set<string>): Agen
         title,
         decisionCriteria: optionalString(node.decisionCriteria) ?? "",
         branches: parseBranches(asRecord(node.branches, `node "${id}".branches`), id),
+        ...(configOptions ? { configOptions } : {}),
       };
     }
     throw new Error(`Node "${id}" has unsupported kind "${kind}".`);
@@ -235,6 +270,8 @@ function serializeNode(node: AgentFlowNode): Record<string, unknown> {
       locked: node.locked,
       images: node.images,
       paths: node.paths,
+      modeId: node.modeId,
+      configOptions: node.configOptions && Object.keys(node.configOptions).length > 0 ? node.configOptions : undefined,
     });
   }
   return compact({
@@ -249,6 +286,7 @@ function serializeNode(node: AgentFlowNode): Record<string, unknown> {
         description: branch.description,
       }),
     ])),
+    configOptions: node.configOptions && Object.keys(node.configOptions).length > 0 ? node.configOptions : undefined,
   });
 }
 
@@ -416,6 +454,23 @@ function parseImages(raw: unknown[], nodeId: string): Array<{ path: string; labe
 
 function parsePaths(raw: unknown[], nodeId: string): string[] {
   return raw.map((input, index) => requireString(input, `node "${nodeId}".paths[${index}]`));
+}
+
+function parseConfigOptions(raw: unknown, nodeId: string): Record<string, string | boolean> | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`node "${nodeId}".configOptions must be a key/value object.`);
+  }
+  const entries = Object.entries(raw as Record<string, unknown>);
+  if (entries.length === 0) return undefined;
+  const out: Record<string, string | boolean> = {};
+  for (const [key, value] of entries) {
+    if (typeof value !== "string" && typeof value !== "boolean") {
+      throw new Error(`node "${nodeId}".configOptions["${key}"] must be a string or boolean.`);
+    }
+    out[key] = value;
+  }
+  return out;
 }
 
 function parseVariables(raw: unknown): CanvasVariable[] | undefined {

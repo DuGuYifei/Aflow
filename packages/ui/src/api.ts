@@ -468,6 +468,50 @@ export async function fetchAgentServerAuth(id: string): Promise<AgentAuthenticat
   return res.json();
 }
 
+export interface AgentServerCapabilities {
+  probedAt: string;
+  installedVersion?: string;
+  agentCapabilities: Record<string, unknown>;
+  modes: { availableModes: Array<{ id: string; name: string; description?: string }>; currentModeId?: string } | null;
+  configOptions: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    category?: 'mode' | 'model' | 'thought_level' | 'other' | string;
+    type: 'select' | 'boolean';
+    currentValue?: string | boolean;
+    options?: Array<{ value: string; name: string; description?: string }> | Array<{ group: string; name: string; options: Array<{ value: string; name: string; description?: string }> }>;
+  }> | null;
+  availableCommands: Array<{ name: string; description: string; inputHint?: string }>;
+}
+
+export interface SkillSummary {
+  name: string;
+  description: string;
+  source: 'global' | 'projectLocal';
+  filePath: string;
+  bodyPreview: string;
+}
+
+export async function fetchAgentServerCapabilities(id: string): Promise<AgentServerCapabilities | undefined> {
+  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/capabilities`);
+  if (res.status === 404) return undefined;
+  if (!res.ok) throw new Error(await apiError(res, `Failed to fetch capabilities for ${id}`));
+  return res.json();
+}
+
+export async function refreshAgentServerCapabilities(id: string): Promise<AgentServerCapabilities> {
+  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/capabilities/refresh`, { method: 'POST' });
+  if (!res.ok) throw new Error(await apiError(res, `Failed to refresh capabilities for ${id}`));
+  return res.json();
+}
+
+export async function fetchSkills(): Promise<SkillSummary[]> {
+  const res = await fetch('/api/skills');
+  if (!res.ok) throw new Error(await apiError(res, 'Failed to fetch skills'));
+  return res.json();
+}
+
 export async function authenticateAgentServer(
   id: string,
   methodId: string,

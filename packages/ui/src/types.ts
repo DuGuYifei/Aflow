@@ -17,6 +17,8 @@ export interface Session {
   name: string;
   agentServerId: string;
   agent?: string;
+  /** Raw JSON string for ACP McpServer[]. */
+  mcpServers?: string;
 }
 
 export interface Workflow {
@@ -123,6 +125,8 @@ export interface StepNode {
   locked?: boolean;
   images?: Array<{ path: string; label?: string; mimeType?: string }>;
   paths?: string[];
+  modeId?: string;
+  configOptions?: Record<string, string | boolean>;
 }
 
 export interface GateNode {
@@ -135,6 +139,7 @@ export interface GateNode {
   title: string;
   decisionCriteria: string;
   branches: Branch[];
+  configOptions?: Record<string, string | boolean>;
 }
 
 export interface EndNode {

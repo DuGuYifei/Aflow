@@ -2,6 +2,7 @@ import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "n
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
+  AgentAvailableCommand,
   AgentRestoreMode,
   AgentRestorePrimitive,
   AgentRestoreRequest,
@@ -15,6 +16,20 @@ import type {
   AgentTerminalEvent,
   ResolvedAgentServer,
 } from "../../types";
+
+/**
+ * Snapshot of an agent's advertised capabilities, captured the first time a
+ * session is established. Plumbed up to the session pool so it can persist
+ * the snapshot via `AgentServerStore.setCapabilities`.
+ */
+export interface AcpProbedCapabilities {
+  agentCapabilities: acp.AgentCapabilities;
+  modes: acp.SessionModeState | null;
+  configOptions: acp.SessionConfigOption[] | null;
+  availableCommands: AgentAvailableCommand[];
+}
+
+export type AcpCapabilityWriter = (probe: AcpProbedCapabilities) => void | Promise<void>;
 import { supportedRegistryAgentProfile } from "../../supported-agents";
 import { AcpClientHandlers } from "./client-handlers";
 
@@ -155,7 +170,16 @@ export class AcpAgentConnection {
   readonly #additionalDirectories: string[] | undefined;
   readonly #client: AcpAgentClient;
   readonly #sessions = new Map<string, string>();
+  /** Per-ACP-session capability snapshot. Populated on session creation;
+   * consulted when applying per-request overrides for `setSessionMode` and
+   * `setSessionConfigOption` to validate against the agent's advertised set. */
+  readonly #sessionCaps = new Map<string, SessionCapsSnapshot>();
+  /** Aggregated AvailableCommand list, seeded by `available_commands_update`
+   * session notifications. Forwarded to the capability writer on each refresh. */
+  #availableCommands: AgentAvailableCommand[] = [];
+  readonly #capabilityWriter: AcpCapabilityWriter | undefined;
   #initializeResponse: acp.InitializeResponse | undefined;
+  #capabilityWritten = false;
   #currentTurn: AcpSessionTurn | undefined;
   #queue: Promise<unknown> = Promise.resolve();
   #closed = false;
@@ -164,10 +188,12 @@ export class AcpAgentConnection {
     resolved: ResolvedAgentServer;
     cwd: string;
     additionalDirectories?: string[];
+    onCapabilities?: AcpCapabilityWriter;
   }) {
     this.#resolved = input.resolved;
     this.#cwd = input.cwd;
     this.#additionalDirectories = input.additionalDirectories;
+    this.#capabilityWriter = input.onCapabilities;
     this.#client = new AcpAgentClient({
       resolved: input.resolved,
       cwd: input.cwd,
@@ -177,7 +203,10 @@ export class AcpAgentConnection {
         onPermissionRequest: (request) => {
           return this.#currentTurn?.request.onPermissionRequest?.(request) ?? Promise.resolve({ outcome: "cancelled" });
         },
-        onSessionUpdate: (event) => this.#currentTurn?.request.onSessionUpdate?.(event),
+        onSessionUpdate: (event) => {
+          this.#captureAvailableCommands(event);
+          this.#currentTurn?.request.onSessionUpdate?.(event);
+        },
         onElicitationRequest: (request) => {
           return this.#currentTurn?.request.onElicitationRequest?.(request) ?? Promise.resolve({ action: "cancel" });
         },
@@ -193,6 +222,44 @@ export class AcpAgentConnection {
         if (this.#currentTurn) this.#currentTurn.output += text;
       },
     });
+  }
+
+  #captureAvailableCommands(event: { update: { sessionUpdate?: string; availableCommands?: unknown } }): void {
+    const update = event.update;
+    if (update?.sessionUpdate !== "available_commands_update") return;
+    const list = Array.isArray(update.availableCommands) ? update.availableCommands : [];
+    const next: AgentAvailableCommand[] = [];
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const raw = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
+      if (typeof raw.name !== "string" || typeof raw.description !== "string") continue;
+      next.push({
+        name: raw.name,
+        description: raw.description,
+        ...(typeof raw.input?.hint === "string" ? { inputHint: raw.input.hint } : {}),
+      });
+    }
+    this.#availableCommands = next;
+    void this.#emitCapabilities();
+  }
+
+  async #emitCapabilities(): Promise<void> {
+    if (!this.#capabilityWriter || !this.#initializeResponse) return;
+    // Use the most recently created session's caps as the snapshot, since
+    // agents may advertise different modes/configOptions per session in
+    // theory. In practice all current agents are uniform per process.
+    const lastCaps = lastValue(this.#sessionCaps);
+    try {
+      await this.#capabilityWriter({
+        agentCapabilities: this.#initializeResponse.agentCapabilities ?? {},
+        modes: lastCaps?.modes ?? null,
+        configOptions: lastCaps?.configOptions ?? null,
+        availableCommands: this.#availableCommands,
+      });
+      this.#capabilityWritten = true;
+    } catch {
+      // Capability persistence is best-effort; never fail an agent turn for it.
+    }
   }
 
   async start(request: AgentRunRequest): Promise<void> {
@@ -246,6 +313,18 @@ export class AcpAgentConnection {
         await this.#client.connection.cancel({ sessionId });
         throw new Error("ACP prompt cancelled before start.");
       }
+
+      // Per-node overrides land here, just before the actual prompt turn. We
+      // run these EVERY turn (even on re-used sessions) because the user can
+      // change mode/model/effort on a per-node basis. Omitting the field on a
+      // node intentionally preserves whatever the session already has.
+      await applyPerRequestOverrides({
+        connection: this.#client.connection,
+        sessionId,
+        request,
+        caps: this.#sessionCaps.get(sessionId),
+        resolvedId: this.#resolved.id,
+      });
 
       request.onLifecycleEvent?.({
         type: "prompt_started",
@@ -388,7 +467,12 @@ export class AcpAgentConnection {
       sessionId: session.sessionId,
       at: new Date().toISOString(),
     });
+    this.#sessionCaps.set(session.sessionId, snapshotSession(session));
     await applySessionDefaults(this.#client.connection, session.sessionId, session, this.#resolved);
+    // Push initial capabilities even before any available_commands_update
+    // arrives, so the UI has something to render after the first session
+    // creation completes. The update handler will rewrite once commands ship.
+    if (!this.#capabilityWritten) void this.#emitCapabilities();
     return session.sessionId;
   }
 
@@ -431,16 +515,50 @@ export class AcpAgentConnection {
 export async function runAcpAgent(
   resolved: ResolvedAgentServer,
   request: AgentRunRequest,
+  options?: { onCapabilities?: AcpCapabilityWriter },
 ): Promise<AgentRunResult> {
   let output = "";
   let sessionId: string | undefined;
   let initializeResponse: acp.InitializeResponse | undefined;
+  let sessionCaps: SessionCapsSnapshot | undefined;
+  const availableCommands: AgentAvailableCommand[] = [];
+  const baseOnSessionUpdate = request.onSessionUpdate;
+  const wrappedRequest: AgentRunRequest = {
+    ...request,
+    onSessionUpdate: (event) => {
+      const update = event.update as { sessionUpdate?: string; availableCommands?: unknown };
+      if (update?.sessionUpdate === "available_commands_update") {
+        availableCommands.length = 0;
+        if (Array.isArray(update.availableCommands)) {
+          for (const item of update.availableCommands) {
+            if (!item || typeof item !== "object") continue;
+            const raw = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
+            if (typeof raw.name !== "string" || typeof raw.description !== "string") continue;
+            availableCommands.push({
+              name: raw.name,
+              description: raw.description,
+              ...(typeof raw.input?.hint === "string" ? { inputHint: raw.input.hint } : {}),
+            });
+          }
+        }
+        if (options?.onCapabilities && initializeResponse) {
+          void Promise.resolve(options.onCapabilities({
+            agentCapabilities: initializeResponse.agentCapabilities ?? {},
+            modes: sessionCaps?.modes ?? null,
+            configOptions: sessionCaps?.configOptions ?? null,
+            availableCommands: [...availableCommands],
+          })).catch(() => {});
+        }
+      }
+      baseOnSessionUpdate?.(event);
+    },
+  };
   const client = new AcpAgentClient({
     resolved,
     cwd: request.cwd,
     additionalDirectories: request.additionalDirectories,
     onTerminalEvent: request.onTerminalEvent,
-    request,
+    request: wrappedRequest,
     appendOutput(text) { output += text; },
   });
 
@@ -473,13 +591,33 @@ export async function runAcpAgent(
       mcpServers: request.mcpServers ?? [],
     });
     sessionId = session.sessionId;
+    sessionCaps = snapshotSession(session);
     request.onLifecycleEvent?.({
       type: "session_created",
       agentServerId: request.agentServerId,
       sessionId,
       at: new Date().toISOString(),
     });
+    if (options?.onCapabilities) {
+      try {
+        await options.onCapabilities({
+          agentCapabilities: initializeResponse.agentCapabilities ?? {},
+          modes: sessionCaps.modes,
+          configOptions: sessionCaps.configOptions,
+          availableCommands: [...availableCommands],
+        });
+      } catch {
+        // Best-effort capability persistence.
+      }
+    }
     await applySessionDefaults(client.connection, sessionId, session, resolved);
+    await applyPerRequestOverrides({
+      connection: client.connection,
+      sessionId,
+      request,
+      caps: sessionCaps,
+      resolvedId: resolved.id,
+    });
 
     if (request.signal?.aborted) {
       await client.connection.cancel({ sessionId });
@@ -713,6 +851,82 @@ export class AcpRestoredConversation implements AgentConversation {
       await this.#client.connection.closeSession({ sessionId: this.#request.sessionId }).catch(() => {});
     }
     await this.#client.close().catch(() => {});
+  }
+}
+
+/**
+ * One-shot capability probe: spawn the agent, initialize, create an empty
+ * session, snapshot what was advertised, and tear everything down. Used by
+ * the `POST /api/agent-servers/:id/capabilities/refresh` endpoint when the
+ * user knows their settings changed without an installedVersion bump (env
+ * vars, args, etc.) and wants the cached capability snapshot rebuilt.
+ *
+ * Briefly waits (`commandSettleMs`) after newSession for the agent to push
+ * an `available_commands_update` notification — many agents send this
+ * synchronously, but some defer it a tick. Skipping the wait would leave
+ * the cached availableCommands list empty until the first real run.
+ */
+export async function probeAcpAgentCapabilities(input: {
+  resolved: ResolvedAgentServer;
+  cwd: string;
+  signal?: AbortSignal;
+  /** How long to wait after newSession for available_commands_update. Default 750ms. */
+  commandSettleMs?: number;
+}): Promise<AcpProbedCapabilities> {
+  const availableCommands: AgentAvailableCommand[] = [];
+  let resolveSettled: () => void = () => {};
+  const settled = new Promise<void>((resolve) => { resolveSettled = resolve; });
+  const client = new AcpAgentClient({
+    resolved: input.resolved,
+    cwd: input.cwd,
+    request: {
+      onSessionUpdate: (event) => {
+        const update = event.update as { sessionUpdate?: string; availableCommands?: unknown };
+        if (update?.sessionUpdate !== "available_commands_update") return;
+        availableCommands.length = 0;
+        if (Array.isArray(update.availableCommands)) {
+          for (const item of update.availableCommands) {
+            if (!item || typeof item !== "object") continue;
+            const raw = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
+            if (typeof raw.name !== "string" || typeof raw.description !== "string") continue;
+            availableCommands.push({
+              name: raw.name,
+              description: raw.description,
+              ...(typeof raw.input?.hint === "string" ? { inputHint: raw.input.hint } : {}),
+            });
+          }
+        }
+        resolveSettled();
+      },
+    },
+    appendOutput() {},
+  });
+  let sessionId: string | undefined;
+  try {
+    const initializeResponse = await raceWithAbort(client.initialize(), input.signal, "ACP probe cancelled.");
+    assertProtocolVersion(initializeResponse);
+    const session = await raceWithAbort(client.connection.newSession({
+      cwd: input.cwd,
+      additionalDirectories: input.resolved.settings.additionalDirectories,
+      mcpServers: [],
+    }), input.signal, "ACP probe cancelled.");
+    sessionId = session.sessionId;
+    // Best-effort wait for available_commands_update; do not block forever
+    // if the agent never sends one.
+    const settleMs = input.commandSettleMs ?? 750;
+    await Promise.race([
+      settled,
+      new Promise<void>((resolve) => setTimeout(resolve, settleMs)),
+    ]);
+    return {
+      agentCapabilities: initializeResponse.agentCapabilities ?? {},
+      modes: session.modes ?? null,
+      configOptions: session.configOptions ?? null,
+      availableCommands,
+    };
+  } finally {
+    if (sessionId) await client.connection.closeSession({ sessionId }).catch(() => {});
+    await client.close().catch(() => {});
   }
 }
 
@@ -1027,6 +1241,85 @@ async function applySessionDefaults(
     }
     await connection.setSessionConfigOption({ sessionId, configId, value: stringValue });
   }
+}
+
+/**
+ * Per-prompt override of mode / configOptions / model. Runs every turn, on
+ * both fresh and re-used sessions. Caller must pass the cached
+ * `NewSessionResponse` slice so we can validate the requested values against
+ * what the agent advertised at session creation.
+ */
+async function applyPerRequestOverrides(input: {
+  connection: acp.ClientSideConnection;
+  sessionId: string;
+  request: Pick<AgentRunRequest, "modeId" | "configOptions">;
+  caps: SessionCapsSnapshot | undefined;
+  resolvedId: string;
+}): Promise<void> {
+  const { connection, sessionId, request, caps, resolvedId } = input;
+  if (request.modeId) {
+    const available = caps?.modes?.availableModes ?? [];
+    if (available.length > 0 && !available.some((m) => m.id === request.modeId)) {
+      throw new Error(`Per-node ACP mode "${request.modeId}" is not advertised by ${resolvedId}.`);
+    }
+    await connection.setSessionMode({ sessionId, modeId: request.modeId });
+  }
+  for (const [configId, value] of Object.entries(request.configOptions ?? {})) {
+    if (configId === "model") {
+      const modelId = String(value);
+      const available = caps?.models?.availableModels ?? [];
+      if (available.length > 0 && !available.some((m) => m.modelId === modelId)) {
+        throw new Error(`Per-node ACP model "${modelId}" is not advertised by ${resolvedId}.`);
+      }
+      await connection.unstable_setSessionModel({ sessionId, modelId });
+      continue;
+    }
+    const option = caps?.configOptions?.find((candidate) => candidate.id === configId);
+    if (!option) {
+      // No cached option metadata — pass through and let the agent reject if
+      // invalid. We deliberately do not throw, because some agents may accept
+      // options that were added after our cache snapshot was taken.
+      const stringValue = typeof value === "boolean" ? value : String(value);
+      await connection.setSessionConfigOption(
+        typeof stringValue === "boolean"
+          ? { sessionId, configId, type: "boolean", value: stringValue }
+          : { sessionId, configId, value: stringValue },
+      );
+      continue;
+    }
+    if (option.type === "boolean") {
+      if (typeof value !== "boolean") {
+        throw new Error(`Per-node ACP config option "${configId}" expects a boolean value.`);
+      }
+      await connection.setSessionConfigOption({ sessionId, configId, type: "boolean", value });
+      continue;
+    }
+    const stringValue = String(value);
+    if (!selectOptionValues(option).has(stringValue)) {
+      throw new Error(`Per-node ACP config option "${configId}" value "${stringValue}" is not advertised by ${resolvedId}.`);
+    }
+    await connection.setSessionConfigOption({ sessionId, configId, value: stringValue });
+  }
+}
+
+interface SessionCapsSnapshot {
+  modes: acp.SessionModeState | null;
+  configOptions: acp.SessionConfigOption[] | null;
+  models: NonNullable<acp.NewSessionResponse["models"]> | null;
+}
+
+function snapshotSession(session: acp.NewSessionResponse): SessionCapsSnapshot {
+  return {
+    modes: session.modes ?? null,
+    configOptions: session.configOptions ?? null,
+    models: session.models ?? null,
+  };
+}
+
+function lastValue<T>(map: Map<string, T>): T | undefined {
+  let last: T | undefined;
+  for (const value of map.values()) last = value;
+  return last;
 }
 
 function selectOptionValues(option: Extract<acp.SessionConfigOption, { type: "select" }>): Set<string> {

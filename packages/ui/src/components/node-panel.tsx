@@ -1,9 +1,16 @@
-import { useRef, useState, type ClipboardEvent, type ChangeEvent } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ClipboardEvent, type ChangeEvent, type KeyboardEvent } from 'react';
 import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
 import { branchAccent, sessionAccent } from '../appearance';
 import { SessionTimeline } from './session-timeline';
+import {
+  fetchAgentServerCapabilities,
+  fetchSkills,
+  refreshAgentServerCapabilities,
+  type AgentServerCapabilities,
+  type SkillSummary,
+} from '../api';
 
 function insertAtCaret(el: HTMLTextAreaElement | null, token: string, write: (next: string) => void) {
   if (!el) return;
@@ -27,6 +34,7 @@ interface NodePanelProps {
   onClose: () => void;
   onEditNode: (id: string, patch: Record<string, unknown>) => void;
   onChangeSession: (id: string, sid: string) => void;
+  onEditSession?: (id: string, patch: Partial<Session>) => void;
   onAddSessionRequest: () => void;
   onAddBranch: (gateId: string) => void;
   onEditBranch: (gateId: string, branchId: string, patch: { label?: string; description?: string }) => void;
@@ -88,8 +96,10 @@ function StepOverview(props: NodePanelProps & {
   readonly: boolean;
   session?: Session;
 }) {
-  const { node, run, sessions, nodes, edges, readonly } = props;
+  const { node, run, session, sessions, nodes, edges, readonly } = props;
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const { capabilities, refreshing, refresh } = useAgentCapabilities(session?.agentServerId);
+  const skills = useSkills();
   const inputTokens = edges
     .filter((edge) => edge.to === node.id)
     .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
@@ -113,7 +123,34 @@ function StepOverview(props: NodePanelProps & {
           ))}
         </div>
       )}
-      <textarea ref={promptRef} className="textarea" rows={6} value={node.prompt} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { prompt: event.target.value })} />
+      <SlashCommandTextarea
+        ref={promptRef}
+        rows={6}
+        value={node.prompt}
+        disabled={readonly}
+        skills={skills}
+        availableCommands={capabilities?.availableCommands}
+        onChange={(next) => props.onEditNode(node.id, { prompt: next })}
+      />
+      <SlashCommandWarnings prompt={node.prompt} skills={skills} availableCommands={capabilities?.availableCommands} />
+      <AcpControls
+        readonly={readonly}
+        capabilities={capabilities}
+        refresh={refresh}
+        refreshing={refreshing}
+        modeId={node.modeId}
+        configOptions={node.configOptions}
+        allowMode
+        onChangeMode={(modeId) => props.onEditNode(node.id, { modeId: modeId ?? undefined })}
+        onChangeConfigOption={(configId, value) => {
+          const next = { ...(node.configOptions ?? {}) };
+          if (value === undefined) delete next[configId];
+          else next[configId] = value;
+          props.onEditNode(node.id, {
+            configOptions: Object.keys(next).length > 0 ? next : undefined,
+          });
+        }}
+      />
       <div className="section-title">Human checkpoint</div>
       <label className="toggle-row">
         <input
@@ -145,6 +182,13 @@ function StepOverview(props: NodePanelProps & {
         </select>
         {!readonly && <button className="btn sm ghost" onClick={props.onAddSessionRequest}><Icon name="plus" size={11} />Add</button>}
       </div>
+      {session && props.onEditSession && (
+        <McpServersEditor
+          session={session}
+          readonly={readonly}
+          onChange={(value) => props.onEditSession!(session.id, { mcpServers: value || undefined })}
+        />
+      )}
       <NodeImages {...props} compact />
       <NodePaths {...props} compact />
     </>
@@ -223,6 +267,8 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: bo
     ? props.sessions.find((session) => session.id === predecessor.sessionId)
     : undefined;
   const supportsForkHint = predecessorSession?.agentServerId.toLowerCase().includes('claude');
+  const { capabilities, refreshing, refresh } = useAgentCapabilities(predecessorSession?.agentServerId);
+  const skills = useSkills();
   return (
     <RightPanel label={<><Icon name="route" size={11} /> Gate · {node.num}</>} title={node.title} onClose={props.onClose}>
       <div className="code-hint">
@@ -232,7 +278,32 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: bo
           : ' Runtime checks fork capability; when unavailable, the decision continues in the previous session.')}
       </div>
       <div className="section-title">Decision criteria</div>
-      <textarea ref={criteriaRef} className="textarea" rows={6} value={node.decisionCriteria} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { decisionCriteria: event.target.value })} />
+      <SlashCommandTextarea
+        ref={criteriaRef}
+        rows={6}
+        value={node.decisionCriteria}
+        disabled={readonly}
+        skills={skills}
+        availableCommands={capabilities?.availableCommands}
+        onChange={(next) => props.onEditNode(node.id, { decisionCriteria: next })}
+      />
+      <SlashCommandWarnings prompt={node.decisionCriteria} skills={skills} availableCommands={capabilities?.availableCommands} />
+      <AcpControls
+        readonly={readonly}
+        capabilities={capabilities}
+        refresh={refresh}
+        refreshing={refreshing}
+        configOptions={node.configOptions}
+        allowMode={false}
+        onChangeConfigOption={(configId, value) => {
+          const next = { ...(node.configOptions ?? {}) };
+          if (value === undefined) delete next[configId];
+          else next[configId] = value;
+          props.onEditNode(node.id, {
+            configOptions: Object.keys(next).length > 0 ? next : undefined,
+          });
+        }}
+      />
       <div className="code-hint">Input edges carry the previous step output automatically and have no transfer properties.</div>
       <div className="section-title">Branches</div>
       {node.branches.map((branch) => (
@@ -284,4 +355,464 @@ function NodeLogs({ events }: { events: TimelineEvent[] }) {
 
 function NodeOutput({ output }: { output?: string }) {
   return <div className="output-card">{output || 'No output yet.'}</div>;
+}
+
+// ── ACP capability-driven controls (mode / model / effort / other) ────────────
+
+function useAgentCapabilities(agentServerId: string | undefined): {
+  capabilities: AgentServerCapabilities | undefined;
+  refreshing: boolean;
+  refresh: () => Promise<void>;
+} {
+  const [capabilities, setCapabilities] = useState<AgentServerCapabilities | undefined>(undefined);
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!agentServerId) {
+      setCapabilities(undefined);
+      return () => { cancelled = true; };
+    }
+    fetchAgentServerCapabilities(agentServerId)
+      .then((value) => { if (!cancelled) setCapabilities(value); })
+      .catch(() => { if (!cancelled) setCapabilities(undefined); });
+    return () => { cancelled = true; };
+  }, [agentServerId]);
+  const refresh = async () => {
+    if (!agentServerId) return;
+    setRefreshing(true);
+    try {
+      const next = await refreshAgentServerCapabilities(agentServerId);
+      setCapabilities(next);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  return { capabilities, refreshing, refresh };
+}
+
+function useSkills(): SkillSummary[] {
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSkills()
+      .then((value) => { if (!cancelled) setSkills(value); })
+      .catch(() => { if (!cancelled) setSkills([]); });
+    return () => { cancelled = true; };
+  }, []);
+  return skills;
+}
+
+interface AcpControlsProps {
+  readonly: boolean;
+  capabilities: AgentServerCapabilities | undefined;
+  refresh: () => Promise<void>;
+  refreshing: boolean;
+  modeId?: string;
+  configOptions?: Record<string, string | boolean>;
+  allowMode: boolean;
+  onChangeMode?: (modeId: string | undefined) => void;
+  onChangeConfigOption: (configId: string, value: string | boolean | undefined) => void;
+}
+
+function AcpControls(props: AcpControlsProps) {
+  const { capabilities, configOptions, readonly } = props;
+  const modes = capabilities?.modes?.availableModes ?? [];
+  const options = capabilities?.configOptions ?? [];
+  const hasMode = props.allowMode && modes.length > 0;
+  const hasConfig = options.length > 0;
+  if (!capabilities) {
+    return (
+      <div className="output-card" style={{ marginTop: 6 }}>
+        <div className="code-hint">
+          ACP mode / model / effort selectors will appear here after this agent has been probed.
+          Run the workflow once, or refresh capabilities now.
+        </div>
+        <button className="btn sm ghost" disabled={props.refreshing} onClick={() => void props.refresh()}>
+          {props.refreshing ? 'Probing…' : 'Probe capabilities'}
+        </button>
+      </div>
+    );
+  }
+  if (!hasMode && !hasConfig) {
+    // Cached, but agent didn't advertise any per-session knobs — leave the
+    // section hidden so simple agents stay clutter-free.
+    return null;
+  }
+  // configOptions sorted: model → thought_level → mode → other → unknown
+  const categoryOrder: Record<string, number> = { model: 0, thought_level: 1, mode: 2, other: 3 };
+  const sortedOptions = [...options].sort((a, b) => {
+    const ai = a.category ? categoryOrder[a.category] ?? 9 : 9;
+    const bi = b.category ? categoryOrder[b.category] ?? 9 : 9;
+    return ai - bi;
+  });
+  return (
+    <>
+      <div className="section-title">ACP overrides</div>
+      {hasMode && (
+        <div style={{ marginBottom: 6 }}>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)', marginBottom: 2 }}>Mode</label>
+          <select
+            className="input"
+            value={props.modeId ?? ''}
+            disabled={readonly}
+            onChange={(event) => props.onChangeMode?.(event.target.value || undefined)}
+          >
+            <option value="">Inherit / keep current session mode</option>
+            {modes.map((mode) => (
+              <option key={mode.id} value={mode.id}>{mode.name || mode.id}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      {sortedOptions.map((option) => (
+        <ConfigOptionControl
+          key={option.id}
+          option={option}
+          value={configOptions?.[option.id]}
+          readonly={readonly}
+          onChange={(value) => props.onChangeConfigOption(option.id, value)}
+        />
+      ))}
+      <div className="code-hint">
+        Per-node values override the agent server defaults. Leaving "Inherit" keeps whatever the session is currently using.
+        <button className="btn sm ghost" style={{ marginLeft: 6 }} disabled={props.refreshing} onClick={() => void props.refresh()}>
+          {props.refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function ConfigOptionControl(props: {
+  option: NonNullable<AgentServerCapabilities['configOptions']>[number];
+  value: string | boolean | undefined;
+  readonly: boolean;
+  onChange: (value: string | boolean | undefined) => void;
+}) {
+  const { option } = props;
+  if (option.type === 'boolean') {
+    const checked = typeof props.value === 'boolean' ? props.value : option.currentValue === true;
+    return (
+      <div style={{ marginBottom: 6 }}>
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={props.readonly}
+            onChange={(event) => props.onChange(event.target.checked)}
+          />
+          {option.name || option.id}
+        </label>
+        {option.description && <div className="code-hint">{option.description}</div>}
+      </div>
+    );
+  }
+  const value = typeof props.value === 'string' ? props.value : '';
+  // Options may be flat or grouped; flatten for the dropdown but show group as optgroup.
+  const groups: Array<{ name: string; options: Array<{ value: string; name: string }> }> = [];
+  if (Array.isArray(option.options)) {
+    for (const entry of option.options) {
+      if ('group' in entry && Array.isArray(entry.options)) {
+        groups.push({ name: entry.name || entry.group, options: entry.options });
+      } else if ('value' in entry) {
+        if (!groups.length || groups[groups.length - 1].name !== '__flat__') {
+          groups.push({ name: '__flat__', options: [] });
+        }
+        groups[groups.length - 1].options.push(entry);
+      }
+    }
+  }
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <label style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)', marginBottom: 2 }}>
+        {option.name || option.id}
+        {option.category && option.category !== 'other' && <span style={{ color: 'var(--ink-4)', marginLeft: 6 }}>· {option.category}</span>}
+      </label>
+      <select
+        className="input"
+        value={value}
+        disabled={props.readonly}
+        onChange={(event) => props.onChange(event.target.value || undefined)}
+      >
+        <option value="">Inherit / agent default</option>
+        {groups.map((group) => group.name === '__flat__'
+          ? group.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.name || opt.value}</option>)
+          : (
+            <optgroup key={group.name} label={group.name}>
+              {group.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.name || opt.value}</option>)}
+            </optgroup>
+          ))}
+      </select>
+      {option.description && <div className="code-hint">{option.description}</div>}
+    </div>
+  );
+}
+
+// ── MCP servers JSON editor on the session ──────────────────────────────────
+
+function McpServersEditor(props: {
+  session: Session;
+  readonly: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(props.session.mcpServers ?? '');
+  const [error, setError] = useState<string | undefined>(undefined);
+  // Reset local draft if the session changes (different node opened with a different session).
+  useEffect(() => {
+    setDraft(props.session.mcpServers ?? '');
+    setError(undefined);
+  }, [props.session.id, props.session.mcpServers]);
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      setError(undefined);
+      props.onChange('');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        setError('mcpServers must be a JSON array.');
+        return;
+      }
+      setError(undefined);
+      props.onChange(trimmed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+  return (
+    <>
+      <div className="section-title">MCP servers (session-level)</div>
+      <textarea
+        className="textarea"
+        rows={6}
+        value={draft}
+        disabled={props.readonly}
+        placeholder='[{"name": "fs", "command": "uvx", "args": ["mcp-server-filesystem", "/tmp"], "env": []}]'
+        spellCheck={false}
+        style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+      />
+      {error && <div className="code-hint" style={{ color: 'var(--accent-red, #d33)' }}>JSON error: {error}</div>}
+      <div className="code-hint">
+        ACP <code>McpServer[]</code> as JSON. Applied at session creation only — changes take effect on the next run.
+      </div>
+    </>
+  );
+}
+
+// ── Slash command autocomplete popup (textarea wrapper) ─────────────────────
+
+interface SlashCandidate {
+  name: string;
+  kind: 'skill' | 'command';
+  label: string;
+  detail: string;
+}
+
+interface ActiveSlashQuery {
+  /** Offset of the `/` character. */
+  slashIdx: number;
+  /** Offset where the command name starts (slashIdx + 1). */
+  queryStart: number;
+  /** Partial text typed after the slash, up to the caret. */
+  query: string;
+}
+
+/**
+ * Finds the slash command the caret is currently inside, if any. A command is
+ * only "active" when the `/` is line-leading (only whitespace precedes it on
+ * the line) and there is no whitespace between the `/` and the caret — i.e. the
+ * user is still typing the command name. Returns null otherwise.
+ */
+function findActiveSlashQuery(text: string, caret: number): ActiveSlashQuery | null {
+  let i = caret;
+  while (i > 0 && /[A-Za-z0-9_:.-]/.test(text[i - 1])) i -= 1;
+  const slashIdx = i - 1;
+  if (slashIdx < 0 || text[slashIdx] !== '/') return null;
+  const lineStart = text.lastIndexOf('\n', slashIdx - 1) + 1;
+  if (text.slice(lineStart, slashIdx).trim() !== '') return null;
+  return { slashIdx, queryStart: i, query: text.slice(i, caret) };
+}
+
+const SlashCommandTextarea = forwardRef<HTMLTextAreaElement, {
+  value: string;
+  rows: number;
+  disabled?: boolean;
+  skills: SkillSummary[];
+  availableCommands: AgentServerCapabilities['availableCommands'] | undefined;
+  onChange: (next: string) => void;
+}>(function SlashCommandTextarea(props, forwardedRef) {
+  const innerRef = useRef<HTMLTextAreaElement>(null);
+  useImperativeHandle(forwardedRef, () => innerRef.current as HTMLTextAreaElement, []);
+  const [active, setActive] = useState<ActiveSlashQuery | null>(null);
+  const [highlight, setHighlight] = useState(0);
+
+  const candidates: SlashCandidate[] = active ? buildCandidates(props.skills, props.availableCommands, active.query) : [];
+
+  const sync = () => {
+    const el = innerRef.current;
+    if (!el || props.disabled) { setActive(null); return; }
+    const next = findActiveSlashQuery(el.value, el.selectionStart ?? 0);
+    setActive(next);
+    setHighlight(0);
+  };
+
+  const accept = (candidate: SlashCandidate) => {
+    const el = innerRef.current;
+    if (!el || !active) return;
+    const before = el.value.slice(0, active.slashIdx);
+    const after = el.value.slice(el.selectionStart ?? active.queryStart);
+    const insert = `/${candidate.name} `;
+    const next = before + insert + after;
+    props.onChange(next);
+    const caret = before.length + insert.length;
+    setActive(null);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!active || candidates.length === 0) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlight((h) => (h + 1) % candidates.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlight((h) => (h - 1 + candidates.length) % candidates.length);
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      accept(candidates[Math.min(highlight, candidates.length - 1)]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setActive(null);
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea
+        ref={innerRef}
+        className="textarea"
+        rows={props.rows}
+        value={props.value}
+        disabled={props.disabled}
+        onChange={(event) => { props.onChange(event.target.value); requestAnimationFrame(sync); }}
+        onKeyUp={sync}
+        onClick={sync}
+        onKeyDown={onKeyDown}
+        onBlur={() => requestAnimationFrame(() => setActive(null))}
+      />
+      {active && candidates.length > 0 && (
+        <div className="slash-popup" style={{
+          position: 'absolute',
+          left: 8,
+          right: 8,
+          zIndex: 20,
+          background: 'var(--bg-1, #fff)',
+          border: '1px solid var(--ink-5, #ccc)',
+          borderRadius: 6,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.18)',
+          maxHeight: 220,
+          overflowY: 'auto',
+        }}>
+          {candidates.map((candidate, index) => (
+            <button
+              key={`${candidate.kind}:${candidate.name}`}
+              type="button"
+              // onMouseDown (not onClick) so it fires before the textarea blur closes the popup.
+              onMouseDown={(event) => { event.preventDefault(); accept(candidate); }}
+              onMouseEnter={() => setHighlight(index)}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                padding: '6px 10px',
+                border: 'none',
+                cursor: 'pointer',
+                background: index === highlight ? 'var(--accent-soft, #eef)' : 'transparent',
+              }}
+            >
+              <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
+                <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>/{candidate.name}</span>
+                <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>{candidate.label}</span>
+              </div>
+              {candidate.detail && <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{candidate.detail}</div>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+function buildCandidates(
+  skills: SkillSummary[],
+  commands: AgentServerCapabilities['availableCommands'] | undefined,
+  query: string,
+): SlashCandidate[] {
+  const q = query.toLowerCase();
+  const skillItems: SlashCandidate[] = skills
+    .filter((skill) => skill.name.toLowerCase().startsWith(q))
+    .map((skill) => ({ name: skill.name, kind: 'skill', label: `skill · ${skill.source}`, detail: skill.description }));
+  const commandItems: SlashCandidate[] = (commands ?? [])
+    .filter((command) => command.name.toLowerCase().startsWith(q) && !skillItems.some((s) => s.name === command.name))
+    .map((command) => ({ name: command.name, kind: 'command', label: 'agent command', detail: command.description }));
+  return [...skillItems, ...commandItems].slice(0, 12);
+}
+
+// ── Slash command warning underneath a prompt ───────────────────────────────
+
+function SlashCommandWarnings(props: {
+  prompt: string;
+  skills: SkillSummary[];
+  availableCommands: AgentServerCapabilities['availableCommands'] | undefined;
+}) {
+  const { prompt, skills, availableCommands } = props;
+  // Lightweight client-side parse: line-leading `/` followed by [a-z0-9_:.-]+.
+  // Mirrors the server's slash-parser logic well enough to surface warnings.
+  const slashTokens = parseSlashTokens(prompt);
+  if (slashTokens.length === 0) return null;
+  const knownSkill = new Set(skills.map((s) => s.name));
+  const knownCommand = new Set((availableCommands ?? []).map((c) => c.name));
+  const issues = slashTokens.filter((token) => !isResolvable(token, knownSkill, knownCommand));
+  if (issues.length === 0) return null;
+  return (
+    <div className="code-hint" style={{ color: 'var(--accent-red, #d33)' }}>
+      {issues.map((token) => `"/${token.display}"`).join(', ')} did not match any skill or this agent's advertised commands. They will still be sent verbatim — confirm the agent can handle them.
+    </div>
+  );
+}
+
+interface SlashToken { display: string; bare: string; scope?: string }
+
+function parseSlashTokens(text: string): SlashToken[] {
+  const out: SlashToken[] = [];
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.trimStart().match(/^\/([A-Za-z0-9_:.-]+)/);
+    if (!match) continue;
+    const raw = match[1];
+    if (raw.includes('.')) {
+      // MCP-style: server.prompt — skip in this warning (already unsupported).
+      continue;
+    }
+    if (raw.includes(':')) {
+      const lastColon = raw.lastIndexOf(':');
+      out.push({ display: raw, scope: raw.slice(0, lastColon), bare: raw.slice(lastColon + 1) });
+    } else {
+      out.push({ display: raw, bare: raw });
+    }
+  }
+  return out;
+}
+
+function isResolvable(token: SlashToken, skills: Set<string>, commands: Set<string>): boolean {
+  if (skills.has(token.bare)) return true;
+  if (!token.scope && commands.has(token.bare)) return true;
+  return false;
 }

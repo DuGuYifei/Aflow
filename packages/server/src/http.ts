@@ -1,6 +1,8 @@
+import { AgentServerStore } from "@specflow/agent-proxy";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { APP_NAME, DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
 import { serveStaticUi } from "./static-ui";
+import { SkillStore, resolveSlashCommands } from "./skills";
 import { createDevUiProxy } from "./ui-dev";
 import { initWorkspace } from "./workspace";
 import { createApiHandler } from "./api";
@@ -25,7 +27,25 @@ export async function startSpecflowServer(
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
   const mode = options.mode ?? defaultServerMode();
-  const bridge = createSpecflowBridge();
+  const skillStore = new SkillStore({ root: cwd });
+  const capabilityStore = new AgentServerStore({ root: cwd });
+  const bridge = createSpecflowBridge({
+    promptTransformer: async (prompt, context) => {
+      // Skip the work if there are no `/` candidates at all — keeps the hot
+      // path zero-allocation when no slash commands are present.
+      if (!prompt.includes("/")) return prompt;
+      const [skills, capabilities] = await Promise.all([
+        skillStore.list(),
+        capabilityStore.getCapabilities(context.agentServerId),
+      ]);
+      const resolved = resolveSlashCommands({
+        prompt,
+        skills,
+        availableCommands: capabilities?.availableCommands,
+      });
+      return resolved.prompt;
+    },
+  });
   const devUi = mode === "development" ? await createDevUiProxy() : undefined;
   const handleApi = createApiHandler(bridge, cwd);
 

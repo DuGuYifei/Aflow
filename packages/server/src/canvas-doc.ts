@@ -9,6 +9,8 @@ export interface CanvasSession {
   name: string;
   agentServerId: string;
   agent?: string;
+  /** Raw JSON string for `McpServer[]`; see WorkflowSession.mcpServers. */
+  mcpServers?: string;
 }
 
 export interface CanvasStepNode {
@@ -25,6 +27,8 @@ export interface CanvasStepNode {
   locked?: boolean;
   images?: Array<{ path: string; label?: string; mimeType?: string }>;
   paths?: string[];
+  modeId?: string;
+  configOptions?: Record<string, string | boolean>;
 }
 
 export interface CanvasGateNode {
@@ -37,6 +41,7 @@ export interface CanvasGateNode {
   title: string;
   decisionCriteria: string;
   branches: CanvasBranch[];
+  configOptions?: Record<string, string | boolean>;
 }
 
 export interface CanvasEndNode {

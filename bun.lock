@@ -44,6 +44,7 @@
       "name": "@specflow/server",
       "version": "0.0.0",
       "dependencies": {
+        "@specflow/agent-proxy": "workspace:*",
         "@specflow/bridge": "workspace:*",
         "@specflow/shared": "workspace:*",
         "@specflow/workflow": "workspace:*",

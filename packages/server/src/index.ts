@@ -10,6 +10,7 @@ export * from "./run-log-store";
 export * from "./agent-server-config";
 export * from "./agent-server-runtime";
 export * from "./workspace";
+export * from "./skills";
 export {
   choosePreferredAuthMethod,
   supportedRegistryAgentIds,

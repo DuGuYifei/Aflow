@@ -28,7 +28,11 @@ export class AgentProxySessionPool {
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     const resolved = await this.#resolve(request.agentServerId);
     if (resolved.source === "headless") return runHeadlessAgent(resolved, request);
-    if (!request.workflowSessionId) return runAcpAgent(resolved, withPolicyDirectories(resolved, request));
+    if (!request.workflowSessionId) {
+      return runAcpAgent(resolved, withPolicyDirectories(resolved, request), {
+        onCapabilities: (probe) => this.#store.setCapabilities(request.agentServerId, probe),
+      });
+    }
 
     const normalizedRequest = withPolicyDirectories(resolved, request);
     const key = connectionKey(normalizedRequest);
@@ -72,6 +76,7 @@ export class AgentProxySessionPool {
       resolved,
       cwd: request.cwd,
       additionalDirectories: request.additionalDirectories,
+      onCapabilities: (probe) => this.#store.setCapabilities(resolved.id, probe),
     });
     try {
       await connection.start(request);

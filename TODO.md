@@ -65,6 +65,7 @@
 - [ ] registry选择模型，选择permission
 - [ ] 合并inspect和resume的界面到logs
 - [ ] 个人页面风格骗号等，没有记录
+- [x] ACP skill怎么实现 (好像是自己去读 ~/.agents/skills和 project/.agents/skills)
 
 ## Bug
 

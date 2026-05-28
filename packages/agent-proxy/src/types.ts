@@ -1,4 +1,5 @@
 import type {
+  AgentCapabilities,
   CompleteElicitationNotification,
   ContentBlock,
   CreateElicitationRequest,
@@ -8,6 +9,8 @@ import type {
   McpServer,
   PromptResponse,
   ResumeSessionResponse,
+  SessionConfigOption,
+  SessionModeState,
   SessionNotification,
 } from "@agentclientprotocol/sdk";
 
@@ -121,6 +124,23 @@ export interface AgentRunRequest {
   cwd: string;
   additionalDirectories?: string[];
   mcpServers?: McpServer[];
+  /**
+   * Per-request override for ACP `setSessionMode`. Falls back to the agent
+   * server's `defaultMode` when omitted. Important: if omitted on a session
+   * that was previously placed into a non-default mode by an earlier node,
+   * the existing mode is preserved (the proxy does NOT re-issue `setSessionMode`
+   * with the default). That matches the per-node "stickiness" semantics the
+   * UI describes.
+   */
+  modeId?: string;
+  /**
+   * Per-request overrides for ACP `setSessionConfigOption` / `unstable_setSessionModel`.
+   * Keys are option ids; values are the chosen value id (or boolean for
+   * boolean-typed options). The special key `model` is routed to
+   * `unstable_setSessionModel`. Other keys go through `setSessionConfigOption`.
+   * Same stickiness semantics as `modeId`.
+   */
+  configOptions?: Record<string, string | boolean>;
   runId?: string;
   workflowSessionId?: string;
   forkFromWorkflowSessionId?: string;
@@ -164,6 +184,10 @@ export interface AgentRestoreRequest {
   cwd: string;
   additionalDirectories?: string[];
   mcpServers?: McpServer[];
+  /** See AgentRunRequest.modeId. */
+  modeId?: string;
+  /** See AgentRunRequest.configOptions. */
+  configOptions?: Record<string, string | boolean>;
   signal?: AbortSignal;
   onTerminalEvent?: (event: AgentTerminalEvent) => void;
   onSessionUpdate?: (event: AgentSessionUpdateEvent) => void;
@@ -212,6 +236,42 @@ export interface AgentServerEntry {
   id: AgentServerId;
   settings: AgentServerSettings;
   registry?: AgentServerRegistryStatus;
+  /** Cached capability snapshot, if probed. */
+  capabilities?: AgentServerCapabilitiesCache;
+}
+
+/**
+ * Persisted snapshot of an agent server's advertised capabilities. Populated
+ * the first time the proxy successfully completes an `initialize` +
+ * `newSession` round-trip for that server. Invalidated automatically when
+ * the resolved `installedVersion` no longer matches the one recorded here
+ * (i.e. the registry pin was bumped); a manual refresh endpoint also
+ * exists for cases where settings changed without a version bump (env
+ * vars, args, etc.).
+ *
+ * Stored separately from `AgentServerSettings` because it isn't authored
+ * by the user — it's a runtime probe result.
+ */
+export interface AgentServerCapabilitiesCache {
+  /** Snapshot timestamp (ISO 8601). */
+  probedAt: string;
+  /** `installedVersion` at probe time; used to detect upgrades. */
+  installedVersion?: string;
+  /** From `InitializeResponse.agentCapabilities`. */
+  agentCapabilities: AgentCapabilities;
+  /** From `NewSessionResponse.modes`. May be null when not advertised. */
+  modes: SessionModeState | null;
+  /** From `NewSessionResponse.configOptions`. May be null when not advertised. */
+  configOptions: SessionConfigOption[] | null;
+  /** Slash commands advertised by the agent during the probe session. */
+  availableCommands: AgentAvailableCommand[];
+}
+
+/** Slimmed view of `acp.AvailableCommand` for storage. */
+export interface AgentAvailableCommand {
+  name: string;
+  description: string;
+  inputHint?: string;
 }
 
 export interface AgentAuthenticationEnvVar {

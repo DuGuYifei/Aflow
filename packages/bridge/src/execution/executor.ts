@@ -95,7 +95,24 @@ export interface WorkflowExecutorOptions {
   onRunStatus?: (event: RunStatusEvent) => void;
   onAgentLifecycle?: (event: AgentLifecycleStatusEvent) => void;
   onAgentSessionUpdate?: (event: AgentSessionUpdateStatusEvent) => void;
+  /**
+   * Optional pre-flight on each prompt. Receives the rendered node prompt
+   * plus the agent server id; returns the text that should actually be sent
+   * to the agent. Used by the server to apply slash command / skill body
+   * injection without coupling the executor to the skills module.
+   */
+  promptTransformer?: PromptTransformer;
 }
+
+export interface PromptTransformContext {
+  agentServerId: string;
+  /** Workflow node the prompt originates from (or `undefined` for handoff edges). */
+  nodeId?: string;
+  /** Workflow edge id when the prompt is a handoff between sessions. */
+  edgeId?: string;
+}
+
+export type PromptTransformer = (prompt: string, context: PromptTransformContext) => Promise<string> | string;
 
 export type AgentServerSettingsResolver = (
   agentServerId: string,
@@ -171,6 +188,7 @@ export class WorkflowExecutor {
   readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
   readonly #onAgentLifecycle: ((event: AgentLifecycleStatusEvent) => void) | undefined;
   readonly #onAgentSessionUpdate: ((event: AgentSessionUpdateStatusEvent) => void) | undefined;
+  readonly #promptTransformer: PromptTransformer | undefined;
   readonly #forkCounts = new Map<string, number>();
 
   constructor(options: WorkflowExecutorOptions = {}) {
@@ -184,6 +202,7 @@ export class WorkflowExecutor {
     this.#onRunStatus = options.onRunStatus;
     this.#onAgentLifecycle = options.onAgentLifecycle;
     this.#onAgentSessionUpdate = options.onAgentSessionUpdate;
+    this.#promptTransformer = options.promptTransformer;
   }
 
   get terminalEvents(): TerminalEventStore {
@@ -537,26 +556,31 @@ export class WorkflowExecutor {
         };
       }
       if (!input.origin) throw new Error(`Gate node "${input.node.id}" requires one upstream step output.`);
-      const prompt = renderGatePrompt(input.node, input.origin.output);
-      const forkSessionId = this.#nextForkSessionId(input.origin.sessionId);
+      const origin = input.origin;
+      const prompt = renderGatePrompt(input.node, origin.output);
+      const forkSessionId = this.#nextForkSessionId(origin.sessionId);
       const invocation = this.#createInvocation({
         run: input.run,
         nodeRun,
-        agentId: input.origin.agentId,
+        agentId: origin.agentId,
         sessionId: forkSessionId,
-        parentSessionId: input.origin.sessionId,
+        parentSessionId: origin.sessionId,
         prompt,
       });
+      const sessionDef = input.workflow.sessions.find((candidate) => candidate.id === origin.sessionId);
+      const mcpServers = parseMcpServersField(sessionDef?.mcpServers, sessionDef?.id ?? origin.sessionId);
       const output = await this.#invokeAgent({
         workflow: input.workflow,
         agentRunner: input.agentRunner,
         run: input.run,
         nodeRun,
         invocation,
-        agentId: input.origin.agentId,
+        agentId: origin.agentId,
         prompt,
-        forkFromSessionId: input.origin.sessionId,
+        forkFromSessionId: origin.sessionId,
         signal: input.signal,
+        configOptions: input.node.configOptions,
+        mcpServers,
       });
       const decision = parseGateDecision(input.node, output);
       const gateBranches = input.gateBranches?.map((branch) => {
@@ -620,6 +644,8 @@ export class WorkflowExecutor {
     });
     input.nodeRun.sessionId = input.node.sessionId;
     input.nodeRun.agentInvocationId = invocation.id;
+    const sessionDef = input.workflow.sessions.find((candidate) => candidate.id === input.node.sessionId);
+    const mcpServers = parseMcpServersField(sessionDef?.mcpServers, sessionDef?.id ?? input.node.sessionId);
     return this.#invokeAgent({
       workflow: input.workflow,
       agentRunner: input.agentRunner,
@@ -630,6 +656,9 @@ export class WorkflowExecutor {
       prompt,
       promptBlocks,
       signal: input.signal,
+      modeId: input.node.modeId,
+      configOptions: input.node.configOptions,
+      mcpServers,
     });
   }
 
@@ -650,6 +679,8 @@ export class WorkflowExecutor {
       edgeId: input.edge.id,
       prompt,
     });
+    const sessionDef = input.workflow.sessions.find((candidate) => candidate.id === input.origin.sessionId);
+    const mcpServers = parseMcpServersField(sessionDef?.mcpServers, sessionDef?.id ?? input.origin.sessionId);
     return this.#invokeAgent({
       workflow: input.workflow,
       agentRunner: input.agentRunner,
@@ -658,6 +689,7 @@ export class WorkflowExecutor {
       agentId: input.origin.agentId,
       prompt,
       signal: input.signal,
+      mcpServers,
     });
   }
 
@@ -704,19 +736,37 @@ export class WorkflowExecutor {
     promptBlocks?: AgentCommandRequest["promptBlocks"];
     forkFromSessionId?: string;
     signal?: AbortSignal;
+    modeId?: string;
+    configOptions?: Record<string, string | boolean>;
+    mcpServers?: AgentCommandRequest["mcpServers"];
   }): Promise<string> {
     throwIfCancelled(input.signal);
     const agent = input.workflow.agents.find((candidate) => candidate.id === input.agentId);
     if (!agent) throw new Error(`Missing agent "${input.agentId}".`);
+    const agentServerId = resolveAgentServerId(agent);
+    let promptToSend = input.prompt;
+    if (this.#promptTransformer) {
+      promptToSend = await this.#promptTransformer(promptToSend, {
+        agentServerId,
+        nodeId: input.invocation.nodeId,
+        edgeId: input.invocation.edgeId,
+      });
+      // Keep the invocation record in sync with what we actually sent so
+      // downstream UI / logs can show the resolved skill body.
+      input.invocation.prompt = promptToSend;
+    }
     const result = await input.agentRunner({
-      agentServerId: resolveAgentServerId(agent),
-      prompt: input.prompt,
+      agentServerId,
+      prompt: promptToSend,
       promptBlocks: input.promptBlocks,
       cwd: this.#cwd,
       runId: input.run.id,
       workflowSessionId: input.invocation.sessionId,
       forkFromWorkflowSessionId: input.forkFromSessionId,
       signal: input.signal,
+      ...(input.modeId ? { modeId: input.modeId } : {}),
+      ...(input.configOptions && Object.keys(input.configOptions).length > 0 ? { configOptions: input.configOptions } : {}),
+      ...(input.mcpServers && input.mcpServers.length > 0 ? { mcpServers: input.mcpServers } : {}),
       onTerminalEvent: (event) => this.#appendAgentTerminalEvent({
         runId: input.run.id,
         nodeRunId: input.nodeRun?.id,
@@ -953,6 +1003,32 @@ function gateBranchStatuses(node: Extract<WorkflowNode, { kind: "gate" }>, trave
       available: traversalsUsed < maxTraversals,
     };
   });
+}
+
+/**
+ * Parse a session's `mcpServers` JSON string into the ACP McpServer[] shape.
+ * Treats empty / whitespace / invalid JSON as "no MCP servers configured" by
+ * returning undefined — the agentflow-source parser has already validated
+ * shape at YAML load time, so we only need to be defensive here for cases
+ * where the YAML was bypassed (programmatic Workflow construction).
+ */
+function parseMcpServersField(
+  raw: string | undefined,
+  sessionId: string,
+): AgentCommandRequest["mcpServers"] {
+  if (!raw || !raw.trim()) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Session "${sessionId}" has invalid mcpServers JSON: ${detail}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Session "${sessionId}" mcpServers must be a JSON array.`);
+  }
+  if (parsed.length === 0) return undefined;
+  return parsed as AgentCommandRequest["mcpServers"];
 }
 
 /**
