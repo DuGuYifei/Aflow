@@ -69,5 +69,6 @@ Detailed rationale for key decisions is in [`docs/decisions/`](../../docs/decisi
 
 ## Runtime Notes
 
-- ACP agent runtime architecture and remaining implementation plan: [`agent-runtime-acp.md`](./agent-runtime-acp.md).
+- ACP agent runtime architecture and remaining implementation plan: [`agent-proxy-acp/runtime.md`](./agent-proxy-acp/runtime.md).
+- ACP protocol coverage and `terminal/*` explanation: [`agent-proxy-acp/protocol-coverage.md`](./agent-proxy-acp/protocol-coverage.md).
 - Bridge to agent-proxy call chain: [`agent-proxy-bridge-chain.md`](./agent-proxy-bridge-chain.md).
