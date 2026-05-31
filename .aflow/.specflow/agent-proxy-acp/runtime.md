@@ -8,13 +8,13 @@ Specflow workflows execute work through sessions. Each workflow node or tagged e
 
 The architecture must support:
 
-- Built-in ACP agents installed from the ACP registry, currently `codex-acp` and `claude-acp`.
+- Registry ACP agents configured in the workspace, currently `codex-acp` and `claude-acp` in this repository.
 - Custom ACP agents registered by project/user JSON.
 - A headless command-template runtime for non-ACP direct command agents.
 - Multiple workflow sessions running in the same workflow run.
 - Real-time terminal logging to the UI.
 - Recording both Specflow session ids and real ACP CLI session ids.
-- Future session restore through ACP `session/load` or `session/resume`.
+- Session restore through ACP `session/load` or `session/resume`.
 - Interactive UI handling for ACP permission and elicitation requests.
 - ACP agent-owned session history as the authoritative transcript source.
 
@@ -26,7 +26,7 @@ The architecture must support:
 | `packages/bridge` | Runtime graph execution, prompt rendering, gate routing, `AgentInvocation` creation, terminal event capture. |
 | `packages/agent-proxy` | Agent server resolution, ACP registry/custom source handling, ACP subprocess lifecycle, ACP client handlers. |
 | `packages/server` | HTTP API, SSE run events, run persistence, ACP session index persistence. |
-| `packages/ui` | Canvas editing, workflow run trigger, live log display. Permission and restore UI are not complete yet. |
+| `packages/ui` | Canvas editing, workflow run trigger/cancel/resume, live and historical logs, Agent Servers management, ACP auth, permission/elicitation prompts, session Inspect/Resume, and pause/continue interaction. |
 
 ## Runtime Flow
 
@@ -37,9 +37,9 @@ The architecture must support:
 5. For each agent node, bridge renders the node prompt and creates an `AgentInvocation`.
 6. For each tagged edge with a handoff, bridge renders the handoff prompt and creates an `AgentInvocation` with `edgeId`.
 7. Bridge calls `AgentProxySessionPool.run`.
-8. The pool resolves the configured agent server from `.aflow/.specflow/agent-servers.json`, `.aflow/.specflow/agent-servers.local.json`, or built-in defaults.
+8. The pool resolves the configured agent server from `.aflow/.specflow/agent-servers.json` plus `.aflow/.specflow/agent-servers.local.json` overrides.
 9. For ACP servers, agent-proxy starts an ACP CLI subprocess over stdio through the official `@agentclientprotocol/sdk`.
-10. Agent-proxy sends ACP `initialize`, creates or reuses an ACP session, applies configured defaults, and sends `session/prompt`.
+10. Agent-proxy sends ACP `initialize`, creates or reuses an ACP session, applies per-request mode/config overrides when provided, and sends `session/prompt`.
 11. Agent output, terminal output, session updates, permission requests, and elicitation requests flow through ACP client handlers.
 12. Bridge records terminal chunks in `TerminalEventStore`.
 13. Server streams live events to `/api/runs/:id/events`.
@@ -55,15 +55,14 @@ Agent server configuration is represented by `AgentServerSettings`:
 
 Configuration load order:
 
-1. Built-in defaults from `AgentServerStore`.
-2. Project config `.aflow/.specflow/agent-servers.json`.
-3. Local/user override `.aflow/.specflow/agent-servers.local.json`.
+1. Project config `.aflow/.specflow/agent-servers.json`.
+2. Local/user override `.aflow/.specflow/agent-servers.local.json`.
 
 Later entries override earlier entries by agent server id.
 
-Current built-ins:
+This repository's shared config currently defines:
 
-- `codex-acp`, registry id `codex-acp`, default mode `auto`.
+- `codex-acp`, registry id `codex-acp`.
 - `claude-acp`, registry id `claude-acp`.
 
 ## ACP Client Behavior
@@ -103,9 +102,9 @@ Default behavior without UI hooks:
 - Elicitation requests return cancel.
 - Filesystem requests are allowed only inside the workflow `cwd` and configured `additionalDirectories`.
 - `additionalDirectories` can be set on an agent server entry in `.aflow/.specflow/agent-servers.json` or `.aflow/.specflow/agent-servers.local.json`; relative paths resolve from the workflow `cwd`, and `~` is expanded.
-- ACP terminal creation is enabled by default but constrained to the same allowed roots for terminal `cwd`.
-- ACP terminal auth is not advertised by default. It is advertised only when the agent server config sets `terminal.auth: true`.
-- Agent server configs can disable terminal creation with `terminal.enabled: false`.
+- ACP terminal creation is advertised and implemented. Commands run as Bun subprocesses, terminal `cwd` is constrained to the same allowed roots, stdout/stderr are streamed to workflow logs, and retained output respects the ACP `outputByteLimit`.
+- ACP terminal auth support is advertised during `initialize`. Browser-visible terminal auth flows are handled by the server-side auth terminal session APIs and UI.
+- Agent server config currently supports `type`, `command`/`args` or registry id, `cwd`, `env`, and `additionalDirectories`. There is no per-agent `terminal.enabled` or `terminal.auth` setting in the current typed config.
 
 ## Session Model
 
@@ -239,7 +238,7 @@ Implemented:
 - Run records include final ACP invocation metadata after run completion.
 - Server exposes the ACP session index API.
 - Agent-proxy can start an ACP CLI for an existing ACP session id and call `session/load` or `session/resume` based on advertised capabilities.
-- Restore mode selection is capability-driven: `inspect` prefers `load`, `continue` prefers `resume`, and each mode falls back to the other primitive when only one is available.
+- Restore primitive selection is capability-driven: both `inspect` and `continue` prefer `load`, and both fall back to `resume` when load is unavailable.
 - Server can start a restore attempt for an indexed ACP session and stream restored `session/update` notifications and terminal output over a restore SSE channel.
 - Server records restore attempts and results in both `.aflow/.specflow/run-logs/<runId>.jsonl` and `.aflow/.specflow/agent-sessions.json`.
 - UI can cancel an active run from the run view.
@@ -254,11 +253,9 @@ Restore must be capability-driven:
 - Use ACP `session/load` only when `InitializeResponse.agentCapabilities.loadSession` is true.
 - Use ACP `session/resume` only when `InitializeResponse.agentCapabilities.sessionCapabilities.resume` is present.
 
-Historical inspection should prefer `session/load` because it can replay prior messages through `session/update`.
+Historical inspection prefers `session/load` because it can replay prior messages through `session/update`.
 
-Continuing work should prefer `session/resume` when the user wants to reactivate the external session.
-
-The agent-proxy restore selector implements those preferences and falls back to the other primitive when only one is advertised. If neither primitive is advertised, restore fails before calling an ACP session restore method.
+Continuing work also prefers `session/load` when available, because the current conversation UI keeps the restored ACP connection open after load and can send follow-up prompts with the loaded context. If `load` is unavailable but `resume` is advertised, Specflow falls back to `resume`. If neither primitive is advertised, restore fails before calling an ACP session restore method.
 
 The server route is `POST /api/agent-sessions/:id/restore` with `{ "mode": "inspect" | "continue" }`. The response includes a `restoreId`; the active restore stream is `GET /api/agent-session-restores/:restoreId/events`.
 
@@ -292,12 +289,12 @@ Current test coverage includes:
 - Server ACP session index create/merge/delete behavior.
 - Agent-proxy restore selection against fake ACP agents advertising load-only, resume-only, both, and neither capability sets.
 - Server restore API streaming and audit persistence against the fake ACP restore fixture.
-- Agent-proxy rejects configured default modes/models/options that are not advertised by the initialized ACP session.
+- Agent-proxy rejects per-node modes/config options that are not advertised by the initialized ACP session.
 - Headless runtime execution for success, non-zero exit, env merge, and cancellation.
 - Bridge run cancellation during active prompts, permission waits, and elicitation waits.
 - Server run cancellation API persistence using a headless child process.
 - Server API terminal SSE replay uses the same run id as the persisted run log.
-- Server restore API covers both inspect/load and continue/resume against fake ACP agents advertising both capabilities.
+- Server restore API covers inspect/load and continue/load when both primitives are advertised, plus resume fallback when load is unavailable.
 - UI integration coverage for run start and live log panel updates.
 
 - End-to-end UI test for run start and live log display.

@@ -40,22 +40,20 @@ Specflow 关注的是编码过程如何在本地被系统性收敛。
 
 **Spec** 是仓库级知识，不是 ticket 级文档。Specflow 当前把这类知识放在 `.aflow/.specflow` 目录下，让 AI 不只理解当前 ticket，也理解当前仓库。
 
-**Workflow** 是把 ticket 转化为实现结果的结构化流程。它不是简单线性步骤，而是由节点和边组成的图。
+**Workflow / AgentFlow** 是把输入转化为 Agent 工作结果的结构化流程。它不是简单线性步骤，而是由节点和边组成的图；当前可编辑源码保存在 `.aflow/.specflow/agentflows/*.yaml`，浏览器画布布局单独保存在 `.aflow/.specflow/canvas/*.json`。
 
-**Node** 是 workflow 中的一个可观察步骤，例如 Ticket Input、Spec Context、Interview、Plan、Code Draft、Implementation Reviewer、Repair、Final Patch、Visual Decomposer、Visual Verifier。
+**Node** 分为两层：画布层有 `input`、`step`、`gate`、`end`；运行时层只有 `agent` 与 `gate`。`step` 会调用 Agent，`gate` 会用上游 session 做分支判断，`input` 只负责 run 输入变量替换，`end` 只用于画布展示。
 
-**Edge** 表示节点之间的关系。Specflow 至少有四类边：
-- `control_flow` — 执行顺序
-- `data_flow` — 数据、上下文或 artifact 的流向
-- `review_loop` — 审查失败后的修复循环
-- `control_scope` — director、manager 或 verifier 节点能管理哪些其他节点
+**Edge** 表示节点之间的关系。当前画布边使用 `from`、`to`、可选 `branch`、显式传输字段 `transmit/outputTag/handoffPrompt`，以及返修循环字段 `loopback/maxTraversals`。运行时边会转成三类：
+- `trigger` — 激活下游节点，不显式传内容
+- `gate-input` — 把上游输出和 session 身份交给 gate 判断
+- `tagged-output` — 把上游输出包成命名 XML 变量传给目标 prompt
 
-**Session** 是一组节点共享的 agent CLI 上下文。多个节点可以进入同一个 session module，以保持计划、实现和修复之间的上下文连续性；节点也可以声明当 repair loop 再次进入时开启新 session，避免旧上下文污染新的审查或修复。当前 UI 允许独立 Inspect/Resume 历史 ACP session，也允许普通 agent 节点完成后暂停，在原 session 中进行人工 prompt 交互后再继续 workflow。
+**Session** 是一组节点共享的 agent CLI 上下文。多个节点可以进入同一个 session，以保持计划、实现和修复之间的上下文连续性。当前 UI 支持 Inspect/Resume 历史 ACP session，也支持 `pauseAfterRun`：普通 agent 节点完成一次 turn 后暂停，在原 session 中人工补充 prompt，然后继续 workflow。
 
 ## Workflow 基础样例
 
 ```txt
-session director
 ticket input
   -> spec context
   -> interview
@@ -67,7 +65,7 @@ ticket input
 
 这个流程表达了 Specflow 的核心判断：不是拿到 ticket 就直接写代码，而是先读取仓库知识，再澄清需求、制定计划、生成代码草稿、审查草稿、修复问题，最后输出 final patch。
 
-**Session Director** 是基础流程中的第一个 director 节点。它用可观察 artifact 记录哪些节点共享 session、哪些节点应该开启新 session。当前实现是 deterministic mock，未来可以替换为真实 AI 决策。
+Session 归属当前由 workflow/session 配置显式决定；早期设想中的自动 session 规划节点已不是当前实现模型。
 
 ## `.aflow/.specflow` 目录
 
@@ -76,7 +74,7 @@ ticket input
 仓库本身可能已经存在一些文档，`.aflow/.specflow` 可以通过自行扫描发现它们，比如：
 
 - 已有的 `docs/` 文档层（产品愿景、架构说明、设计背景、技术选型原因、ADR、AI 阅读路径等）
-- README.md、AGENT.md、CONTRIBUTING.md 等面向用户和贡献者的文档
+- README.md、README.zh-CN.md、AGENTS.md、CLAUDE.md、CONTRIBUTING.md 等面向用户和贡献者的文档
 
 初次构建 `.aflow/.specflow` 可以引用已有文档，通过写明相关文档在仓库的 relevant path 来建立索引。
 

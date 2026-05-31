@@ -175,9 +175,9 @@ ACP clients must check advertised capabilities before resuming:
 
 For historical inspection, `session/load` is preferable because it asks the agent to replay its own prior messages via `session/update`.
 
-For continuing work without replaying history, `session/resume` is the stable primitive. If an agent supports only resume, Specflow can still show workflow-side runtime logs from its own run log store, but those logs are not a full ACP transcript.
+For continuing work, current Specflow also prefers `session/load` when available: the restored conversation remains open and follow-up prompts are sent on that loaded ACP session. If an agent supports only `resume`, Specflow uses `resume`; workflow-side runtime logs remain available, but they are not a full ACP transcript.
 
-The agent-proxy boundary now exposes this as a restore operation for an existing `agentServerId` and ACP `sessionId`. `inspect` prefers `session/load`; `continue` prefers `session/resume`; both modes fall back to the other primitive when it is the only advertised option.
+The agent-proxy boundary exposes this as a restore operation for an existing `agentServerId` and ACP `sessionId`. Both `inspect` and `continue` prefer `session/load`; both fall back to `session/resume` when load is unavailable.
 
 The server exposes that boundary through `POST /api/agent-sessions/:id/restore`. It records a restore attempt in `.aflow/.specflow/agent-sessions.json` and `.aflow/.specflow/run-logs/<runId>.jsonl`, starts the ACP CLI, and streams restored ACP `session/update` notifications plus terminal output through `GET /api/agent-session-restores/:restoreId/events`. The streamed ACP updates are live restore-view data, not a durable Specflow transcript copy.
 

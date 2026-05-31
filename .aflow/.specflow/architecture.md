@@ -46,10 +46,11 @@ UI state, subprocesses, or runtime orchestration.
 
 | Mode | Package | Status |
 |------|---------|--------|
-| Browser UI | `cli` → `server` → `bridge` | In progress |
-| Headless | `cli` → `bridge` (direct) | Planned — `--headless` flag |
+| Browser UI | `cli` → `server` → `bridge` | Current primary entry point |
+| Headless agent runtime | `bridge` → `agent-proxy` | Implemented for command-template agents |
+| Direct headless CLI entry point | `cli` → `bridge` (direct) | Not exposed as a user-facing `--headless` flag |
 
-`server` is not the core — it is one consumer of `bridge`. A future headless mode calls `bridge` directly and does not involve `server`.
+`server` is not the core — it is one consumer of `bridge`. Tests and alternate runtimes can call `bridge` directly; the shipped CLI currently starts the server-backed UI.
 
 ## Binary distribution
 

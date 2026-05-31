@@ -264,3 +264,4 @@ Runtime `TaggedOutputEdge.outputTag` 字段：
 - Gate 未选中路径会正确停止执行，但运行记录/UI 尚未将这些节点标为独立的 `skipped` 状态，仍可能显示初始 `pending`。
 - ACP process/connection 目前不跨独立 run 长期复用。
 - 资源选择通过浏览器上传副本实现；手动路径引用才会直接指向已有全局或项目路径。
+- 失败、取消或暂停过的 run 可以通过 `POST /api/runs/:id/resume-workflow` 启动一个 continuation run；已完成且有输出的节点会复用历史输出，中断节点会用 continuation prompt 重新进入，同一 workflow session 的历史 ACP session id 会在首次 prompt 时尝试 load/resume。
