@@ -54,19 +54,20 @@
 - [ ] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。
 - [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界。
 - [ ] 改进执行中才触发 auth 请求时的重试与 UI 流程。
-- [ ] Skill系统接入
+- [x] Skill系统接入
 - [ ] MCP系统接入
 - [ ] 无头模式
 - [x] Gate 循环的上限
 - [ ] 从某一个节点继续它的session运行
 - [ ] token计数
 - [ ] 辅助build workflow的agent
-- [ ] 优化workflow的agent
-- [ ] registry选择模型，选择permission
+- [ ] 优化workflow的agent或server中台
 - [ ] 合并inspect和resume的界面到logs
-- [ ] 个人页面风格骗号等，没有记录
 - [x] ACP skill怎么实现 (好像是自己去读 ~/.agents/skills和 project/.agents/skills)
 - [ ] 日志大小上限，文件数量上限
+- [ ] 清理 .specflow 下的文件 / 文件夹
+- [ ] specflow generate-spec 命令
+- [ ] specflow update-spec 命令
 
 ## Bug
 
@@ -74,4 +75,4 @@
 - [ ] variable页签不显示正在运行的已经填过的变量。
 - [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
 - [ ] session似乎在显示时候共享了session
-- [ ] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？
+- [ ] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）
