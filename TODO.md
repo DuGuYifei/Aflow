@@ -51,12 +51,12 @@
 - [ ] 实现 spec 文档生成、更新及 flow 完成后的自动更新。(waiting maturation)
 - [ ] specflow generate-spec 命令
 - [ ] specflow update-spec 命令
-- [ ] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。
+- [x] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。(不再遇到)
 - [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界。
 - [ ] 清理 .specflow 下的文件 / 文件夹
 - [x] 改进执行中才触发 auth 请求时的重试与 UI 流程。
 - [x] Skill系统接入
-- [ ] MCP系统接入
+- [x] MCP系统接入
 - [ ] 无头模式
 - [x] Gate 循环的上限
 - [x] 从某一个节点继续它的session运行
@@ -68,12 +68,12 @@
 - [ ] 日志大小上限，文件数量上限
 - [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
 - [ ] app
+- [ ] UI更新为和homepage一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
 
 ## Bug
 
 - [ ] fork不实时显示session
 - [ ] variable页签不显示正在运行的已经填过的变量。
-
 - [x] session似乎在显示时候共享了session
 - [x] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）
 - [x] UI: input value节点不能连线

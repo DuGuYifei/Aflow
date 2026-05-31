@@ -13,7 +13,10 @@ if (-not $Version) {
   $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases"
   $release = $releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
   if (-not $release) {
-    throw "specflow installer: could not resolve the latest semver release for $Repo"
+    $release = $releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+-[0-9A-Za-z.-]+$' } | Select-Object -First 1
+  }
+  if (-not $release) {
+    throw "specflow installer: could not resolve the latest release for $Repo"
   }
   $Version = $release.tag_name
 }

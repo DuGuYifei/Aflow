@@ -34,15 +34,24 @@ case "$arch" in
 esac
 
 if [ -z "$VERSION" ]; then
+  releases="$(curl -fsSL "https://api.github.com/repos/$REPO/releases")"
   VERSION="$(
-    curl -fsSL "https://api.github.com/repos/$REPO/releases" |
+    printf '%s\n' "$releases" |
       sed -n 's/.*"tag_name":[[:space:]]*"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' |
       head -n 1
   )"
+
+  if [ -z "$VERSION" ]; then
+    VERSION="$(
+      printf '%s\n' "$releases" |
+        sed -n 's/.*"tag_name":[[:space:]]*"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-[0-9A-Za-z.-][0-9A-Za-z.-]*\)".*/\1/p' |
+        head -n 1
+    )"
+  fi
 fi
 
 if [ -z "$VERSION" ]; then
-  echo "specflow installer: could not resolve the latest semver release for $REPO" >&2
+  echo "specflow installer: could not resolve the latest release for $REPO" >&2
   exit 1
 fi
 
