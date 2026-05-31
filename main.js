@@ -132,17 +132,18 @@
       download: {
         title: "下载 Aflow",
         body: "如果你要二进制文件，去 GitHub Releases。若你喜欢从终端开始，下面是 README 中的安装命令。",
-        releasesTitle: "Binary downloads",
+        releasesTitle: "二进制下载",
         releasesBody: "选择适合系统的 release asset。稳定版使用 vX.Y.Z；alpha、beta、rc 等预发布版本也会出现在 Releases。",
         releasesCta: "打开 GitHub Releases",
-        commandTitle: "Install from command line",
+        commandCta: "命令行下载",
+        commandTitle: "从命令行安装",
         commandBody: "安装脚本固定在 install-v1 tag；如需指定版本，在命令后追加 release tag。",
         backHome: "返回首页",
         groups: [
           ["macOS / Linux · 最新稳定版", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash"],
-          ["macOS / Linux · 指定版本", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v1.2.3-rc.1"],
+          ["macOS / Linux · 指定版本", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v0.0.1-beta.2"],
           ["Windows PowerShell · 最新稳定版", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\")))"],
-          ["Windows PowerShell · 指定版本", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\"))) \"v1.2.3-rc.1\""],
+          ["Windows PowerShell · 指定版本", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\"))) \"v0.0.1-beta.2\""],
         ],
       },
       footer: {
@@ -276,14 +277,15 @@
         releasesTitle: "Binary downloads",
         releasesBody: "Choose the release asset for your system. Stable releases use vX.Y.Z; alpha, beta, and rc builds are also published there.",
         releasesCta: "Open GitHub Releases",
+        commandCta: "Command line install",
         commandTitle: "Install from command line",
         commandBody: "The installer is pinned to the install-v1 tag. Pass a release tag when you want a specific version.",
         backHome: "Back home",
         groups: [
           ["macOS / Linux · latest stable", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash"],
-          ["macOS / Linux · specific version", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v1.2.3-rc.1"],
+          ["macOS / Linux · specific version", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v0.0.1-beta.2"],
           ["Windows PowerShell · latest stable", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\")))"],
-          ["Windows PowerShell · specific version", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\"))) \"v1.2.3-rc.1\""],
+          ["Windows PowerShell · specific version", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\"))) \"v0.0.1-beta.2\""],
         ],
       },
       footer: {
@@ -414,7 +416,7 @@
   }
 
   function downloadPage(t) {
-    return `<main id="main-content" class="download-page" tabindex="-1"><section class="download-hero section"><div class="container download-hero-layout"><div><p class="section-label">Download</p><h1>${t.download.title}</h1><p>${t.download.body}</p><div class="cta-row"><a class="button primary" href="${RELEASES_URL}" target="_blank" rel="noreferrer">${icon("external")}<span>${t.download.releasesCta}</span></a><a class="button secondary" href="index.html#hero">${icon("branch")}<span>${t.download.backHome}</span></a></div></div><aside class="release-card"><span>GitHub Releases</span><h2>${t.download.releasesTitle}</h2><p>${t.download.releasesBody}</p></aside></div></section><section class="download-section section"><div class="container"><div class="section-heading"><p class="section-label">Command line</p><h2>${t.download.commandTitle}</h2><p>${t.download.commandBody}</p></div><div class="download-grid">${t.download.groups.map(commandGroup).join("")}</div></div></section></main>`;
+    return `<main id="main-content" class="download-page" tabindex="-1"><section class="download-hero section"><div class="container download-hero-layout"><div><h1>${t.download.title}</h1><p>${t.download.body}</p><div class="cta-row"><a class="button primary" href="${RELEASES_URL}" target="_blank" rel="noreferrer">${icon("external")}<span>${t.download.releasesCta}</span></a><a class="button secondary" href="#command-line">${icon("terminal")}<span>${t.download.commandCta}</span></a><a class="button secondary" href="index.html#hero">${icon("branch")}<span>${t.download.backHome}</span></a></div></div><aside class="release-card"><span>GitHub Releases</span><h2>${t.download.releasesTitle}</h2><p>${t.download.releasesBody}</p></aside></div></section><section id="command-line" class="download-section section"><div class="container"><div class="section-heading"><h2>${t.download.commandTitle}</h2><p>${t.download.commandBody}</p></div><div class="download-grid">${t.download.groups.map(commandGroup).join("")}</div></div></section></main>`;
   }
 
   function footer(t) {

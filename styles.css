@@ -2787,6 +2787,14 @@ body::before {
   max-width: 720px;
 }
 
+.download-hero .cta-row {
+  flex-wrap: wrap;
+}
+
+.download-hero .button {
+  white-space: nowrap;
+}
+
 .release-card {
   border-radius: 18px;
   padding: clamp(24px, 3vw, 34px);
