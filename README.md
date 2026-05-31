@@ -58,11 +58,30 @@ Example local secret override:
 }
 ```
 
+Example custom ACP agent:
+
+```json
+{
+  "agent_servers": {
+    "my-acp-agent": {
+      "type": "custom",
+      "command": "node",
+      "args": ["./agents/my-agent.js", "--acp"],
+      "cwd": ".",
+      "env": {
+        "MY_AGENT_API_KEY": "..."
+      },
+      "additionalDirectories": ["../shared-workspace"]
+    }
+  }
+}
+```
+
 Specflow-specific agent server keys:
 
 - `env`: environment variables passed to the agent process. ACP `env_var` auth methods read their required variables from here.
 
-Agent server entries keep process launch settings such as `command`, `args`, `cwd`, and `env`. Authentication, terminal capability handling, and permission prompts are driven by ACP at run time. Mode, model, reasoning, and config overrides belong at the workflow or node level rather than in agent server config.
+Agent server entries keep process launch settings such as `type`, `command`, `args`, `cwd`, `env`, and `additionalDirectories`. Custom ACP agents must speak ACP over stdio. Authentication, terminal capability handling, and permission prompts are driven by ACP at run time. Mode, model, reasoning, and config overrides belong at the workflow or node level rather than in agent server config.
 
 ## Development
 
