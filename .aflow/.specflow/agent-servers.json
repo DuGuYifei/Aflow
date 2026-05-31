@@ -3,24 +3,12 @@
     "codex-acp": {
       "type": "registry",
       "registry_id": "codex-acp",
-      "default_config_options": {},
-      "env": {},
-      "permission_policy": {
-        "mode": "prompt",
-        "prompt_timeout_ms": 600000,
-        "on_timeout": "accept"
-      }
+      "env": {}
     },
     "claude-acp": {
       "type": "registry",
       "registry_id": "claude-acp",
-      "default_config_options": {},
-      "env": {},
-      "permission_policy": {
-        "mode": "prompt",
-        "prompt_timeout_ms": 600000,
-        "on_timeout": "accept"
-      }
+      "env": {}
     }
   }
 }
