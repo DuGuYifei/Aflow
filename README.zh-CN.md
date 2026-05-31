@@ -83,6 +83,34 @@ Specflow 支持的 agent server 自定义 key：
 
 Agent server 条目只保存进程启动所需设置，例如 `type`、`command`、`args`、`cwd`、`env` 和 `additionalDirectories`。自定义 ACP Agent 需要通过 stdio 实现 ACP。认证、terminal capability 和 permission prompt 都由 ACP 在运行时驱动。Mode、model、reasoning 和 config override 应该配置在 workflow 或节点级别，而不是 agent server 配置里。
 
+## 安装
+
+安装最新稳定版：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash
+```
+
+默认情况下，安装脚本只解析最新的稳定版 `vX.Y.Z`。如果要安装指定 release，在 `bash -s --` 后面传入 tag：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v1.2.3-rc.1
+```
+
+Windows PowerShell：
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1")))
+```
+
+Windows 安装指定 release：
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1"))) "v1.2.3-rc.1"
+```
+
+`install-v1` tag 用来固定安装脚本版本。真正的 release binaries 会挂在 `vX.Y.Z` 以及 `vX.Y.Z-alpha.1`、`vX.Y.Z-beta.1`、`vX.Y.Z-rc.1` 这类 prerelease tag 下。
+
 ## 开发
 
 Specflow 使用 [mise](https://mise.jdx.dev/) 固定 Bun 版本。

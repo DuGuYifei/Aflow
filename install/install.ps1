@@ -1,13 +1,17 @@
+param(
+  [string]$RequestedVersion = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 $Repo = if ($env:SPECFLOW_REPO) { $env:SPECFLOW_REPO } else { "DuGuYifei/Aflow" }
 $InstallDir = if ($env:SPECFLOW_INSTALL_DIR) { $env:SPECFLOW_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
 $BinName = if ($env:SPECFLOW_BIN_NAME) { $env:SPECFLOW_BIN_NAME } else { "specflow.exe" }
-$Version = if ($env:SPECFLOW_VERSION) { $env:SPECFLOW_VERSION } else { "" }
+$Version = if ($RequestedVersion) { $RequestedVersion } elseif ($env:SPECFLOW_VERSION) { $env:SPECFLOW_VERSION } else { "" }
 
 if (-not $Version) {
   $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases"
-  $release = $releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+' } | Select-Object -First 1
+  $release = $releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
   if (-not $release) {
     throw "specflow installer: could not resolve the latest semver release for $Repo"
   }
@@ -28,7 +32,12 @@ New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 try {
   Write-Host "Installing Specflow $Version for windows-$cpu..."
   $archive = Join-Path $tmp $asset
-  Invoke-WebRequest -Uri $url -OutFile $archive
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $archive
+  }
+  catch {
+    throw "specflow installer: release asset not found: $url"
+  }
   Expand-Archive -Path $archive -DestinationPath $tmp -Force
 
   New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null

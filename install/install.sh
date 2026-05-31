@@ -4,7 +4,7 @@ set -eu
 REPO="${SPECFLOW_REPO:-DuGuYifei/Aflow}"
 INSTALL_DIR="${SPECFLOW_INSTALL_DIR:-$HOME/.local/bin}"
 BIN_NAME="${SPECFLOW_BIN_NAME:-specflow}"
-VERSION="${SPECFLOW_VERSION:-}"
+VERSION="${1:-${SPECFLOW_VERSION:-}}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -36,7 +36,7 @@ esac
 if [ -z "$VERSION" ]; then
   VERSION="$(
     curl -fsSL "https://api.github.com/repos/$REPO/releases" |
-      sed -n 's/.*"tag_name":[[:space:]]*"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*[^"]*\)".*/\1/p' |
+      sed -n 's/.*"tag_name":[[:space:]]*"\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' |
       head -n 1
   )"
 fi
@@ -56,7 +56,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Installing Specflow $VERSION for $platform-$cpu..."
-curl -fL "$url" -o "$tmp/$asset"
+if ! curl -fL "$url" -o "$tmp/$asset"; then
+  echo "specflow installer: release asset not found: $url" >&2
+  exit 1
+fi
 tar -xzf "$tmp/$asset" -C "$tmp"
 
 mkdir -p "$INSTALL_DIR"

@@ -83,6 +83,34 @@ Specflow-specific agent server keys:
 
 Agent server entries keep process launch settings such as `type`, `command`, `args`, `cwd`, `env`, and `additionalDirectories`. Custom ACP agents must speak ACP over stdio. Authentication, terminal capability handling, and permission prompts are driven by ACP at run time. Mode, model, reasoning, and config overrides belong at the workflow or node level rather than in agent server config.
 
+## Installation
+
+Install the latest stable release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash
+```
+
+By default, the installer resolves the latest stable `vX.Y.Z` release. To install a specific release, pass the tag after `bash -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v1.2.3-rc.1
+```
+
+Windows PowerShell:
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1")))
+```
+
+Install a specific release on Windows:
+
+```powershell
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1"))) "v1.2.3-rc.1"
+```
+
+The `install-v1` tag pins the installer script. Release binaries are attached to `vX.Y.Z` and prerelease tags such as `vX.Y.Z-alpha.1`, `vX.Y.Z-beta.1`, or `vX.Y.Z-rc.1`.
+
 ## Development
 
 Specflow uses [mise](https://mise.jdx.dev/) to pin Bun.
