@@ -13,7 +13,12 @@ if (process.argv.includes("--fake-auth")) {
 
 class FakeAgent implements acp.Agent {
   readonly #connection: acp.AgentSideConnection;
-  readonly #sessions = new Map<string, { promptCount: number }>();
+  readonly #sessions = new Map<string, {
+    promptCount: number;
+    modeCalls: string[];
+    modelCalls: string[];
+    configCalls: string[];
+  }>();
   readonly #restoreCapabilities = new Set((process.env.SPECFLOW_FAKE_ACP_RESTORE ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -69,7 +74,7 @@ class FakeAgent implements acp.Agent {
   async newSession(): Promise<acp.NewSessionResponse> {
     this.#assertAuthenticated();
     const sessionId = uuidv7();
-    this.#sessions.set(sessionId, { promptCount: 0 });
+    this.#sessions.set(sessionId, this.#newSessionState());
     return this.#sessionResponse(sessionId);
   }
 
@@ -78,14 +83,14 @@ class FakeAgent implements acp.Agent {
     const parent = this.#sessions.get(params.sessionId);
     if (!parent) throw new Error(`Unknown session ${params.sessionId}`);
     const sessionId = uuidv7();
-    this.#sessions.set(sessionId, { promptCount: parent.promptCount });
+    this.#sessions.set(sessionId, { ...this.#newSessionState(), promptCount: parent.promptCount });
     return this.#sessionResponse(sessionId);
   }
 
   async loadSession(params: acp.LoadSessionRequest): Promise<acp.LoadSessionResponse> {
     this.#assertAuthenticated();
     await maybeDelayRestore();
-    this.#sessions.set(params.sessionId, { promptCount: 0 });
+    this.#sessions.set(params.sessionId, this.#newSessionState());
     await this.#sendText(params.sessionId, `loaded:${params.sessionId}\n`);
     return this.#sessionResponse(params.sessionId);
   }
@@ -93,7 +98,7 @@ class FakeAgent implements acp.Agent {
   async resumeSession(params: acp.ResumeSessionRequest): Promise<acp.ResumeSessionResponse> {
     this.#assertAuthenticated();
     await maybeDelayRestore();
-    this.#sessions.set(params.sessionId, { promptCount: 0 });
+    this.#sessions.set(params.sessionId, this.#newSessionState());
     return this.#sessionResponse(params.sessionId);
   }
 
@@ -109,6 +114,15 @@ class FakeAgent implements acp.Agent {
         availableModels: [{ modelId: "test-model", name: "Test Model" }],
       },
       configOptions: [
+        ...(process.env.SPECFLOW_FAKE_ACP_CODEX_MODEL_CONFIG === "1"
+          ? [{
+              id: "model",
+              name: "Model",
+              type: "select" as const,
+              currentValue: "gpt-5.5",
+              options: [{ value: "gpt-5.5", name: "GPT-5.5" }],
+            }]
+          : []),
         {
           id: "reasoning",
           name: "Reasoning",
@@ -120,15 +134,22 @@ class FakeAgent implements acp.Agent {
     };
   }
 
-  async setSessionMode(): Promise<acp.SetSessionModeResponse> {
+  #newSessionState() {
+    return { promptCount: 0, modeCalls: [], modelCalls: [], configCalls: [] };
+  }
+
+  async setSessionMode(params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
+    this.#sessions.get(params.sessionId)?.modeCalls.push(params.modeId);
     return {};
   }
 
-  async unstable_setSessionModel(): Promise<acp.SetSessionModelResponse> {
+  async unstable_setSessionModel(params: acp.SetSessionModelRequest): Promise<acp.SetSessionModelResponse> {
+    this.#sessions.get(params.sessionId)?.modelCalls.push(params.modelId);
     return {};
   }
 
-  async setSessionConfigOption(): Promise<acp.SetSessionConfigOptionResponse> {
+  async setSessionConfigOption(params: acp.SetSessionConfigOptionRequest): Promise<acp.SetSessionConfigOptionResponse> {
+    this.#sessions.get(params.sessionId)?.configCalls.push(`${params.configId}:${String(params.value)}`);
     return { configOptions: [] };
   }
 
@@ -142,6 +163,9 @@ class FakeAgent implements acp.Agent {
     await this.#sendText(sessionId, `turn:${session.promptCount}\n`);
     await this.#sendText(sessionId, `authenticated:${this.#isAuthenticated()}\n`);
     await this.#sendText(sessionId, `authentications:${this.#authenticationCount}\n`);
+    if (session.modeCalls.length > 0) await this.#sendText(sessionId, `modeCalls:${session.modeCalls.join(",")}\n`);
+    if (session.modelCalls.length > 0) await this.#sendText(sessionId, `modelCalls:${session.modelCalls.join(",")}\n`);
+    if (session.configCalls.length > 0) await this.#sendText(sessionId, `configCalls:${session.configCalls.join(",")}\n`);
     await this.#sendText(sessionId, `prompt:${text}\n`);
     await this.#sendText(sessionId, `blocks:${params.prompt.map((block) => block.type).join(",")}\n`);
 

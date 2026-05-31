@@ -103,6 +103,8 @@ export type TimelineEvent =
     type: 'display-message';
     role: 'agent' | 'user' | 'system';
     text: string;
+    nodeId?: string;
+    specflowSessionId?: string;
   };
 
 export interface Branch {

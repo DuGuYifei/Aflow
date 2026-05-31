@@ -4,7 +4,6 @@ import type { AgentServerEntry, AgentSessionRecord, PausedNodeSession, RestoreMo
 import { useI18n } from '../i18n';
 import { Icon } from './icon';
 import { isSymbolKey, sessionAccent } from '../appearance';
-import type { ConversationLine } from './agent-conversation-window';
 import { SessionTimeline } from './session-timeline';
 
 const UNSCOPED_SESSION_FILTER = '__unscoped__';
@@ -39,7 +38,6 @@ interface SessionsBarProps {
   onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
   restoreStatusBySession?: Record<string, string>;
   pausedNode?: PausedNodeSession | null;
-  pausedLines?: ConversationLine[];
   pausedPromptBusy?: boolean;
   onPromptPausedNode?: (prompt: string) => void;
   onContinuePausedNode?: () => void;
@@ -59,7 +57,7 @@ export function SessionsBar({
   agentSessions = [], agentServers = [], runs = [],
   onOpenInvocationLog, onRestoreSession,
   restoreStatusBySession = {},
-  pausedNode, pausedLines = [], pausedPromptBusy = false,
+  pausedNode, pausedPromptBusy = false,
   onPromptPausedNode, onContinuePausedNode,
   readonly,
 }: SessionsBarProps) {
@@ -167,7 +165,6 @@ export function SessionsBar({
           historicLogLoadedFromIndex={historicLogLoadedFromIndex}
           onDeleteSession={onDeleteSession}
           pausedNode={pausedNode}
-          pausedLines={pausedLines}
           pausedPromptBusy={pausedPromptBusy}
           onPromptPausedNode={onPromptPausedNode}
           onContinuePausedNode={onContinuePausedNode}
@@ -226,7 +223,6 @@ interface LogsTabProps {
   historicLogLoadedFromIndex?: number;
   onDeleteSession: (id: string) => void;
   pausedNode?: PausedNodeSession | null;
-  pausedLines: ConversationLine[];
   pausedPromptBusy: boolean;
   onPromptPausedNode?: (prompt: string) => void;
   onContinuePausedNode?: () => void;
@@ -236,7 +232,7 @@ interface LogsTabProps {
 function LogsTab({
   sessions, activeSession, setActiveSessionId, stepNodes, timelineEvents, onDeleteSession,
   onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
-  pausedNode, pausedLines, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
+  pausedNode, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
   t,
 }: LogsTabProps) {
   const [sideW, setSideW] = useState(() => {
@@ -374,7 +370,6 @@ function LogsTab({
         {pausedNode?.specflowSessionId === activeSession?.id && (
           <PausedNodeComposer
             node={stepNodes.find((candidate) => candidate.id === pausedNode.nodeId)}
-            lines={pausedLines}
             busy={pausedPromptBusy}
             onPrompt={onPromptPausedNode}
             onContinue={onContinuePausedNode}
@@ -424,7 +419,6 @@ function LogsTab({
 
 function PausedNodeComposer(props: {
   node?: WorkflowNode;
-  lines: ConversationLine[];
   busy: boolean;
   onPrompt?: (prompt: string) => void;
   onContinue?: () => void;
@@ -444,15 +438,6 @@ function PausedNodeComposer(props: {
           <Icon name="play" size={10} />{props.t('sessions.continueWorkflow')}
         </button>
       </div>
-      {props.lines.length > 0 && (
-        <div className="paused-transcript">
-          {props.lines.map((line, index) => (
-            <div key={index} className={`paused-message ${line.role}`}>
-              <strong>{line.role}</strong> {line.text}
-            </div>
-          ))}
-        </div>
-      )}
       <div className="paused-compose-input">
         <textarea
           className="textarea"

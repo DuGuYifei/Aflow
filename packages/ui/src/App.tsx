@@ -31,7 +31,7 @@ import { RunConfigPanel } from './components/run-config-panel';
 import { InteractionModal } from './components/interaction-modal';
 import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
-import { AgentConversationWindow, type ConversationLine } from './components/agent-conversation-window';
+import { AgentConversationWindow } from './components/agent-conversation-window';
 import { normalizeTransferConfiguration, resolveTransferSource } from './edge-semantics';
 import { useI18n } from './i18n';
 
@@ -86,7 +86,6 @@ export function App() {
     busy: boolean;
   } | null>(null);
   const [pausedNode, setPausedNode] = useState<PausedNodeSession | null>(null);
-  const [pausedLines, setPausedLines] = useState<ConversationLine[]>([]);
   const [pausedPromptBusy, setPausedPromptBusy] = useState(false);
 
   const [selection, setSelection]             = useState<Selection | null>(null);
@@ -188,7 +187,7 @@ export function App() {
       setEdges(doc.edges as Edge[]);
       setSessions(doc.sessions as Session[]);
       setActiveCanvasName(doc.name);
-      if (doc.sessions[0]) setActiveSessionId(doc.sessions[0].id);
+      setActiveSessionId(doc.sessions[0]?.id ?? '');
       setSelection(null);
     }).catch(console.error);
 
@@ -207,7 +206,6 @@ export function App() {
     terminateConversation(conversationRef.current);
     setConversation(null);
     setPausedNode(null);
-    setPausedLines([]);
     setPendingInteractions([]);
   }, [activeWorkflow, terminateConversation]);
 
@@ -633,7 +631,6 @@ export function App() {
           const node = nodesRef.current.find((candidate) => candidate.id === ev.nodeId);
           if (node?.kind === 'step' && node.sessionId) {
             setPausedNode({ runId, nodeId: node.id, specflowSessionId: node.sessionId, agentServerId: sessionsRef.current.find((session) => session.id === node.sessionId)?.agentServerId ?? '', pausedAt: new Date().toISOString() });
-            setPausedLines([]);
             setActiveSessionId(node.sessionId);
             setBarExpanded(true);
           }
@@ -657,7 +654,6 @@ export function App() {
         if (uiStatus !== 'running') {
           if (!ev.replay) {
             setPausedNode(null);
-            setPausedLines([]);
           }
           cleanup();
           if (!ev.replay) {
@@ -693,7 +689,6 @@ export function App() {
     }).catch(console.error);
     fetchPausedNodes(id).then((paused) => {
       setPausedNode(paused[0] ?? null);
-      setPausedLines([]);
       if (paused[0]) {
         setActiveSessionId(paused[0].specflowSessionId);
         setBarExpanded(true);
@@ -742,7 +737,6 @@ export function App() {
     setSelection(null);
     setPendingInteractions([]);
     setPausedNode(null);
-    setPausedLines([]);
   }, []);
 
   const onOpenNewRun = useCallback(() => {
@@ -781,7 +775,6 @@ export function App() {
       setLogEvents([]);
       setPendingInteractions([]);
       setPausedNode(null);
-      setPausedLines([]);
 
       let placeholder: Run;
       try {
@@ -840,7 +833,6 @@ export function App() {
       setLogEvents([]);
       setPendingInteractions([]);
       setPausedNode(null);
-      setPausedLines([]);
       setBarExpanded(true);
 
       attachToRun(newRunId);
@@ -1042,7 +1034,6 @@ export function App() {
       setLogHistoryEarliestIndex(0);
       setPendingInteractions([]);
       setPausedNode(null);
-      setPausedLines([]);
       setBarExpanded(true);
       attachToRun(newRunId);
     } catch (err) {
@@ -1079,43 +1070,82 @@ export function App() {
     setConversation(null);
   }, [conversation, terminateConversation]);
 
+  const appendPausedDisplayMessage = useCallback((
+    node: PausedNodeSession,
+    role: Extract<TimelineEvent, { type: 'display-message' }>['role'],
+    text: string,
+  ) => {
+    setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), {
+      type: 'display-message',
+      role,
+      text,
+      nodeId: node.nodeId,
+      specflowSessionId: node.specflowSessionId,
+    }]);
+  }, []);
+
   const onPromptPausedNode = useCallback(async (prompt: string) => {
     if (!pausedNode || pausedPromptBusy) return;
     setPausedPromptBusy(true);
-    setPausedLines((current) => [...current, { role: 'user', text: prompt }]);
+    appendPausedDisplayMessage(pausedNode, 'user', prompt);
     try {
       const result = await promptPausedNode(pausedNode.runId, pausedNode.nodeId, prompt);
-      setPausedLines((current) => [...current, { role: 'agent', text: result.output }]);
+      appendPausedDisplayMessage(pausedNode, 'agent', result.output);
     } catch (error) {
-      setPausedLines((current) => [...current, { role: 'system', text: error instanceof Error ? error.message : String(error) }]);
+      appendPausedDisplayMessage(pausedNode, 'system', error instanceof Error ? error.message : String(error));
     } finally {
       setPausedPromptBusy(false);
     }
-  }, [pausedNode, pausedPromptBusy]);
+  }, [appendPausedDisplayMessage, pausedNode, pausedPromptBusy]);
 
   const onContinuePausedNode = useCallback(async () => {
     if (!pausedNode || pausedPromptBusy) return;
     try {
       await continuePausedNode(pausedNode.runId, pausedNode.nodeId);
       setPausedNode(null);
-      setPausedLines([]);
     } catch (error) {
-      setPausedLines((current) => [...current, { role: 'system', text: error instanceof Error ? error.message : String(error) }]);
+      appendPausedDisplayMessage(pausedNode, 'system', error instanceof Error ? error.message : String(error));
     }
-  }, [pausedNode, pausedPromptBusy]);
+  }, [appendPausedDisplayMessage, pausedNode, pausedPromptBusy]);
 
   // ── workflow management ───────────────────────────────────────────────────
 
-  const onCreateWorkflow = useCallback(async () => {
+  const onCreateWorkflow = useCallback(async (name: string) => {
     try {
-      const doc = await createCanvas(t('app.untitledWorkflow'));
+      const doc = await createCanvas(name.trim() || t('app.untitledWorkflow'));
       const summary = { id: doc.id, name: doc.name, runs: 0 };
       setWorkflows((prev) => [summaryToWorkflow(summary), ...prev]);
       setActiveWorkflow(doc.id);
     } catch (err) {
       console.error('Failed to create workflow', err);
     }
-  }, []);
+  }, [t]);
+
+  const onRenameWorkflow = useCallback(async (id: string, name: string) => {
+    const nextName = name.trim();
+    if (!nextName) return;
+    try {
+      if (id === activeWorkflow) {
+        clearTimeout(saveTimerRef.current);
+        const doc = {
+          id,
+          name: nextName,
+          sessions: sessionsRef.current,
+          nodes: nodesRef.current,
+          edges: edgesRef.current,
+        };
+        await saveCanvas(id, doc);
+        setActiveCanvasName(nextName);
+      } else {
+        const doc = await fetchCanvas(id);
+        await saveCanvas(id, { ...doc, name: nextName });
+      }
+      setWorkflows((prev) => prev.map((workflow) =>
+        workflow.id === id ? { ...workflow, name: nextName } : workflow));
+    } catch (err) {
+      console.error('Failed to rename workflow', err);
+    }
+  }, [activeWorkflow]);
 
   // ── derived selection state ───────────────────────────────────────────────
 
@@ -1165,6 +1195,7 @@ export function App() {
         onResumeRun={onResumeRun}
         onDeleteRun={onDeleteRun}
         onCreateWorkflow={onCreateWorkflow}
+        onRenameWorkflow={onRenameWorkflow}
       />
 
       <div className="canvas-cell" style={{ position: 'relative', overflow: 'hidden', minHeight: 0, height: '100%' }}>
@@ -1322,7 +1353,6 @@ export function App() {
           onRestoreSession={onRestoreHistoricalSession}
           restoreStatusBySession={restoreStatusBySession}
           pausedNode={pausedNode}
-          pausedLines={pausedLines}
           pausedPromptBusy={pausedPromptBusy}
           onPromptPausedNode={onPromptPausedNode}
           onContinuePausedNode={onContinuePausedNode}

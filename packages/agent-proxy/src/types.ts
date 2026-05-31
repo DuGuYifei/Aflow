@@ -116,11 +116,9 @@ export interface AgentRunRequest {
    */
   modeId?: string;
   /**
-   * Per-request overrides for ACP `setSessionConfigOption` / `unstable_setSessionModel`.
+   * Per-request overrides for ACP `setSessionConfigOption`.
    * Keys are option ids; values are the chosen value id (or boolean for
-   * boolean-typed options). The special key `model` is routed to
-   * `unstable_setSessionModel`. Other keys go through `setSessionConfigOption`.
-   * Same stickiness semantics as `modeId`.
+   * boolean-typed options). Same stickiness semantics as `modeId`.
    */
   configOptions?: Record<string, string | boolean>;
   runId?: string;

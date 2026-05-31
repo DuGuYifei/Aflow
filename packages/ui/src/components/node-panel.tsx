@@ -425,8 +425,12 @@ function AcpControls(props: AcpControlsProps) {
   const { capabilities, configOptions, readonly } = props;
   const modes = capabilities?.modes?.availableModes ?? [];
   const options = capabilities?.configOptions ?? [];
+  const duplicateModeOption = findDuplicateModeOption(modes, options);
   const hasMode = props.allowMode && modes.length > 0;
-  const hasConfig = options.length > 0;
+  const visibleOptions = duplicateModeOption
+    ? options.filter((option) => option !== duplicateModeOption)
+    : options;
+  const hasConfig = visibleOptions.length > 0;
   if (!capabilities) {
     return (
       <div className="output-card" style={{ marginTop: 6 }}>
@@ -446,7 +450,7 @@ function AcpControls(props: AcpControlsProps) {
   }
   // configOptions sorted: model → thought_level → mode → other → unknown
   const categoryOrder: Record<string, number> = { model: 0, thought_level: 1, mode: 2, other: 3 };
-  const sortedOptions = [...options].sort((a, b) => {
+  const sortedOptions = [...visibleOptions].sort((a, b) => {
     const ai = a.category ? categoryOrder[a.category] ?? 9 : 9;
     const bi = b.category ? categoryOrder[b.category] ?? 9 : 9;
     return ai - bi;
@@ -456,7 +460,9 @@ function AcpControls(props: AcpControlsProps) {
       <div className="section-title">{t('node.acpOverrides')}</div>
       {hasMode && (
         <div style={{ marginBottom: 6 }}>
-          <label style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)', marginBottom: 2 }}>{t('node.mode')}</label>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)', marginBottom: 2 }}>
+            {duplicateModeOption?.name || t('node.mode')}
+          </label>
           <select
             className="input"
             value={props.modeId ?? ''}
@@ -468,6 +474,7 @@ function AcpControls(props: AcpControlsProps) {
               <option key={mode.id} value={mode.id}>{mode.name || mode.id}</option>
             ))}
           </select>
+          {duplicateModeOption?.description && <div className="code-hint">{duplicateModeOption.description}</div>}
         </div>
       )}
       {sortedOptions.map((option) => (
@@ -489,8 +496,39 @@ function AcpControls(props: AcpControlsProps) {
   );
 }
 
+type ConfigOption = NonNullable<AgentServerCapabilities['configOptions']>[number];
+
+function findDuplicateModeOption(
+  modes: Array<{ id: string }>,
+  options: ConfigOption[],
+): ConfigOption | undefined {
+  if (modes.length === 0) return undefined;
+  const modeIds = new Set(modes.map((mode) => mode.id));
+  for (const option of options) {
+    if (option.type !== 'select') continue;
+    if (option.id !== 'mode' && option.category !== 'mode') continue;
+    const values = selectOptionValues(option);
+    if (values.size !== modeIds.size) continue;
+    if ([...modeIds].every((id) => values.has(id))) return option;
+  }
+  return undefined;
+}
+
+function selectOptionValues(option: ConfigOption): Set<string> {
+  const values = new Set<string>();
+  if (!Array.isArray(option.options)) return values;
+  for (const entry of option.options) {
+    if ('group' in entry && Array.isArray(entry.options)) {
+      for (const child of entry.options) values.add(child.value);
+    } else if ('value' in entry) {
+      values.add(entry.value);
+    }
+  }
+  return values;
+}
+
 function ConfigOptionControl(props: {
-  option: NonNullable<AgentServerCapabilities['configOptions']>[number];
+  option: ConfigOption;
   value: string | boolean | undefined;
   readonly: boolean;
   onChange: (value: string | boolean | undefined) => void;

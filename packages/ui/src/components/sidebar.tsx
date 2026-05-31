@@ -14,13 +14,19 @@ interface SidebarProps {
   onRerunRun: (id: string) => void;
   onResumeRun?: (id: string) => void;
   onDeleteRun: (id: string) => void;
-  onCreateWorkflow: () => void;
+  onCreateWorkflow: (name: string) => void;
+  onRenameWorkflow: (id: string, name: string) => void;
 }
 
-export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWorkflow, onSelectRun, onNewRun, onRerunRun, onResumeRun, onDeleteRun, onCreateWorkflow }: SidebarProps) {
+export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWorkflow, onSelectRun, onNewRun, onRerunRun, onResumeRun, onDeleteRun, onCreateWorkflow, onRenameWorkflow }: SidebarProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newWorkflowName, setNewWorkflowName] = useState(t('app.untitledWorkflow'));
+  const [editingWorkflowId, setEditingWorkflowId] = useState('');
+  const [editingWorkflowName, setEditingWorkflowName] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
+  const createInputRef = useRef<HTMLInputElement>(null);
   const wf = workflows.find((w) => w.id === activeWorkflow) || workflows[0];
   const runLabelById = new Map(runs.map((run) => [run.id, run.label]));
 
@@ -44,6 +50,27 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
   const filteredWorkflows = query.trim()
     ? workflows.filter((w) => w.name.toLowerCase().includes(query.toLowerCase()))
     : workflows;
+  const submitCreateWorkflow = () => {
+    const name = (createInputRef.current?.value ?? newWorkflowName).trim();
+    if (!name) return;
+    onCreateWorkflow(name);
+    setCreateOpen(false);
+    setNewWorkflowName(t('app.untitledWorkflow'));
+  };
+  const startRenameWorkflow = (workflow: Workflow) => {
+    setEditingWorkflowId(workflow.id);
+    setEditingWorkflowName(workflow.name);
+  };
+  const cancelRenameWorkflow = () => {
+    setEditingWorkflowId('');
+    setEditingWorkflowName('');
+  };
+  const submitRenameWorkflow = (value = editingWorkflowName) => {
+    const name = value.trim();
+    if (!editingWorkflowId || !name) return;
+    onRenameWorkflow(editingWorkflowId, name);
+    cancelRenameWorkflow();
+  };
 
   return (
     <div className="left two-col">
@@ -52,10 +79,28 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
           <div>
             <div className="col-title">{t('sidebar.workflows')}</div>
           </div>
-          <button className="btn sm icon" title={t('sidebar.newWorkflow')} onClick={onCreateWorkflow}>
+          <button className="btn sm icon" title={t('sidebar.newWorkflow')} onClick={() => setCreateOpen(true)}>
             <Icon name="plus" size={12} />
           </button>
         </div>
+        {createOpen && (
+          <div className="workflow-create">
+            <input
+              ref={createInputRef}
+              className="input sm"
+              value={newWorkflowName}
+              autoFocus
+              onChange={(event) => setNewWorkflowName(event.target.value)}
+              onFocus={(event) => event.currentTarget.select()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') submitCreateWorkflow();
+                if (event.key === 'Escape') setCreateOpen(false);
+              }}
+            />
+            <button className="btn sm primary" disabled={!newWorkflowName.trim()} onClick={submitCreateWorkflow}>{t('sidebar.createWorkflow')}</button>
+            <button className="btn sm" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</button>
+          </div>
+        )}
         <div className="search">
           <Icon name="search" size={12} />
           <input
@@ -74,7 +119,38 @@ export function Sidebar({ workflows, runs, activeWorkflow, activeRun, onSelectWo
               className={`wf-card${w.id === activeWorkflow ? ' active' : ''}`}
               onClick={() => onSelectWorkflow(w.id)}
             >
-              <div className="name">{w.name}</div>
+              <div className="wf-row">
+                {editingWorkflowId === w.id ? (
+                  <input
+                    className="input sm workflow-name-input"
+                    value={editingWorkflowName}
+                    autoFocus
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setEditingWorkflowName(event.target.value)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onBlur={(event) => submitRenameWorkflow(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') submitRenameWorkflow(event.currentTarget.value);
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        cancelRenameWorkflow();
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="name">{w.name}</div>
+                )}
+                <button
+                  className="btn sm icon workflow-rename"
+                  title={t('sidebar.renameWorkflow')}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startRenameWorkflow(w);
+                  }}
+                >
+                  <Icon name="edit" size={10} />
+                </button>
+              </div>
               <div className="meta">
                 <span><Icon name="flow" size={10} style={{ verticalAlign: -1 }} /> {w.meta}</span>
                 <span><Icon name="history" size={10} style={{ verticalAlign: -1 }} /> {t('sidebar.runsCount', { count: w.runs })}</span>

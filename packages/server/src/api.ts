@@ -24,7 +24,6 @@ import {
 import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./run-log-store";
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
-import type { CanvasSession } from "./canvas-doc";
 import { assertSymbolKey, keyFromLabel } from "./agentflow-source";
 import {
   loadLocalAgentServerConfig,
@@ -444,12 +443,6 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     await active.waitForLogWrites();
     await active.conversation.close();
   }
-
-  const DEFAULT_SESSION: CanvasSession = {
-    id: "main",
-    name: "main",
-    agentServerId: "unconfigured",
-  };
 
   function publishRestoreEvent(event: RestoreStreamEvent): void {
     const state = restoreStreams.get(event.restoreId) ?? { events: [], done: false };
@@ -1404,7 +1397,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       const doc: CanvasDoc = {
         id,
         name,
-        sessions: [DEFAULT_SESSION],
+        sessions: [],
         nodes: [],
         edges: [],
       };

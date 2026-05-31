@@ -1307,19 +1307,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   color: var(--warn);
   margin-bottom: 6px;
 }
-.paused-transcript {
-  max-height: 96px;
-  overflow-y: auto;
-  margin-bottom: 6px;
-  font-size: 11px;
-}
-.paused-message {
-  white-space: pre-wrap;
-  padding: 3px 0;
-}
-.paused-message.user { color: var(--ink); }
-.paused-message.agent { color: var(--ink-2); }
-.paused-message.system { color: var(--err); }
 .paused-compose-input .textarea { min-height: 48px; resize: none; }
 .toggle-row {
   display: flex;
@@ -1813,6 +1800,14 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   margin-top: 2px;
 }
 .col-list { flex: 1; overflow-y: auto; }
+.workflow-create {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--bg-elev);
+}
+.workflow-create .input { flex: 1; min-width: 0; }
 
 .wf-card {
   display: flex; flex-direction: column; gap: 4px;
@@ -1829,6 +1824,27 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .wf-card .name { font-weight: 500; font-size: 13px; }
 .wf-card .meta { color: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; display: flex; gap: 8px; }
+.wf-card .wf-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wf-card .wf-row .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-name-input { flex: 1; min-width: 0; height: 24px; }
+.workflow-rename {
+  opacity: 0;
+  flex-shrink: 0;
+}
+.wf-card:hover .workflow-rename,
+.wf-card.active .workflow-rename,
+.workflow-rename:focus-visible { opacity: 1; }
 
 .run-card {
   padding: 10px 14px;
@@ -2077,6 +2093,8 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .run-modal-head .close:hover { background: var(--line-2); color: var(--ink); }
 .run-modal-body {
+  flex: 1;
+  min-height: 0;
   padding: 14px 16px;
   overflow-y: auto;
 }
@@ -2131,6 +2149,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .run-modal-actions {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 16px;

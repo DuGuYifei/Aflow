@@ -2,15 +2,15 @@ version: 1
 name: Create Specflow project docs
 sessions:
   document-researcher:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   code-analyst:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   project-classifier:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   documentation-writer:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   documentation-reviewer:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
 nodes:
   discover-docs:
     kind: step

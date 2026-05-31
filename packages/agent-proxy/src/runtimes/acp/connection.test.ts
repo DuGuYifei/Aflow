@@ -150,6 +150,38 @@ describe("runAcpAgent", () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("blocks:text,image,audio,resource");
   });
+
+  it("applies advertised model config through setSessionConfigOption", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+
+    const result = await runAcpAgent(resolved({ env: { SPECFLOW_FAKE_ACP_CODEX_MODEL_CONFIG: "1" } }), {
+      agentServerId: "fake-acp",
+      cwd,
+      prompt: "hello",
+      configOptions: { model: "gpt-5.5", reasoning: "high" },
+      onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("configCalls:model:gpt-5.5,reasoning:high");
+    expect(result.output).not.toContain("modelCalls:");
+  });
+
+  it("rejects config options that were not advertised by the agent", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+
+    const result = await runAcpAgent(resolved(), {
+      agentServerId: "fake-acp",
+      cwd,
+      prompt: "hello",
+      configOptions: { stale_key: "x" },
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain('Per-node ACP config option "stale_key" is not advertised by fake-acp.');
+  });
 });
 
 describe("restoreAcpAgentSession", () => {

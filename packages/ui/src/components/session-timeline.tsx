@@ -110,7 +110,12 @@ export function buildTimelineItems(events: TimelineEvent[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   for (const event of events) {
     if (event.type === 'display-message') {
-      items.push({ kind: 'message', role: event.role, text: event.text });
+      items.push({
+        kind: 'message',
+        role: event.role,
+        text: event.text,
+        nodeId: event.nodeId,
+      });
       continue;
     }
     if (event.type === 'terminal') {

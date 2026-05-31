@@ -1074,7 +1074,7 @@ function isAuthRequiredError(error: unknown): boolean {
 
 
 /**
- * Per-prompt override of mode / configOptions / model. Runs every turn, on
+ * Per-prompt override of mode / configOptions. Runs every turn, on
  * both fresh and re-used sessions. Caller must pass the cached
  * `NewSessionResponse` slice so we can validate the requested values against
  * what the agent advertised at session creation.
@@ -1095,27 +1095,9 @@ async function applyPerRequestOverrides(input: {
     await connection.setSessionMode({ sessionId, modeId: request.modeId });
   }
   for (const [configId, value] of Object.entries(request.configOptions ?? {})) {
-    if (configId === "model") {
-      const modelId = String(value);
-      const available = caps?.models?.availableModels ?? [];
-      if (available.length > 0 && !available.some((m) => m.modelId === modelId)) {
-        throw new Error(`Per-node ACP model "${modelId}" is not advertised by ${resolvedId}.`);
-      }
-      await connection.unstable_setSessionModel({ sessionId, modelId });
-      continue;
-    }
     const option = caps?.configOptions?.find((candidate) => candidate.id === configId);
     if (!option) {
-      // No cached option metadata — pass through and let the agent reject if
-      // invalid. We deliberately do not throw, because some agents may accept
-      // options that were added after our cache snapshot was taken.
-      const stringValue = typeof value === "boolean" ? value : String(value);
-      await connection.setSessionConfigOption(
-        typeof stringValue === "boolean"
-          ? { sessionId, configId, type: "boolean", value: stringValue }
-          : { sessionId, configId, value: stringValue },
-      );
-      continue;
+      throw new Error(`Per-node ACP config option "${configId}" is not advertised by ${resolvedId}.`);
     }
     if (option.type === "boolean") {
       if (typeof value !== "boolean") {

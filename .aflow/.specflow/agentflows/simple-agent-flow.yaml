@@ -1,40 +1,43 @@
 version: 1
-name: Simple mock agent flow
+name: Simple paused Codex flow
 sessions:
-  codex-acp:
+  codex:
     agentServerId: codex-acp
-  claude-acp:
-    agentServerId: claude-acp
 nodes:
-  in1:
+  input-value:
     kind: input
     num: IN
     title: Input value
     variableName: specflow_value
-    description: Value used by the first step
-  n1:
+    defaultValue: "1"
+    description: Value used by the arithmetic steps.
+  add-one:
     kind: step
     num: "01"
-    title: Add one
-    prompt: 1 + <specflow_value> = ?
-    session: codex-acp
-    paths: []
-  n2:
+    title: Add one and pause
+    prompt: |-
+      Do not edit files.
+      Calculate 1 + <specflow_value>.
+      Reply with the result and one short question that the paused-session composer can answer.
+    session: codex
+    pauseAfterRun: true
+    modeId: auto
+  add-two:
     kind: step
     num: "02"
-    title: Add two
+    title: Continue arithmetic
     prompt: |-
-      Continue with the previous result in this session.
-      + 2 = ?
-    session: codex-acp
-  end1:
+      Continue from the paused conversation in this same ACP session.
+      Add 2 to the previous result and reply with only the final arithmetic statement.
+    session: codex
+  done:
     kind: end
     num: END
     title: Done
 edges:
-  - from: in1
-    to: n1
-  - from: n1
-    to: n2
-  - from: n2
-    to: end1
+  - from: input-value
+    to: add-one
+  - from: add-one
+    to: add-two
+  - from: add-two
+    to: done

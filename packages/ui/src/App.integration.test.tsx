@@ -42,6 +42,9 @@ let releaseRunStart: (() => void) | undefined;
 let agentSessionHistory: unknown[] = [];
 let recordedRunLogs: unknown[] = [];
 let restoredPrompts: string[] = [];
+let pausedPrompts: string[] = [];
+let createdCanvasBody: unknown;
+let savedCanvases: unknown[] = [];
 let pausedContinues = 0;
 let interactionResponses = 0;
 
@@ -78,6 +81,9 @@ describe("App run integration", () => {
     agentSessionHistory = [];
     recordedRunLogs = [];
     restoredPrompts = [];
+    pausedPrompts = [];
+    createdCanvasBody = undefined;
+    savedCanvases = [];
     pausedContinues = 0;
     interactionResponses = 0;
     container = document.createElement("div");
@@ -435,9 +441,64 @@ describe("App run integration", () => {
     source.emit("node-status", { nodeId: "node-1", status: "paused" });
 
     await waitForText("Paused after Echo");
+    const pausedInput = document.querySelector(".paused-compose-input textarea");
+    if (!(pausedInput instanceof window.HTMLTextAreaElement)) throw new Error("Paused prompt textarea not found");
+    setTextAreaValue(pausedInput, "extra context");
+    await waitFor(() => {
+      const send = document.querySelector(".paused-compose-input button");
+      return send instanceof window.HTMLButtonElement && !send.disabled;
+    });
+    const send = document.querySelector(".paused-compose-input button");
+    if (!(send instanceof window.HTMLButtonElement)) throw new Error("Paused send button not found");
+    send.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => pausedPrompts.includes("extra context"));
+    await waitForText("extra context");
+    await waitForText("paused answer");
+    if (document.querySelector(".paused-transcript")) throw new Error("Paused transcript should not render outside the log stream");
+
     clickButton("Continue");
     await waitFor(() => pausedContinues === 1);
     await waitFor(() => !(document.body.textContent?.includes("Paused after Echo") ?? false));
+  });
+
+  test("creates an empty workflow with a user-provided name", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    const button = document.querySelector('button[title="New workflow"]');
+    if (!(button instanceof window.HTMLButtonElement)) throw new Error("New workflow button not found");
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => Boolean(document.querySelector(".workflow-create input")));
+    const input = document.querySelector(".workflow-create input");
+    if (!(input instanceof window.HTMLInputElement)) throw new Error("Workflow create input not found");
+    setInputValue(input, "Custom workflow");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    clickButton("Create");
+
+    await waitForText("Custom workflow");
+    await waitFor(() => Boolean(createdCanvasBody));
+    const body = createdCanvasBody as { name?: string };
+    if (body.name !== "Custom workflow") throw new Error(`Expected custom workflow name, got ${body.name}`);
+  });
+
+  test("renames the active workflow", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    const button = document.querySelector('button[title="Rename workflow"]');
+    if (!(button instanceof window.HTMLButtonElement)) throw new Error("Rename workflow button not found");
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => Boolean(document.querySelector(".workflow-name-input")));
+    const input = document.querySelector(".workflow-name-input");
+    if (!(input instanceof window.HTMLInputElement)) throw new Error("Workflow rename input not found");
+    setInputValue(input, "Renamed workflow");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    await waitFor(() => savedCanvases.some((entry) => (entry as { name?: string }).name === "Renamed workflow"));
+    await waitForText("Renamed workflow");
   });
 });
 
@@ -451,10 +512,22 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
     return json(sampleCanvas());
   }
+  if (method === "GET" && url === "/api/canvases/custom-workflow") {
+    return json({ id: "custom-workflow", name: "Custom workflow", sessions: [], nodes: [], edges: [] });
+  }
+  if (method === "POST" && url === "/api/canvases") {
+    createdCanvasBody = JSON.parse(String(init?.body ?? "{}"));
+    return json({ id: "custom-workflow", name: "Custom workflow", sessions: [], nodes: [], edges: [] });
+  }
+  if (method === "PUT" && /^\/api\/canvases\/[^/]+$/.test(url)) {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    savedCanvases.push(body);
+    return json(body);
+  }
   if (method === "GET" && url.startsWith("/api/runs?")) {
     return json([]);
   }
-  if (method === "GET" && url === "/api/agent-sessions?workflowId=example-code-frontend-flow") {
+  if (method === "GET" && url.startsWith("/api/agent-sessions?workflowId=")) {
     return json(agentSessionHistory);
   }
   if (method === "GET" && url === "/api/agent-servers") {
@@ -486,6 +559,11 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   }
   if (method === "GET" && url === "/api/runs/run1/paused-nodes") {
     return json([]);
+  }
+  if (method === "POST" && url === "/api/runs/run1/paused-nodes/node-1/prompt") {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+    if (body.prompt) pausedPrompts.push(body.prompt);
+    return json({ output: "paused answer" });
   }
   if (method === "POST" && /^\/api\/agent-sessions\/[^/]+\/restore$/.test(url)) {
     return json({ restoreId: "restore-1", status: "running" });

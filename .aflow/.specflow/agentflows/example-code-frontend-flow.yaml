@@ -2,21 +2,24 @@ version: 1
 name: Frontend ticket flow
 sessions:
   parser:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   builder:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   reviewer:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   interview:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
   plan-code:
-    agentServerId: unconfigured
+    agentServerId: codex-acp
 nodes:
   n1:
     kind: step
     num: "01"
     title: Ticket
-    prompt: Capture the incoming ticket — title, description, attached screenshots.
+    prompt: |-
+      Inspect the incoming ticket, including title, description, linked issue context and attached screenshots.
+      Return a compact, evidence-grounded ticket brief with the requested UI change, visible constraints, source artifacts, and open questions.
+      Do not edit files in this intake step.
     session: parser
     locked: true
     images:
@@ -29,8 +32,9 @@ nodes:
     kind: step
     num: 02·a
     title: Parse image components
-    prompt: Vision pass over the ticket screenshot. Identify named components and
-      regions.
+    prompt: |-
+      Use the ticket brief and screenshot to identify the UI component tree, visual regions, states, spacing, typography and reusable design-system pieces.
+      Return structured component notes that can be handed to an implementation agent.
     session: parser
     paths:
       - design/figma-export.json
@@ -38,8 +42,9 @@ nodes:
     kind: step
     num: 02·b
     title: Generate HTML
-    prompt: Synthesize draft HTML reproducing <specflow_component_tree> using the
-      project DS.
+    prompt: |-
+      Use <specflow_component_tree> and the project design-system context to implement the requested component draft.
+      Keep edits scoped to the declared component paths. Return changed files, assumptions, and verification notes.
     session: builder
     paths:
       - src/components/
@@ -47,8 +52,9 @@ nodes:
     kind: step
     num: 02·c
     title: Agent reviews component
-    prompt: Reviewer agent diffs <specflow_draft_html> against the source image and
-      surfaces visual regressions.
+    prompt: |-
+      Review <specflow_draft_html> against the ticket screenshot and requested behavior.
+      Identify visual regressions, missing states, accessibility concerns and concrete fixes. Do not rewrite the implementation unless a tiny obvious correction is required.
     session: reviewer
   g1:
     kind: gate
@@ -65,36 +71,40 @@ nodes:
     kind: step
     num: 03·a
     title: Interview · feature & task
-    prompt: Using <specflow_review_findings>, run targeted Q&A clarifying feature
-      scope and the specific task being requested.
+    prompt: |-
+      Use <specflow_review_findings> to ask only targeted clarification questions about feature scope, user intent and acceptance criteria.
+      Keep the interview concise and record answers as explicit facts or unknowns.
     session: interview
     locked: true
   n3b:
     kind: step
     num: 03·b
     title: Interview · edge cases
-    prompt: Probe for exception cases, failure modes, and boundary behavior.
+    prompt: Probe for exception cases, failure modes, accessibility requirements, responsive behavior and boundary data states.
     session: interview
     locked: true
   n3c:
     kind: step
     num: 03·c
     title: Summarize interview
-    prompt: Consolidate Q&A into a structured spec brief.
+    prompt: Consolidate the interview into a structured implementation brief with facts, decisions, remaining unknowns and acceptance criteria.
     session: interview
     locked: true
   n4a:
     kind: step
     num: 04·a
     title: Plan
-    prompt: Break <specflow_spec_brief> into ordered, file-scoped implementation
-      steps with explicit acceptance.
+    prompt: |-
+      Break <specflow_spec_brief> into ordered, file-scoped implementation steps.
+      Include acceptance checks, verification commands and risks. Do not edit files in this planning step.
     session: plan-code
   n4b:
     kind: step
     num: 04·b
     title: Code
-    prompt: Author implementation against the plan. Touches only declared files.
+    prompt: |-
+      Implement the approved plan. Touch only files needed for the requested UI change.
+      Return changed files, verification output and any incomplete acceptance criteria.
     session: plan-code
     paths:
       - src/
@@ -103,7 +113,9 @@ nodes:
     kind: step
     num: 04·c
     title: Review
-    prompt: "Review <specflow_diff>: run tests, lint, type-check, verify acceptance."
+    prompt: |-
+      Review <specflow_diff>. Run relevant tests, lint or type-check commands when available, verify the acceptance criteria and inspect for regressions.
+      Begin with a clear pass/rework/replan recommendation and the evidence behind it.
     session: reviewer
   g2:
     kind: gate
