@@ -76,6 +76,39 @@ describe("run event API", () => {
     expect(await start?.text()).toContain("headless agent");
   });
 
+  test("rejects an unrunnable saved draft when starting a run", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-draft-"));
+    await saveCanvas("wf-events", {
+      id: "wf-events",
+      name: "Draft run test",
+      sessions: [],
+      nodes: [
+        {
+          kind: "step",
+          id: "node-1",
+          alias: "",
+          x: 80,
+          y: 80,
+          w: 240,
+          title: "",
+          prompt: "",
+          sessionId: null,
+        },
+      ],
+      edges: [],
+    }, root);
+
+    const handle = createApiHandler(createSpecflowBridge(), root);
+    const start = await handle(new Request("http://specflow.test/api/canvases/wf-events/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }));
+
+    expect(start?.status).toBe(409);
+    expect(await start?.text()).toContain("references missing session");
+  });
+
   test("persists and replays structured ACP session updates for a run", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-run-acp-events-"));
     await writeFile(join(root, "input.txt"), "fixture input", "utf8");

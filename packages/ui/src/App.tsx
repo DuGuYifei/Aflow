@@ -32,6 +32,7 @@ import { InteractionModal } from './components/interaction-modal';
 import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
 import { AgentConversationWindow } from './components/agent-conversation-window';
+import { Icon } from './components/icon';
 import { normalizeTransferConfiguration, resolveTransferSource } from './edge-semantics';
 import { useI18n } from './i18n';
 
@@ -42,6 +43,10 @@ function runStatusFromEvent(status: string): RunStatus {
   if (status === 'failed') return 'error';
   if (status === 'cancelled') return 'cancelled';
   return 'running';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
@@ -131,6 +136,7 @@ export function App() {
   const [runConfigVars, setRunConfigVars]     = useState<Record<string, string>>({});
   const [runConfigBusy, setRunConfigBusy]     = useState(false);
   const [runStartBusy, setRunStartBusy]       = useState(false);
+  const [runStartError, setRunStartError]     = useState('');
   const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
   const [agentServerManagerOpen, setAgentServerManagerOpen] = useState(false);
   const [authStatuses, setAuthStatuses] = useState<AgentAuthenticationStatus[]>([]);
@@ -235,6 +241,7 @@ export function App() {
     setConversation(null);
     setPausedNode(null);
     setPendingInteractions([]);
+    setRunStartError('');
   }, [activeWorkflow, terminateConversation]);
 
   // ── debounced save ────────────────────────────────────────────────────────
@@ -768,6 +775,7 @@ export function App() {
   }, []);
 
   const onOpenNewRun = useCallback(() => {
+    setRunStartError('');
     const defaults: Record<string, string> = {};
     for (const n of nodesRef.current) {
       if (n.kind === 'input') defaults[n.variableName] = n.defaultValue ?? '';
@@ -793,6 +801,7 @@ export function App() {
 
   const startRun = useCallback(async (initialInput: string, variableValues: Record<string, string>) => {
     setRunStartBusy(true);
+    setRunStartError('');
     try {
       const { runId } = await runCanvas(activeWorkflow, { initialInput, variableValues });
 
@@ -830,21 +839,24 @@ export function App() {
           setActiveSessionId(paused[0].specflowSessionId);
         }
       }).catch(console.error);
+      return true;
     } catch (err) {
       if (err instanceof AgentAuthenticationRequiredError) {
-        requestAuth(err.statuses, () => startRun(initialInput, variableValues));
-        return;
+        requestAuth(err.statuses, () => { void startRun(initialInput, variableValues); });
+        return true;
       }
       console.error('Failed to start run', err);
+      setRunStartError(t('app.runStartFailed', { message: errorMessage(err) }));
+      return false;
     } finally {
       setRunStartBusy(false);
     }
-  }, [activeWorkflow, attachToRun, requestAuth]);
+  }, [activeWorkflow, attachToRun, requestAuth, t]);
 
   const onStartConfiguredRun = useCallback(async () => {
     setRunConfigBusy(true);
-    await startRun('', runConfigVars);
-    setRunConfigOpen(false);
+    const started = await startRun('', runConfigVars);
+    if (started) setRunConfigOpen(false);
     setRunConfigBusy(false);
   }, [startRun, runConfigVars]);
 
@@ -876,10 +888,11 @@ export function App() {
         return;
       }
       console.error('Failed to re-run', err);
+      setRunStartError(t('app.runStartFailed', { message: errorMessage(err) }));
     } finally {
       setRunStartBusy(false);
     }
-  }, [attachToRun, requestAuth]);
+  }, [attachToRun, requestAuth, t]);
 
   const onDeleteRun = useCallback(async (id: string) => {
     if (!window.confirm(t('app.deleteRunConfirm'))) return;
@@ -1070,9 +1083,9 @@ export function App() {
         return;
       }
       console.error('Failed to resume run', err);
-      window.alert(t('app.resumeFailed', { message: err instanceof Error ? err.message : String(err) }));
+      setRunStartError(t('app.resumeFailed', { message: errorMessage(err) }));
     }
-  }, [attachToRun, requestAuth]);
+  }, [attachToRun, requestAuth, t]);
 
   const onPromptConversation = useCallback(async (prompt: string) => {
     const active = conversation;
@@ -1245,6 +1258,18 @@ export function App() {
         view={view}
         onExitRunView={onExitRunView}
       />
+      {runStartError && (
+        <div className="app-toast error" role="alert">
+          <Icon name="alert" size={14} />
+          <div className="app-toast-body">
+            <div className="app-toast-title">{t('app.runBlocked')}</div>
+            <div className="app-toast-message">{runStartError}</div>
+          </div>
+          <button className="icon-btn app-toast-close" title={t('common.close')} onClick={() => setRunStartError('')}>
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      )}
 
       <Sidebar
         workflows={workflows}

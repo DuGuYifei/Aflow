@@ -24,6 +24,7 @@ import {
 import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./run-log-store";
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
+import { assertRunnableAgentFlow } from "./agentflow-validation";
 import { assertSymbolKey, keyFromLabel } from "./agentflow-source";
 import {
   loadLocalAgentServerConfig,
@@ -750,6 +751,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     let authStatuses: AgentAuthenticationStatus[];
     try {
+      assertRunnableAgentFlow(agentflow);
       await assertInteractivePauseSupported(agentflow);
       authStatuses = await inspectWorkflowAuthentication(agentflow);
     } catch (error) {

@@ -1,5 +1,6 @@
 import { DEV_UI_PORT } from "@specflow/shared";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -15,18 +16,19 @@ const viteBin = resolve(repoRoot, "node_modules/vite/bin/vite.js");
 
 export async function createDevUiProxy(): Promise<DevUiProxy> {
   let stderr = "";
+  const port = await findAvailableDevUiPort(DEV_UI_PORT);
   const vite = spawn("bun", [
     viteBin,
     "--host",
     "127.0.0.1",
     "--port",
-    String(DEV_UI_PORT),
+    String(port),
     "--strictPort",
     "--logLevel",
     "error",
   ], {
     cwd: uiRoot,
-    env: process.env,
+    env: { ...process.env, SPECFLOW_DEV_UI_PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -38,7 +40,7 @@ export async function createDevUiProxy(): Promise<DevUiProxy> {
   });
 
   try {
-    await waitForDevUi(vite, () => stderr);
+    await waitForDevUi(vite, () => stderr, port);
   } catch (error) {
     stopChild(vite);
     throw error;
@@ -47,7 +49,7 @@ export async function createDevUiProxy(): Promise<DevUiProxy> {
   return {
     fetch(request) {
       const sourceUrl = new URL(request.url);
-      const targetUrl = new URL(sourceUrl.pathname + sourceUrl.search, `http://127.0.0.1:${DEV_UI_PORT}`);
+      const targetUrl = new URL(sourceUrl.pathname + sourceUrl.search, `http://127.0.0.1:${port}`);
 
       return fetch(targetUrl, {
         body: request.body,
@@ -62,7 +64,25 @@ export async function createDevUiProxy(): Promise<DevUiProxy> {
   };
 }
 
-async function waitForDevUi(child: ChildProcess, getStderr: () => string) {
+export async function findAvailableDevUiPort(preferredPort = DEV_UI_PORT): Promise<number> {
+  for (let port = preferredPort; port < preferredPort + 20; port += 1) {
+    if (await isPortAvailable(port)) return port;
+  }
+  throw new Error(`Unable to find an available UI dev server port starting at ${preferredPort}.`);
+}
+
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen({ host: "127.0.0.1", port });
+  });
+}
+
+async function waitForDevUi(child: ChildProcess, getStderr: () => string, port: number) {
   const deadline = Date.now() + 10_000;
 
   while (Date.now() < deadline) {
@@ -72,7 +92,7 @@ async function waitForDevUi(child: ChildProcess, getStderr: () => string) {
     }
 
     try {
-      const response = await fetch(`http://127.0.0.1:${DEV_UI_PORT}/`);
+      const response = await fetch(`http://127.0.0.1:${port}/`);
       if (response.ok) {
         return;
       }

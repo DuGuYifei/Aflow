@@ -10,6 +10,7 @@ import {
   saveCanvas,
 } from "./canvas-store";
 import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
+import { assertRunnableAgentFlow } from "./agentflow-validation";
 import type { CanvasDoc } from "./canvas-doc";
 
 describe("agentflow/canvas storage", () => {
@@ -59,7 +60,7 @@ edges: []
     expect(stringifyAgentFlowSource(doc)).toContain("pauseAfterRun: true");
   });
 
-  it("rejects invalid authored keys and missing references", () => {
+  it("rejects invalid authored keys and defers runnable session checks", () => {
     expect(() => parseAgentFlowSource(`version: 1
 name: Invalid
 sessions:
@@ -69,7 +70,7 @@ nodes: {}
 edges: []
 `, "invalid-flow")).toThrow('session key "bad session"');
 
-    expect(() => parseAgentFlowSource(`version: 1
+    const missingSession = `version: 1
 name: Invalid
 sessions:
   codex:
@@ -80,10 +81,66 @@ nodes:
     title: Build
     session: missing
 edges: []
-`, "invalid-flow")).toThrow('missing session "missing"');
+`;
+    expect(() => parseAgentFlowSource(missingSession, "invalid-flow")).not.toThrow();
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(missingSession, "invalid-flow"))).toThrow('missing session "missing"');
   });
 
-  it("rejects transfer configuration and multiple business inputs on gate input edges", () => {
+  it("saves draft fields without runnable values and only auto-fills aliases", () => {
+    const doc = parseAgentFlowSource(`version: 1
+name: Draft
+sessions:
+  codex: {}
+nodes:
+  input:
+    kind: input
+    required: false
+  step:
+    kind: step
+  gate:
+    kind: gate
+  done:
+    kind: end
+edges: []
+`, "draft-flow");
+
+    expect(doc.sessions[0]).toMatchObject({ id: "codex", agentServerId: "" });
+    expect(doc.nodes).toEqual([
+      { kind: "input", id: "input", alias: "IN", title: "", variableName: "", required: false, sessionId: null },
+      { kind: "step", id: "step", alias: "01", title: "", prompt: "", sessionId: "" },
+      { kind: "gate", id: "gate", alias: "G1", title: "", decisionCriteria: "", branches: [] },
+      { kind: "end", id: "done", alias: "END", title: "", sessionId: null },
+    ]);
+    const serialized = stringifyAgentFlowSource(doc);
+    expect(serialized).toContain('agentServerId: ""');
+    expect(serialized).toContain('session: ""');
+    expect(serialized).toContain('variableName: ""');
+    expect(serialized).toContain("required: false");
+    expect(serialized).toContain("branches: {}");
+    expect(() => assertRunnableAgentFlow(doc)).toThrow("must define agentServerId");
+  });
+
+  it("persists a canvas draft that is not runnable yet", async () => {
+    const root = await tempProject();
+    const doc: CanvasDoc = {
+      id: "draft-canvas",
+      name: "Draft canvas",
+      sessions: [],
+      nodes: [
+        { kind: "step", id: "step", alias: "", x: 10, y: 20, w: 220, title: "", prompt: "", sessionId: null },
+      ],
+      edges: [],
+    };
+
+    await saveCanvas(doc.id, doc, root);
+    const raw = await readFile(join(root, ".aflow/.specflow", "agentflows", "draft-canvas.yaml"), "utf8");
+    expect(raw).toContain('alias: "01"');
+    expect(raw).toContain('session: ""');
+    const loaded = await loadCanvas(doc.id, root);
+    expect(loaded.nodes[0]).toMatchObject({ kind: "step", alias: "01", title: "", prompt: "", sessionId: "" });
+  });
+
+  it("defers transfer configuration and gate execution checks until runnable validation", () => {
     const base = `version: 1
 name: Invalid gate
 sessions:
@@ -112,60 +169,60 @@ nodes:
         label: pass
 edges:
 `;
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
     transmit: true
     outputTag: result
-`, "gate-transfer")).toThrow("cannot declare transmission properties");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "gate-transfer"))).toThrow("cannot declare transmission properties");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
   - from: second
     to: decide
-`, "gate-input-count")).toThrow("accepts exactly one business input edge");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "gate-input-count"))).toThrow("accepts exactly one business input edge");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
     transmit: true
     outputTag: 123-invalid
-`, "invalid-output-tag")).toThrow("XML-safe tag name");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "invalid-output-tag"))).toThrow("XML-safe tag name");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
     transmit: true
     outputTag: result
-`, "same-session-transfer")).toThrow("Same-session edge");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "same-session-transfer"))).toThrow("Same-session edge");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
     outputTag: result
-`, "disabled-transfer-fields")).toThrow("unless transmit is enabled");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "disabled-transfer-fields"))).toThrow("unless transmit is enabled");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: done
     transmit: true
     outputTag: result
-`, "completion-transfer")).toThrow("Control-only edge");
-    expect(() => parseAgentFlowSource(`${base}  - from: decide
+`, "completion-transfer"))).toThrow("Control-only edge");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: decide
     to: done
-`, "gate-without-branch")).toThrow("must select a branch");
+`, "gate-without-branch"))).toThrow("must select a branch");
     expect(() => parseAgentFlowSource(`${base}  - from: done
     to: first
 `, "end-source")).toThrow("cannot leave an end node");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
     loopback: true
-`, "gate-loopback-input")).toThrow("cannot be a loopback edge");
-    expect(() => parseAgentFlowSource(`${base}  - from: decide
+`, "gate-loopback-input"))).toThrow("cannot be a loopback edge");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: decide
     to: first
     branch: pass
     maxTraversals: 0
-`, "invalid-branch-limit")).toThrow("positive integer");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "invalid-branch-limit"))).toThrow("positive integer");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
     maxTraversals: 2
-`, "nongate-branch-limit")).toThrow("only when leaving a gate");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "nongate-branch-limit"))).toThrow("only when leaving a gate");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
   - from: second
     to: first
-`, "unmarked-cycle")).toThrow("unmarked cycle");
-    expect(() => parseAgentFlowSource(`${base}  - from: first
+`, "unmarked-cycle"))).toThrow("unmarked cycle");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
   - from: decide
     to: second
@@ -174,11 +231,11 @@ edges:
   - from: second
     to: first
     loopback: true
-`, "controlled-review-cycle")).not.toThrow();
+`, "controlled-review-cycle"))).not.toThrow();
   });
 
-  it("rejects ambiguous output tags and empty in-memory gates", () => {
-    expect(() => parseAgentFlowSource(`version: 1
+  it("defers ambiguous output tags and empty gates until runnable validation", () => {
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`version: 1
 name: Duplicate tag
 sessions:
   source:
@@ -210,7 +267,7 @@ edges:
     to: result
     transmit: true
     outputTag: value
-`, "duplicate-output-tag")).toThrow("duplicate transmitted outputTag");
+`, "duplicate-output-tag"))).toThrow("duplicate transmitted outputTag");
 
     const valid = parseAgentFlowSource(`version: 1
 name: Empty gate
@@ -229,7 +286,8 @@ edges: []
     const gate = valid.nodes.find((node) => node.kind === "gate");
     if (!gate || gate.kind !== "gate") throw new Error("Expected gate");
     gate.branches = [];
-    expect(() => stringifyAgentFlowSource(valid)).toThrow("must define at least one branch");
+    expect(() => stringifyAgentFlowSource(valid)).not.toThrow();
+    expect(() => assertRunnableAgentFlow(valid)).toThrow("must define at least one branch");
 
     expect(() => parseAgentFlowSource(`version: 1
 name: Alternative tag

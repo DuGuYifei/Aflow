@@ -37,6 +37,7 @@ class MockEventSource {
 }
 
 let runAuthRequired = false;
+let runStartErrorMessage = "";
 let holdRunStart = false;
 let releaseRunStart: (() => void) | undefined;
 let agentSessionHistory: unknown[] = [];
@@ -77,6 +78,7 @@ describe("App run integration", () => {
     });
     MockEventSource.instances = [];
     runAuthRequired = false;
+    runStartErrorMessage = "";
     holdRunStart = false;
     releaseRunStart = undefined;
     agentSessionHistory = [];
@@ -303,6 +305,21 @@ describe("App run integration", () => {
     await waitForText("Authenticate agents");
     expect(document.body.textContent).toContain("echo-headless");
     expect(document.body.textContent).toContain("Workspace login");
+  });
+
+  test("shows run validation errors without closing the run config panel", async () => {
+    runStartErrorMessage = 'Node "node-1" references missing session "".';
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    clickButton("Start run");
+    await waitForText("No run inputs for this workflow.");
+    clickButton("Start run", "last");
+
+    await waitForText("Run blocked");
+    expect(document.body.textContent).toContain("references missing session");
+    expect(document.body.textContent).toContain("No run inputs for this workflow.");
   });
 
   test("keeps a run launch status visible while agent checks are pending", async () => {
@@ -573,6 +590,9 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
       return new Promise((resolve) => {
         releaseRunStart = () => resolve(Response.json({ runId: "run1" }));
       });
+    }
+    if (runStartErrorMessage) {
+      return json({ error: runStartErrorMessage }, { status: 409 });
     }
     if (runAuthRequired) {
       return json({

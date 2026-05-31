@@ -5,6 +5,7 @@ import type { WorkflowRun } from "@specflow/workflow";
 import type { AgentFlowDoc } from "./canvas-doc";
 import { canvasToWorkflow } from "./canvas-to-workflow";
 import { parseAgentFlowSource } from "./agentflow-source";
+import { assertRunnableAgentFlow } from "./agentflow-validation";
 
 export async function loadAgentFlowFile(filePath: string): Promise<AgentFlowDoc> {
   const workflowId = basename(filePath, extname(filePath));
@@ -18,6 +19,7 @@ export async function executeAgentFlowDoc(input: {
   onNodeStatus?: (event: NodeStatusEvent) => void;
   onRunStatus?: (event: RunStatusEvent) => void;
 }): Promise<WorkflowRun> {
+  assertRunnableAgentFlow(input.doc);
   const workflow = canvasToWorkflow(input.doc);
   const executor = new WorkflowExecutor({
     cwd: input.cwd,

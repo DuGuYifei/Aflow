@@ -47,35 +47,35 @@
 
 ## Open Work
 
-- [ ] 实现 `loopback` 的有界循环/返工执行语义；当前仅用于画布显示。
-- [ ] 为 gate 未选中路径增加明确的 `skipped` 运行状态并在 UI 展示。
-- [ ] 决定是否需要跨独立 run 复用 ACP connection；当前复用范围仅为单次 run。
-- [ ] 实现 spec 文档生成、更新及 flow 完成后的自动更新。
+- [x] 决定是否需要跨独立 run 复用 ACP connection；当前复用范围仅为单次 run。(不需要)
+- [ ] 实现 spec 文档生成、更新及 flow 完成后的自动更新。(waiting maturation)
+- [ ] specflow generate-spec 命令
+- [ ] specflow update-spec 命令
 - [ ] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。
 - [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界。
-- [ ] 改进执行中才触发 auth 请求时的重试与 UI 流程。
+- [ ] 清理 .specflow 下的文件 / 文件夹
+- [x] 改进执行中才触发 auth 请求时的重试与 UI 流程。
 - [x] Skill系统接入
 - [ ] MCP系统接入
 - [ ] 无头模式
 - [x] Gate 循环的上限
-- [ ] 从某一个节点继续它的session运行
+- [x] 从某一个节点继续它的session运行
 - [ ] token计数
 - [ ] 辅助build workflow的agent
-- [ ] 优化workflow的agent或server中台
+- [ ] 优化workflow的agent或server中台，整体链路（还得发送workflow快照和日志快照）
 - [ ] 合并inspect和resume的界面到logs
 - [x] ACP skill怎么实现 (好像是自己去读 ~/.agents/skills和 project/.agents/skills)
 - [ ] 日志大小上限，文件数量上限
-- [ ] 清理 .specflow 下的文件 / 文件夹
-- [ ] specflow generate-spec 命令
-- [ ] specflow update-spec 命令
+- [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
+- [ ] app
 
 ## Bug
 
 - [ ] fork不实时显示session
 - [ ] variable页签不显示正在运行的已经填过的变量。
-- [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
-- [ ] session似乎在显示时候共享了session
-- [ ] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）
-- [ ] UI: input value节点不能连线
-- [ ] UI: 新建workflow，会有一个默认的unconfigured session，应该默认不创建。
-- [ ] 当直接退出程序并重启时，如果直接发现run-logs里有running的节点，则先改为cancel状态。
+
+- [x] session似乎在显示时候共享了session
+- [x] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）
+- [x] UI: input value节点不能连线
+- [x] UI: 新建workflow，会有一个默认的unconfigured session，应该默认不创建。
+- [x] 当直接退出程序并重启时，如果直接发现run-logs里有running的节点，则先改为cancel状态。
