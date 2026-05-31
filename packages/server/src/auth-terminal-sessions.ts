@@ -57,7 +57,7 @@ export class AuthTerminalSessionStore {
         // The subprocess exit promise below carries the real command status.
       },
     });
-    const proc = Bun.spawn([task.command, ...task.args], {
+    const processHandle = Bun.spawn([task.command, ...task.args], {
       cwd: task.cwd,
       env: { ...process.env, ...task.env },
       terminal,
@@ -65,7 +65,7 @@ export class AuthTerminalSessionStore {
     const record: AuthTerminalRecord = {
       id: sessionId,
       task,
-      proc,
+      proc: processHandle,
       terminal,
       status: "running",
       events: [],
@@ -80,7 +80,7 @@ export class AuthTerminalSessionStore {
       status: "running",
       at: new Date().toISOString(),
     });
-    void proc.exited.then((exitCode) => {
+    void processHandle.exited.then((exitCode) => {
       if (record.status !== "running") return;
       if (exitCode === 0) {
         void this.#complete(record, "succeeded", { exitCode });

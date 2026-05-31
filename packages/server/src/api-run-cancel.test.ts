@@ -85,7 +85,7 @@ describe("run cancellation API", () => {
 
 async function eventuallyLoadRun(root: string, runId: string, status: string) {
   let last = await loadRun(runId, root);
-  for (let i = 0; i < 50; i += 1) {
+  for (let index = 0; index < 50; index += 1) {
     if (last.status === status) return last;
     await new Promise((resolve) => setTimeout(resolve, 20));
     last = await loadRun(runId, root);

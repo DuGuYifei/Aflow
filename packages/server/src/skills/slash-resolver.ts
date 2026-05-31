@@ -40,7 +40,7 @@ export function resolveSlashCommands(input: SlashResolveInput): SlashResolveOutp
   }
 
   const diagnostics: SlashDiagnostic[] = [];
-  const availableCommandNames = new Set((input.availableCommands ?? []).map((c) => c.name));
+  const availableCommandNames = new Set((input.availableCommands ?? []).map((command) => command.name));
   // We replace from the END so earlier offsets remain valid as we splice.
   const sorted = [...slashes].sort((a, b) => b.range[0] - a.range[0]);
   let result = input.prompt;
@@ -66,7 +66,7 @@ interface ResolutionResult {
 
 function resolveOne(slash: ParsedSlash, skills: Skill[], availableCommands: Set<string>): ResolutionResult {
   if (slash.kind === "scope-qualified") {
-    const skill = skills.find((s) => s.name === slash.name && matchesScope(s.source, slash.scope));
+    const skill = skills.find((skill) => skill.name === slash.name && matchesScope(skill.source, slash.scope));
     if (skill) {
       return {
         replacement: wrapSkill(skill, slash.argText),
@@ -88,7 +88,7 @@ function resolveOne(slash: ParsedSlash, skills: Skill[], availableCommands: Set<
   // Unqualified: try skills first; otherwise check the agent's advertised commands.
   // Apply precedence explicitly since `skills` may contain both a global and a
   // projectLocal entry with the same name.
-  const skill = pickSkillPrecedence(skills.filter((s) => s.name === slash.name));
+  const skill = pickSkillPrecedence(skills.filter((skill) => skill.name === slash.name));
   if (skill) {
     return {
       replacement: wrapSkill(skill, slash.argText),

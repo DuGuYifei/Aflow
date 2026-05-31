@@ -13,14 +13,14 @@ import {
 } from '../api';
 import { useI18n } from '../i18n';
 
-function insertAtCaret(el: HTMLTextAreaElement | null, token: string, write: (next: string) => void) {
-  if (!el) return;
-  const { selectionStart: start, selectionEnd: end, value } = el;
+function insertAtCaret(element: HTMLTextAreaElement | null, token: string, write: (next: string) => void) {
+  if (!element) return;
+  const { selectionStart: start, selectionEnd: end, value } = element;
   const next = value.slice(0, start) + token + value.slice(end);
   write(next);
   requestAnimationFrame(() => {
-    el.focus();
-    el.setSelectionRange(start + token.length, start + token.length);
+    element.focus();
+    element.setSelectionRange(start + token.length, start + token.length);
   });
 }
 
@@ -495,10 +495,10 @@ function AcpControls(props: AcpControlsProps) {
   }
   // configOptions sorted: model → thought_level → mode → other → unknown
   const categoryOrder: Record<string, number> = { model: 0, thought_level: 1, mode: 2, other: 3 };
-  const sortedOptions = [...visibleOptions].sort((a, b) => {
-    const ai = a.category ? categoryOrder[a.category] ?? 9 : 9;
-    const bi = b.category ? categoryOrder[b.category] ?? 9 : 9;
-    return ai - bi;
+  const sortedOptions = [...visibleOptions].sort((leftOption, rightOption) => {
+    const leftCategoryOrder = leftOption.category ? categoryOrder[leftOption.category] ?? 9 : 9;
+    const rightCategoryOrder = rightOption.category ? categoryOrder[rightOption.category] ?? 9 : 9;
+    return leftCategoryOrder - rightCategoryOrder;
   });
   return (
     <>
@@ -626,10 +626,10 @@ function ConfigOptionControl(props: {
       >
         <option value="">{t('node.inheritAgentDefault')}</option>
         {groups.map((group) => group.name === '__flat__'
-          ? group.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.name || opt.value}</option>)
+          ? group.options.map((option) => <option key={option.value} value={option.value}>{option.name || option.value}</option>)
           : (
             <optgroup key={group.name} label={group.name}>
-              {group.options.map((opt) => <option key={opt.value} value={opt.value}>{opt.name || opt.value}</option>)}
+              {group.options.map((option) => <option key={option.value} value={option.value}>{option.name || option.value}</option>)}
             </optgroup>
           ))}
       </select>
@@ -668,8 +668,8 @@ function McpServersEditor(props: {
       }
       setError(undefined);
       props.onChange(trimmed);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     }
   };
   return (
@@ -719,13 +719,13 @@ interface ActiveSlashQuery {
  * user is still typing the command name. Returns null otherwise.
  */
 function findActiveSlashQuery(text: string, caret: number): ActiveSlashQuery | null {
-  let i = caret;
-  while (i > 0 && /[A-Za-z0-9_:.-]/.test(text[i - 1])) i -= 1;
-  const slashIdx = i - 1;
+  let queryStart = caret;
+  while (queryStart > 0 && /[A-Za-z0-9_:.-]/.test(text[queryStart - 1])) queryStart -= 1;
+  const slashIdx = queryStart - 1;
   if (slashIdx < 0 || text[slashIdx] !== '/') return null;
   const lineStart = text.lastIndexOf('\n', slashIdx - 1) + 1;
   if (text.slice(lineStart, slashIdx).trim() !== '') return null;
-  return { slashIdx, queryStart: i, query: text.slice(i, caret) };
+  return { slashIdx, queryStart, query: text.slice(queryStart, caret) };
 }
 
 const SlashCommandTextarea = forwardRef<HTMLTextAreaElement, {
@@ -744,26 +744,26 @@ const SlashCommandTextarea = forwardRef<HTMLTextAreaElement, {
   const candidates: SlashCandidate[] = active ? buildCandidates(props.skills, props.availableCommands, active.query) : [];
 
   const sync = () => {
-    const el = innerRef.current;
-    if (!el || props.disabled) { setActive(null); return; }
-    const next = findActiveSlashQuery(el.value, el.selectionStart ?? 0);
+    const element = innerRef.current;
+    if (!element || props.disabled) { setActive(null); return; }
+    const next = findActiveSlashQuery(element.value, element.selectionStart ?? 0);
     setActive(next);
     setHighlight(0);
   };
 
   const accept = (candidate: SlashCandidate) => {
-    const el = innerRef.current;
-    if (!el || !active) return;
-    const before = el.value.slice(0, active.slashIdx);
-    const after = el.value.slice(el.selectionStart ?? active.queryStart);
+    const element = innerRef.current;
+    if (!element || !active) return;
+    const before = element.value.slice(0, active.slashIdx);
+    const after = element.value.slice(element.selectionStart ?? active.queryStart);
     const insert = `/${candidate.name} `;
     const next = before + insert + after;
     props.onChange(next);
     const caret = before.length + insert.length;
     setActive(null);
     requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(caret, caret);
+      element.focus();
+      element.setSelectionRange(caret, caret);
     });
   };
 
@@ -771,10 +771,10 @@ const SlashCommandTextarea = forwardRef<HTMLTextAreaElement, {
     if (!active || candidates.length === 0) return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setHighlight((h) => (h + 1) % candidates.length);
+      setHighlight((height) => (height + 1) % candidates.length);
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setHighlight((h) => (h - 1 + candidates.length) % candidates.length);
+      setHighlight((height) => (height - 1 + candidates.length) % candidates.length);
     } else if (event.key === 'Enter' || event.key === 'Tab') {
       event.preventDefault();
       accept(candidates[Math.min(highlight, candidates.length - 1)]);
@@ -846,12 +846,12 @@ function buildCandidates(
   commands: AgentServerCapabilities['availableCommands'] | undefined,
   query: string,
 ): SlashCandidate[] {
-  const q = query.toLowerCase();
+  const lowercaseQuery = query.toLowerCase();
   const skillItems: SlashCandidate[] = skills
-    .filter((skill) => skill.name.toLowerCase().startsWith(q))
+    .filter((skill) => skill.name.toLowerCase().startsWith(lowercaseQuery))
     .map((skill) => ({ name: skill.name, kind: 'skill', label: `skill · ${skill.source}`, detail: skill.description }));
   const commandItems: SlashCandidate[] = (commands ?? [])
-    .filter((command) => command.name.toLowerCase().startsWith(q) && !skillItems.some((s) => s.name === command.name))
+    .filter((command) => command.name.toLowerCase().startsWith(lowercaseQuery) && !skillItems.some((skill) => skill.name === command.name))
     .map((command) => ({ name: command.name, kind: 'command', label: 'agent command', detail: command.description }));
   return [...skillItems, ...commandItems].slice(0, 12);
 }
@@ -869,8 +869,8 @@ function SlashCommandWarnings(props: {
   // Mirrors the server's slash-parser logic well enough to surface warnings.
   const slashTokens = parseSlashTokens(prompt);
   if (slashTokens.length === 0) return null;
-  const knownSkill = new Set(skills.map((s) => s.name));
-  const knownCommand = new Set((availableCommands ?? []).map((c) => c.name));
+  const knownSkill = new Set(skills.map((skill) => skill.name));
+  const knownCommand = new Set((availableCommands ?? []).map((command) => command.name));
   const issues = slashTokens.filter((token) => !isResolvable(token, knownSkill, knownCommand));
   if (issues.length === 0) return null;
   return (
@@ -883,24 +883,24 @@ function SlashCommandWarnings(props: {
 interface SlashToken { display: string; bare: string; scope?: string }
 
 function parseSlashTokens(text: string): SlashToken[] {
-  const out: SlashToken[] = [];
+  const output: SlashToken[] = [];
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     const match = line.trimStart().match(/^\/([A-Za-z0-9_:.-]+)/);
     if (!match) continue;
-    const raw = match[1];
-    if (raw.includes('.')) {
+    const rawValue = match[1];
+    if (rawValue.includes('.')) {
       // MCP-style: server.prompt — skip in this warning (already unsupported).
       continue;
     }
-    if (raw.includes(':')) {
-      const lastColon = raw.lastIndexOf(':');
-      out.push({ display: raw, scope: raw.slice(0, lastColon), bare: raw.slice(lastColon + 1) });
+    if (rawValue.includes(':')) {
+      const lastColon = rawValue.lastIndexOf(':');
+      output.push({ display: rawValue, scope: rawValue.slice(0, lastColon), bare: rawValue.slice(lastColon + 1) });
     } else {
-      out.push({ display: raw, bare: raw });
+      output.push({ display: rawValue, bare: rawValue });
     }
   }
-  return out;
+  return output;
 }
 
 function isResolvable(token: SlashToken, skills: Set<string>, commands: Set<string>): boolean {

@@ -6,9 +6,9 @@ import { AcpClientHandlers } from "./client-handlers";
 
 describe("AcpClientHandlers", () => {
   it("defaults permission and elicitation requests to cancelled when no UI hook is installed", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
     const handler = new AcpClientHandlers({
-      cwd,
+      cwd: workingDirectory,
       appendOutput() {},
     });
 
@@ -33,19 +33,19 @@ describe("AcpClientHandlers", () => {
   });
 
   it("guards file access to the configured workspace roots", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
     const additional = await mkdtemp(join(tmpdir(), "specflow-acp-extra-"));
-    await writeFile(join(cwd, "input.txt"), "a\nb\nc\n", "utf8");
+    await writeFile(join(workingDirectory, "input.txt"), "a\nb\nc\n", "utf8");
     await writeFile(join(additional, "extra.txt"), "extra", "utf8");
     const handler = new AcpClientHandlers({
-      cwd,
+      cwd: workingDirectory,
       additionalDirectories: [additional],
       appendOutput() {},
     });
 
     const read = await handler.readTextFile({
       sessionId: "s1",
-      path: join(cwd, "input.txt"),
+      path: join(workingDirectory, "input.txt"),
       line: 2,
       limit: 1,
     });
@@ -53,10 +53,10 @@ describe("AcpClientHandlers", () => {
 
     await handler.writeTextFile({
       sessionId: "s1",
-      path: join(cwd, "nested/out.txt"),
+      path: join(workingDirectory, "nested/out.txt"),
       content: "ok",
     });
-    expect(await readFile(join(cwd, "nested/out.txt"), "utf8")).toBe("ok");
+    expect(await readFile(join(workingDirectory, "nested/out.txt"), "utf8")).toBe("ok");
 
     const extraRead = await handler.readTextFile({
       sessionId: "s1",
@@ -71,9 +71,9 @@ describe("AcpClientHandlers", () => {
   });
 
   it("always supports ACP terminal creation", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
     const handler = new AcpClientHandlers({
-      cwd,
+      cwd: workingDirectory,
       appendOutput() {},
     });
 
@@ -90,10 +90,10 @@ describe("AcpClientHandlers", () => {
   });
 
   it("supports extension request and notification hooks", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-handlers-"));
     const notifications: string[] = [];
     const handler = new AcpClientHandlers({
-      cwd,
+      cwd: workingDirectory,
       appendOutput() {},
       onExtMethod: async (method, params) => ({ method, value: params.value }),
       onExtNotification: (method) => {

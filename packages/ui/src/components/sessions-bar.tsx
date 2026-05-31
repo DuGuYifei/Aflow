@@ -14,7 +14,7 @@ interface SessionsBarProps {
   expanded: boolean;
   setExpanded: (b: boolean) => void;
   barHeight: number;
-  setBarHeight: (h: number) => void;
+  setBarHeight: (height: number) => void;
   activeSessionId: string;
   setActiveSessionId: (id: string) => void;
   onAssignSession: (nodeId: string, sessionId: string) => void;
@@ -64,8 +64,8 @@ export function SessionsBar({
   const { t, language } = useI18n();
   const [tab, setTab] = useState<'logs' | 'agent-sessions' | 'settings' | 'vars'>('logs');
   const barHeightRef = useRef(barHeight);
-  const stepNodes = nodes.filter((n) => n.kind === 'step');
-  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
+  const stepNodes = nodes.filter((node) => node.kind === 'step');
+  const activeSession = sessions.find((session) => session.id === activeSessionId) || sessions[0];
 
   useEffect(() => { barHeightRef.current = barHeight; }, [barHeight]);
 
@@ -73,13 +73,13 @@ export function SessionsBar({
     if (addSessionPing) setTab('settings');
   }, [addSessionPing]);
 
-  const onResizeDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
+  const onResizeDown = (element: React.MouseEvent) => {
+    element.preventDefault();
+    const startY = element.clientY;
     const startH = barHeightRef.current;
-    const onMove = (ev: MouseEvent) => {
-      const dy = startY - ev.clientY;
-      setBarHeight(Math.min(600, Math.max(120, startH + dy)));
+    const onMove = (event: MouseEvent) => {
+      const deltaY = startY - event.clientY;
+      setBarHeight(Math.min(600, Math.max(120, startH + deltaY)));
     };
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
@@ -104,9 +104,9 @@ export function SessionsBar({
           </span>
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{t('sessions.activity')}</span>
-          {sessions.slice(0, 4).map((s) => (
-            <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--ink-2)' }}>
-              <span className="ses-dot" style={{ width: 6, height: 6, borderRadius: 2, background: sessionAccent(s) }} />{s.name}
+          {sessions.slice(0, 4).map((session) => (
+            <span key={session.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--ink-2)' }}>
+              <span className="ses-dot" style={{ width: 6, height: 6, borderRadius: 2, background: sessionAccent(session) }} />{session.name}
             </span>
           ))}
         </div>
@@ -249,14 +249,14 @@ function LogsTab({
     try { localStorage.setItem('sf-side-w', String(sideW)); } catch { /* ignore */ }
   }, [sideW]);
 
-  const onResizerDown = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const onResizerDown = (element: React.MouseEvent) => {
+    element.preventDefault();
     setDragging(true);
-    const startX = e.clientX;
+    const startX = element.clientX;
     const startW = sideWRef.current;
-    const onMove = (ev: MouseEvent) => {
-      const dx = startX - ev.clientX;
-      setSideW(Math.min(360, Math.max(140, startW + dx)));
+    const onMove = (event: MouseEvent) => {
+      const deltaX = startX - event.clientX;
+      setSideW(Math.min(360, Math.max(140, startW + deltaX)));
     };
     const onUp = () => {
       setDragging(false);
@@ -273,8 +273,8 @@ function LogsTab({
   const prevHeightRef = useRef(0);
   useEffect(() => {
     const events = timelineEvents ?? [];
-    const el = termRef.current;
-    if (!el) {
+    const element = termRef.current;
+    if (!element) {
       prevLenRef.current = events.length;
       prevFirstRef.current = events[0];
       return;
@@ -287,21 +287,21 @@ function LogsTab({
     if (grew && firstChanged) {
       // Prepend (Load earlier): keep the currently-visible content under the
       // user's eye by compensating scrollTop for the height added at the top.
-      const delta = el.scrollHeight - prevHeightRef.current;
-      el.scrollTop = el.scrollTop + delta;
+      const delta = element.scrollHeight - prevHeightRef.current;
+      element.scrollTop = element.scrollTop + delta;
     } else if (grew) {
       // Live append: pin to bottom.
-      el.scrollTop = el.scrollHeight;
+      element.scrollTop = element.scrollHeight;
     }
     prevLenRef.current = events.length;
     prevFirstRef.current = currFirst;
-    prevHeightRef.current = el.scrollHeight;
+    prevHeightRef.current = element.scrollHeight;
   }, [timelineEvents]);
 
   const activeNodeIds = new Set(
-    stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).map((n) => n.id),
+    stepNodes.filter((node) => node.kind === 'step' && node.sessionId === activeSession?.id).map((node) => node.id),
   );
-  const nodeById = new Map(stepNodes.map((n) => [n.id, n]));
+  const nodeById = new Map(stepNodes.map((node) => [node.id, node]));
   const visibleEvents = (timelineEvents ?? []).filter((event) => {
     // Events explicitly tagged with this session win.
     if ('specflowSessionId' in event && event.specflowSessionId) {
@@ -325,7 +325,7 @@ function LogsTab({
             <span className="dot" style={{ background: activeSession ? sessionAccent(activeSession) : 'var(--ink-3)' }} />{activeSession?.agentServerId ?? activeSession?.agent}
           </span>
           <span style={{ color: 'var(--ink-3)', fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
-            · {t('sessions.nodesCount', { count: stepNodes.filter((n) => n.kind === 'step' && n.sessionId === activeSession?.id).length })}
+            · {t('sessions.nodesCount', { count: stepNodes.filter((node) => node.kind === 'step' && node.sessionId === activeSession?.id).length })}
           </span>
         </div>
         <div className="term-stream" ref={termRef}>
@@ -391,23 +391,23 @@ function LogsTab({
           {sessions.length === 0 && (
             <div className="term-empty-session">{t('sessions.noSessions')}</div>
           )}
-          {sessions.map((s) => {
-            const count = stepNodes.filter((n) => n.kind === 'step' && n.sessionId === s.id).length;
-            const isActive = s.id === activeSession?.id;
+          {sessions.map((session) => {
+            const count = stepNodes.filter((node) => node.kind === 'step' && node.sessionId === session.id).length;
+            const isActive = session.id === activeSession?.id;
             return (
               <div
-                key={s.id}
+                key={session.id}
                 className={`term-ses-item${isActive ? ' active' : ''}`}
-                onClick={() => setActiveSessionId(s.id)}
+                onClick={() => setActiveSessionId(session.id)}
               >
-                <span className="ses-dot" style={{ background: sessionAccent(s) }} />
-                <span className="name">{s.name}</span>
+                <span className="ses-dot" style={{ background: sessionAccent(session) }} />
+                <span className="name">{session.name}</span>
                 <span className="count">{count}</span>
                 <button
                   className="ses-del"
                   title={t('sessions.deleteSession')}
                   disabled={sessions.length <= 1}
-                  onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id); }}
+                  onClick={(event) => { event.stopPropagation(); onDeleteSession(session.id); }}
                 >
                   <Icon name="x" size={10} />
                 </button>
@@ -511,8 +511,8 @@ function AgentSessionsTab({
             className="input agent-session-agent-select"
             value={selectedAgentId}
             disabled={agentIds.length === 0}
-            onChange={(e) => {
-              setAgentFilter(e.target.value);
+            onChange={(event) => {
+              setAgentFilter(event.target.value);
               setWorkflowSessionFilter('');
             }}
           >
@@ -528,7 +528,7 @@ function AgentSessionsTab({
             className="input agent-session-workflow-select"
             value={selectedWorkflowSession}
             disabled={workflowSessionIds.length === 0}
-            onChange={(e) => setWorkflowSessionFilter(e.target.value)}
+            onChange={(event) => setWorkflowSessionFilter(event.target.value)}
           >
             <option value="">{t('agentSession.allSessions')}</option>
             {workflowSessionIds.filter(Boolean).map((sessionId) => (
@@ -608,19 +608,19 @@ function AgentSessionsTab({
                     )}
 
                     <div className="history-invocations">
-                      {session.invocations.slice(-4).reverse().map((ref) => {
-                        const runMissing = !knownRuns.has(ref.runId);
+                      {session.invocations.slice(-4).reverse().map((reference) => {
+                        const runMissing = !knownRuns.has(reference.runId);
                         return (
                           <button
-                            key={ref.invocationId}
+                            key={reference.invocationId}
                             className="history-invocation"
                             disabled={runMissing}
-                            onClick={() => onOpenInvocationLog?.(ref.runId, ref.nodeId, session.specflowSessionId)}
+                            onClick={() => onOpenInvocationLog?.(reference.runId, reference.nodeId, session.specflowSessionId)}
                             title={runMissing ? t('agentSession.deletedRun') : t('agentSession.openRunLog')}
                           >
-                            <span className={`status-dot ${ref.status === 'done' ? 'success' : ref.status === 'failed' ? 'error' : ref.status}`} />
-                            <span className="mono-id">{ref.nodeId ?? ref.edgeId ?? ref.invocationId}</span>
-                            <span>{runMissing ? t('agentSession.missingRun') : runLabelById.get(ref.runId) ?? ref.runId}</span>
+                            <span className={`status-dot ${reference.status === 'done' ? 'success' : reference.status === 'failed' ? 'error' : reference.status}`} />
+                            <span className="mono-id">{reference.nodeId ?? reference.edgeId ?? reference.invocationId}</span>
+                            <span>{runMissing ? t('agentSession.missingRun') : runLabelById.get(reference.runId) ?? reference.runId}</span>
                           </button>
                         );
                       })}
@@ -713,25 +713,25 @@ function VariablesTab({ variables, onEditVariable, readonly, t }: VariablesTabPr
           <span>{t('variables.defaultValue')}</span>
           <span>{t('variables.description')}</span>
         </div>
-        {variables.map((v) => (
-          <div key={v.name} className="assn-row" style={{ gap: 8, alignItems: 'center' }}>
+        {variables.map((variable) => (
+          <div key={variable.name} className="assn-row" style={{ gap: 8, alignItems: 'center' }}>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ink-2)', flexShrink: 0, minWidth: 120 }}>
-              &lt;{v.name}&gt;
+              &lt;{variable.name}&gt;
             </span>
             <input
               className="input"
-              value={v.defaultValue ?? ''}
+              value={variable.defaultValue ?? ''}
               disabled={readonly}
               placeholder="—"
-              onChange={(e) => onEditVariable(v.name, { defaultValue: e.target.value || undefined })}
+              onChange={(event) => onEditVariable(variable.name, { defaultValue: event.target.value || undefined })}
               style={{ flex: 1, minWidth: 80 }}
             />
             <input
               className="input"
-              value={v.description ?? ''}
+              value={variable.description ?? ''}
               disabled={readonly}
               placeholder="—"
-              onChange={(e) => onEditVariable(v.name, { description: e.target.value || undefined })}
+              onChange={(event) => onEditVariable(variable.name, { description: event.target.value || undefined })}
               style={{ flex: 2 }}
             />
           </div>
@@ -751,8 +751,8 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
 
   useEffect(() => {
     if (addSessionPing && inputRef.current) {
-      const t = setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 60);
-      return () => clearTimeout(t);
+      const focusTimer = setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 60);
+      return () => clearTimeout(focusTimer);
     }
   }, [addSessionPing]);
 
@@ -800,11 +800,11 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           placeholder={t('settings.sessionName')}
           value={draftName}
           disabled={readonly}
-          onChange={(e) => setDraftName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          onChange={(event) => setDraftName(event.target.value)}
+          onKeyDown={(event) => event.key === 'Enter' && handleAdd()}
           style={{ width: 180, height: 26 }}
         />
-        <select className="input sm" value={draftAgent} disabled={readonly} onChange={(e) => setDraftAgent(e.target.value)} style={{ height: 26, width: 180 }}>
+        <select className="input sm" value={draftAgent} disabled={readonly} onChange={(event) => setDraftAgent(event.target.value)} style={{ height: 26, width: 180 }}>
           {agentServers.map((server) => (
             <option key={server.id} value={server.id}>{server.id}</option>
           ))}
@@ -819,19 +819,19 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
 
       <div className="session-list-row">
         <span className="label">{t('sessions.title')}</span>
-        {sessions.map((s) => {
-          if (editingId === s.id) {
+        {sessions.map((session) => {
+          if (editingId === session.id) {
             return (
-              <span key={s.id} className="session-chip editing">
-                <span className="ses-dot" style={{ background: sessionAccent(s) }} />
+              <span key={session.id} className="session-chip editing">
+                <span className="ses-dot" style={{ background: sessionAccent(session) }} />
                 <input
                   className="input sm"
                   value={editingName}
                   disabled={readonly}
-                  onChange={(e) => setEditingName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') saveEdit();
-                    if (e.key === 'Escape') cancelEdit();
+                  onChange={(event) => setEditingName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') saveEdit();
+                    if (event.key === 'Escape') cancelEdit();
                   }}
                   style={{ width: 130, height: 20 }}
                 />
@@ -839,14 +839,14 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
                   className="input sm"
                   value={editingAgent}
                   disabled={readonly}
-                  onChange={(e) => setEditingAgent(e.target.value)}
+                  onChange={(event) => setEditingAgent(event.target.value)}
                   style={{ width: 140, height: 20 }}
                 >
                   {agentServers.map((server) => (
                     <option key={server.id} value={server.id}>{server.id}</option>
                   ))}
                 </select>
-                <button className="ses-x save" title={t('settings.saveSession', { name: s.name })} disabled={readonly || !isSymbolKey(editingName.trim()) || sessions.some((session) => session.id === editingName.trim() && session.id !== editingId)} onClick={saveEdit}>
+                <button className="ses-x save" title={t('settings.saveSession', { name: session.name })} disabled={readonly || !isSymbolKey(editingName.trim()) || sessions.some((session) => session.id === editingName.trim() && session.id !== editingId)} onClick={saveEdit}>
                   <Icon name="check" size={10} />
                 </button>
                 <button className="ses-x" title={t('settings.cancelEdit')} onClick={cancelEdit}>
@@ -856,14 +856,14 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
             );
           }
           return (
-            <span key={s.id} className="session-chip">
-              <span className="ses-dot" style={{ background: sessionAccent(s) }} />
-              {s.name}
-              <span className="agent">{s.agentServerId ?? s.agent}</span>
-              <button className="ses-x" title={t('settings.editSession', { name: s.name })} disabled={readonly} onClick={() => startEdit(s)}>
+            <span key={session.id} className="session-chip">
+              <span className="ses-dot" style={{ background: sessionAccent(session) }} />
+              {session.name}
+              <span className="agent">{session.agentServerId ?? session.agent}</span>
+              <button className="ses-x" title={t('settings.editSession', { name: session.name })} disabled={readonly} onClick={() => startEdit(session)}>
                 <Icon name="edit" size={10} />
               </button>
-              <button className="ses-x" title={t('settings.deleteSession', { name: s.name })} disabled={readonly || sessions.length <= 1} onClick={() => onDeleteSession(s.id)}>
+              <button className="ses-x" title={t('settings.deleteSession', { name: session.name })} disabled={readonly || sessions.length <= 1} onClick={() => onDeleteSession(session.id)}>
                 <Icon name="x" size={10} />
               </button>
             </span>
@@ -876,20 +876,20 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           <span>{t('settings.node')}</span>
           <span>{t('settings.sessionAssignment')}</span>
         </div>
-        {(stepNodes.filter((n) => n.kind === 'step') as Extract<WorkflowNode, { kind: 'step' }>[]).map((n) => (
-          <div key={n.id} className="assn-row">
+        {(stepNodes.filter((node) => node.kind === 'step') as Extract<WorkflowNode, { kind: 'step' }>[]).map((stepNode) => (
+          <div key={stepNode.id} className="assn-row">
             <div className="nbox">
-              <span className="nid">{n.alias}</span>
-              <span className="nname">{n.title}</span>
+              <span className="nid">{stepNode.alias}</span>
+              <span className="nname">{stepNode.title}</span>
             </div>
             <div className="session-pick">
-              {sessions.map((s) => (
+              {sessions.map((session) => (
                 <button
-                  key={s.id}
-                  className={n.sessionId === s.id ? 'active' : ''}
-                  onClick={() => onAssignSession(n.id, s.id)}
+                  key={session.id}
+                  className={stepNode.sessionId === session.id ? 'active' : ''}
+                  onClick={() => onAssignSession(stepNode.id, session.id)}
                 >
-                  <span className="ses-dot" style={{ background: sessionAccent(s) }} />{s.name}
+                  <span className="ses-dot" style={{ background: sessionAccent(session) }} />{session.name}
                 </button>
               ))}
             </div>

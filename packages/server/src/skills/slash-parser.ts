@@ -48,28 +48,28 @@ const NAME_CHARS = /[a-z0-9_-]/i;
  * gets the rest of the line as its argText, similar to MCP prompt arguments.
  */
 export function parsePromptSlashCommands(prompt: string): ParsedSlash[] {
-  const out: ParsedSlash[] = [];
+  const output: ParsedSlash[] = [];
   // Iterate by index so we can capture absolute offsets and skip ahead.
-  let i = 0;
-  while (i < prompt.length) {
+  let index = 0;
+  while (index < prompt.length) {
     // Find the next `/` that starts a line (or follows only spaces/tabs).
-    const lineStart = findLineStart(prompt, i);
+    const lineStart = findLineStart(prompt, index);
     if (lineStart === -1) break;
     const slashIdx = skipHorizontalWhitespace(prompt, lineStart);
     if (slashIdx >= prompt.length || prompt[slashIdx] !== "/") {
       // No slash at the start of this line; advance to the next line.
-      i = nextLineStart(prompt, lineStart);
+      index = nextLineStart(prompt, lineStart);
       continue;
     }
     const parsed = parseSingle(prompt, slashIdx);
     if (parsed) {
-      out.push(parsed);
-      i = parsed.range[1];
+      output.push(parsed);
+      index = parsed.range[1];
     } else {
-      i = nextLineStart(prompt, lineStart);
+      index = nextLineStart(prompt, lineStart);
     }
   }
-  return out;
+  return output;
 }
 
 function parseSingle(prompt: string, startIdx: number): ParsedSlash | undefined {
@@ -114,15 +114,15 @@ function parseSingle(prompt: string, startIdx: number): ParsedSlash | undefined 
   const lineEnd = findLineEnd(prompt, afterName);
   const argText = prompt.slice(afterName, lineEnd).trim();
   const range: [number, number] = [startIdx, lineEnd];
-  const raw = prompt.slice(startIdx, lineEnd);
+  const rawValue = prompt.slice(startIdx, lineEnd);
 
   if (kind === "scope-qualified") {
-    return { kind, scope, name, argText, range, raw };
+    return { kind, scope, name, argText, range, raw: rawValue };
   }
   if (kind === "mcp-prompt") {
-    return { kind, server, prompt: promptName, argText, range, raw };
+    return { kind, server, prompt: promptName, argText, range, raw: rawValue };
   }
-  return { kind, name, argText, range, raw };
+  return { kind, name, argText, range, raw: rawValue };
 }
 
 function findLineStart(text: string, from: number): number {
@@ -141,9 +141,9 @@ function nextLineStart(text: string, from: number): number {
 }
 
 function skipHorizontalWhitespace(text: string, from: number): number {
-  let i = from;
-  while (i < text.length && (text[i] === " " || text[i] === "\t")) i++;
-  return i;
+  let index = from;
+  while (index < text.length && (text[index] === " " || text[index] === "\t")) index++;
+  return index;
 }
 
 function findLineEnd(text: string, from: number): number {

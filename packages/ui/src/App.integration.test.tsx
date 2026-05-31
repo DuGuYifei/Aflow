@@ -3,10 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { App } from "./App";
 import { I18nProvider } from "./i18n";
 
-declare function describe(name: string, fn: () => void): void;
-declare function beforeEach(fn: () => void): void;
-declare function afterEach(fn: () => void): void;
-declare function test(name: string, fn: () => Promise<void> | void): void;
+declare function describe(name: string, callback: () => void): void;
+declare function beforeEach(callback: () => void): void;
+declare function afterEach(callback: () => void): void;
+declare function test(name: string, callback: () => Promise<void> | void): void;
 declare const expect: (value: unknown) => {
   toContain(expected: unknown): void;
   not: { toContain(expected: unknown): void };
@@ -192,9 +192,9 @@ describe("App run integration", () => {
 
   test("loads the first existing workflow when the renamed example is absent", async () => {
     const defaultFetch = globalThis.fetch;
-    globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-      const method = init?.method ?? "GET";
+      const method = initialValue?.method ?? "GET";
       if (method === "GET" && url === "/api/canvases") {
         return json([{ id: "legacy-flow", name: "Existing workflow" }]);
       }
@@ -204,7 +204,7 @@ describe("App run integration", () => {
       if (method === "GET" && url === "/api/agent-sessions?workflowId=legacy-flow") {
         return json([]);
       }
-      return defaultFetch(input, init);
+      return defaultFetch(input, initialValue);
     };
 
     root = createRoot(container);
@@ -235,9 +235,9 @@ describe("App run integration", () => {
 
   test("assigns a step session from the right panel dropdown and keeps Add available", async () => {
     const defaultFetch = globalThis.fetch;
-    globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-      const method = init?.method ?? "GET";
+      const method = initialValue?.method ?? "GET";
       if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
         return json({
           ...sampleCanvas(),
@@ -247,7 +247,7 @@ describe("App run integration", () => {
           ],
         });
       }
-      return defaultFetch(input, init);
+      return defaultFetch(input, initialValue);
     };
 
     root = createRoot(container);
@@ -550,9 +550,9 @@ describe("App run integration", () => {
   });
 });
 
-function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+function mockFetch(input: RequestInfo | URL, initialValue?: RequestInit): Promise<Response> {
   const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-  const method = init?.method ?? "GET";
+  const method = initialValue?.method ?? "GET";
 
   if (method === "GET" && url === "/api/canvases") {
     return json([{ id: "example-code-frontend-flow", name: "Workflow" }]);
@@ -564,11 +564,11 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     return json({ id: "custom-workflow", name: "Custom workflow", sessions: [], nodes: [], edges: [] });
   }
   if (method === "POST" && url === "/api/canvases") {
-    createdCanvasBody = JSON.parse(String(init?.body ?? "{}"));
+    createdCanvasBody = JSON.parse(String(initialValue?.body ?? "{}"));
     return json({ id: "custom-workflow", name: "Custom workflow", sessions: [], nodes: [], edges: [] });
   }
   if (method === "PUT" && /^\/api\/canvases\/[^/]+$/.test(url)) {
-    const body = JSON.parse(String(init?.body ?? "{}"));
+    const body = JSON.parse(String(initialValue?.body ?? "{}"));
     savedCanvases.push(body);
     return json(body);
   }
@@ -616,7 +616,7 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     return json([]);
   }
   if (method === "POST" && url === "/api/runs/run1/paused-nodes/node-1/prompt") {
-    const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+    const body = JSON.parse(String(initialValue?.body ?? "{}")) as { prompt?: string };
     if (body.prompt) pausedPrompts.push(body.prompt);
     return json({ output: "paused answer" });
   }
@@ -624,7 +624,7 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
     return json({ restoreId: "restore-1", status: "running" });
   }
   if (method === "POST" && url === "/api/agent-session-restores/restore-1/prompt") {
-    const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+    const body = JSON.parse(String(initialValue?.body ?? "{}")) as { prompt?: string };
     if (body.prompt) restoredPrompts.push(body.prompt);
     return json({ output: "continued" });
   }
@@ -639,8 +639,8 @@ function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   return json({ ok: true });
 }
 
-function json(value: unknown, init?: ResponseInit): Promise<Response> {
-  return Promise.resolve(Response.json(value, init));
+function json(value: unknown, initialValue?: ResponseInit): Promise<Response> {
+  return Promise.resolve(Response.json(value, initialValue));
 }
 
 function sampleCanvas() {
@@ -760,7 +760,7 @@ async function waitForText(text: string): Promise<void> {
 }
 
 async function waitFor(assertion: () => boolean): Promise<void> {
-  for (let i = 0; i < 50; i += 1) {
+  for (let index = 0; index < 50; index += 1) {
     if (assertion()) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }

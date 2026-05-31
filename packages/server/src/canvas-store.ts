@@ -28,20 +28,20 @@ function canvasPath(id: string, root: string) {
 }
 
 export async function listCanvases(root: string): Promise<{ id: string; name: string }[]> {
-  const dir = agentflowsDir(root);
+  const directory = agentflowsDir(root);
   let files: string[];
   try {
-    files = await readdir(dir);
+    files = await readdir(directory);
   } catch {
     return [];
   }
   const results: { id: string; name: string }[] = [];
-  for (const file of files.filter((f) => f.endsWith(".yaml"))) {
+  for (const file of files.filter((file) => file.endsWith(".yaml"))) {
     try {
-      const raw = await readFile(join(dir, file), "utf8");
+      const rawValue = await readFile(join(directory, file), "utf8");
       const id = basename(file, ".yaml");
-      const doc = parseAgentFlowSource(raw, id);
-      results.push({ id: doc.id, name: doc.name });
+      const canvasDocument = parseAgentFlowSource(rawValue, id);
+      results.push({ id: canvasDocument.id, name: canvasDocument.name });
     } catch {
       // skip malformed
     }
@@ -56,8 +56,8 @@ export async function loadCanvas(id: string, root: string): Promise<CanvasDoc> {
 }
 
 export async function loadAgentFlow(id: string, root: string): Promise<AgentFlowDoc> {
-  const raw = await readFile(agentflowPath(id, root), "utf8");
-  return parseAgentFlowSource(raw, id);
+  const rawValue = await readFile(agentflowPath(id, root), "utf8");
+  return parseAgentFlowSource(rawValue, id);
 }
 
 export async function loadOrCreateCanvasLayout(
@@ -65,8 +65,8 @@ export async function loadOrCreateCanvasLayout(
   root: string,
 ): Promise<CanvasLayoutDoc> {
   try {
-    const raw = await readFile(canvasPath(agentflow.id, root), "utf8");
-    const layout = JSON.parse(raw) as CanvasLayoutDoc;
+    const rawValue = await readFile(canvasPath(agentflow.id, root), "utf8");
+    const layout = JSON.parse(rawValue) as CanvasLayoutDoc;
     if (layout.workflowId === agentflow.id) return normalizeCanvasLayout(agentflow, layout);
   } catch {
     // Missing or malformed layout is regenerated below.
@@ -76,8 +76,8 @@ export async function loadOrCreateCanvasLayout(
   return generated;
 }
 
-export async function saveCanvas(id: string, doc: CanvasDoc, root: string): Promise<void> {
-  const { agentflow, layout } = splitCanvasDoc({ ...doc, id });
+export async function saveCanvas(id: string, canvasDocument: CanvasDoc, root: string): Promise<void> {
+  const { agentflow, layout } = splitCanvasDoc({ ...canvasDocument, id });
   await mkdir(agentflowsDir(root), { recursive: true });
   await Promise.all([
     writeFile(agentflowPath(id, root), stringifyAgentFlowSource(agentflow), "utf8"),
@@ -110,12 +110,12 @@ export async function deleteCanvas(id: string, root: string): Promise<void> {
   ]);
 }
 
-export function splitCanvasDoc(doc: CanvasDoc): { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc } {
-  const nodes: AgentFlowNode[] = doc.nodes.map((node) => stripLayout(node));
+export function splitCanvasDoc(canvasDocument: CanvasDoc): { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc } {
+  const nodes: AgentFlowNode[] = canvasDocument.nodes.map((node) => stripLayout(node));
   const layout: CanvasLayoutDoc = {
-    workflowId: doc.id,
+    workflowId: canvasDocument.id,
     version: 1,
-    nodes: doc.nodes.map((node) => ({
+    nodes: canvasDocument.nodes.map((node) => ({
       nodeId: node.id,
       x: node.x,
       y: node.y,
@@ -124,12 +124,12 @@ export function splitCanvasDoc(doc: CanvasDoc): { agentflow: AgentFlowDoc; layou
   };
   return {
     agentflow: {
-      id: doc.id,
-      name: doc.name,
-      sessions: doc.sessions,
+      id: canvasDocument.id,
+      name: canvasDocument.name,
+      sessions: canvasDocument.sessions,
       nodes,
-      edges: doc.edges,
-      variables: doc.variables,
+      edges: canvasDocument.edges,
+      variables: canvasDocument.variables,
     },
     layout,
   };
@@ -198,35 +198,35 @@ export function generateCanvasLayout(agentflow: AgentFlowDoc): CanvasLayoutDoc {
 
   const columns = new Map<number, AgentFlowNode[]>();
   for (const node of agentflow.nodes) {
-    const r = rank.get(node.id) ?? 0;
-    const column = columns.get(r) ?? [];
+    const rankValue = rank.get(node.id) ?? 0;
+    const column = columns.get(rankValue) ?? [];
     column.push(node);
-    columns.set(r, column);
+    columns.set(rankValue, column);
   }
 
   const layouts: CanvasNodeLayout[] = [];
   const sortedRanks = [...columns.keys()].sort((a, b) => a - b);
   const xByRank = new Map<number, number>();
   let previousRank: number | undefined;
-  for (const r of sortedRanks) {
+  for (const rankValue of sortedRanks) {
     if (previousRank === undefined) {
-      xByRank.set(r, 60);
+      xByRank.set(rankValue, 60);
     } else {
       const previousColumn = columns.get(previousRank)!;
       const previousWidth = Math.max(...previousColumn.map((node) => defaultWidth(node.kind)));
-      const labelWidth = maximumEdgeLabelWidth(agentflow, rank, previousRank, r);
-      xByRank.set(r, (xByRank.get(previousRank) ?? 60) + previousWidth + Math.max(80, labelWidth + 48));
+      const labelWidth = maximumEdgeLabelWidth(agentflow, rank, previousRank, rankValue);
+      xByRank.set(rankValue, (xByRank.get(previousRank) ?? 60) + previousWidth + Math.max(80, labelWidth + 48));
     }
-    previousRank = r;
+    previousRank = rankValue;
   }
-  for (const r of sortedRanks) {
-    const column = columns.get(r)!;
+  for (const rankValue of sortedRanks) {
+    const column = columns.get(rankValue)!;
     column.sort(compareNodesForLayout);
     for (let index = 0; index < column.length; index += 1) {
       const node = column[index]!;
       layouts.push({
         nodeId: node.id,
-        x: xByRank.get(r) ?? 60,
+        x: xByRank.get(rankValue) ?? 60,
         y: 80 + index * 180,
         w: defaultWidth(node.kind),
       });

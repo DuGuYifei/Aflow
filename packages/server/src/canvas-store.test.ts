@@ -15,7 +15,7 @@ import type { CanvasDoc } from "./canvas-doc";
 
 describe("agentflow/canvas storage", () => {
   it("resolves authored keys into internal workflow references", () => {
-    const doc = parseAgentFlowSource(`version: 1
+    const canvasDocument = parseAgentFlowSource(`version: 1
 name: Review
 sessions:
   codex:
@@ -34,14 +34,14 @@ edges:
     to: done
 `, "review-flow");
 
-    expect(doc.id).toBe("review-flow");
-    expect(doc.sessions[0]?.id).toBe("codex");
-    expect(doc.nodes[0]?.id).toBe("build");
-    expect(doc.edges[0]?.id).toBe("edge:build:->done");
+    expect(canvasDocument.id).toBe("review-flow");
+    expect(canvasDocument.sessions[0]?.id).toBe("codex");
+    expect(canvasDocument.nodes[0]?.id).toBe("build");
+    expect(canvasDocument.edges[0]?.id).toBe("edge:build:->done");
   });
 
   it("round-trips an interactive pause checkpoint on step nodes", () => {
-    const doc = parseAgentFlowSource(`version: 1
+    const canvasDocument = parseAgentFlowSource(`version: 1
 name: Pause
 sessions:
   codex:
@@ -56,8 +56,8 @@ nodes:
 edges: []
 `, "pause-flow");
 
-    expect(doc.nodes[0]).toMatchObject({ kind: "step", pauseAfterRun: true });
-    expect(stringifyAgentFlowSource(doc)).toContain("pauseAfterRun: true");
+    expect(canvasDocument.nodes[0]).toMatchObject({ kind: "step", pauseAfterRun: true });
+    expect(stringifyAgentFlowSource(canvasDocument)).toContain("pauseAfterRun: true");
   });
 
   it("rejects invalid authored keys and defers runnable session checks", () => {
@@ -87,7 +87,7 @@ edges: []
   });
 
   it("saves draft fields without runnable values and only auto-fills aliases", () => {
-    const doc = parseAgentFlowSource(`version: 1
+    const canvasDocument = parseAgentFlowSource(`version: 1
 name: Draft
 sessions:
   codex: {}
@@ -104,25 +104,25 @@ nodes:
 edges: []
 `, "draft-flow");
 
-    expect(doc.sessions[0]).toMatchObject({ id: "codex", agentServerId: "" });
-    expect(doc.nodes).toEqual([
+    expect(canvasDocument.sessions[0]).toMatchObject({ id: "codex", agentServerId: "" });
+    expect(canvasDocument.nodes).toEqual([
       { kind: "input", id: "input", alias: "IN", title: "", variableName: "", required: false, sessionId: null },
       { kind: "step", id: "step", alias: "01", title: "", prompt: "", sessionId: "" },
       { kind: "gate", id: "gate", alias: "G1", title: "", decisionCriteria: "", branches: [] },
       { kind: "end", id: "done", alias: "END", title: "", sessionId: null },
     ]);
-    const serialized = stringifyAgentFlowSource(doc);
+    const serialized = stringifyAgentFlowSource(canvasDocument);
     expect(serialized).toContain('agentServerId: ""');
     expect(serialized).toContain('session: ""');
     expect(serialized).toContain('variableName: ""');
     expect(serialized).toContain("required: false");
     expect(serialized).toContain("branches: {}");
-    expect(() => assertRunnableAgentFlow(doc)).toThrow("must define agentServerId");
+    expect(() => assertRunnableAgentFlow(canvasDocument)).toThrow("must define agentServerId");
   });
 
   it("persists a canvas draft that is not runnable yet", async () => {
     const root = await tempProject();
-    const doc: CanvasDoc = {
+    const canvasDocument: CanvasDoc = {
       id: "draft-canvas",
       name: "Draft canvas",
       sessions: [],
@@ -132,11 +132,11 @@ edges: []
       edges: [],
     };
 
-    await saveCanvas(doc.id, doc, root);
-    const raw = await readFile(join(root, ".aflow/.specflow", "agentflows", "draft-canvas.yaml"), "utf8");
-    expect(raw).toContain('alias: "01"');
-    expect(raw).toContain('session: ""');
-    const loaded = await loadCanvas(doc.id, root);
+    await saveCanvas(canvasDocument.id, canvasDocument, root);
+    const rawValue = await readFile(join(root, ".aflow/.specflow", "agentflows", "draft-canvas.yaml"), "utf8");
+    expect(rawValue).toContain('alias: "01"');
+    expect(rawValue).toContain('session: ""');
+    const loaded = await loadCanvas(canvasDocument.id, root);
     expect(loaded.nodes[0]).toMatchObject({ kind: "step", alias: "01", title: "", prompt: "", sessionId: "" });
   });
 
@@ -408,7 +408,7 @@ edges:
     const root = await tempProject();
     await initWorkspace(root);
 
-    const doc: CanvasDoc = {
+    const canvasDocument: CanvasDoc = {
       id: "regen",
       name: "Regenerate",
       sessions: [{ id: "s1", name: "main", agentServerId: "codex-acp" }],
@@ -418,7 +418,7 @@ edges:
       ],
       edges: [{ id: "e1", from: "a", to: "done" }],
     };
-    await saveCanvas(doc.id, doc, root);
+    await saveCanvas(canvasDocument.id, canvasDocument, root);
     await writeFile(
       join(root, ".aflow/.specflow", "canvas", "regen.json"),
       `${JSON.stringify({ workflowId: "other", version: 1, nodes: [] })}\n`,

@@ -13,10 +13,10 @@ export function agentServersLocalPath(root: string): string {
 
 export async function loadLocalAgentServerConfig(root: string): Promise<AgentServerLocalConfig> {
   try {
-    const raw = JSON.parse(await readFile(agentServersLocalPath(root), "utf8")) as Partial<AgentServerLocalConfig> & {
+    const rawValue = JSON.parse(await readFile(agentServersLocalPath(root), "utf8")) as Partial<AgentServerLocalConfig> & {
       agentServers?: Record<string, AgentServerSettings>;
     };
-    return { agent_servers: raw.agent_servers ?? raw.agentServers ?? {} };
+    return { agent_servers: rawValue.agent_servers ?? rawValue.agentServers ?? {} };
   } catch {
     return { agent_servers: {} };
   }

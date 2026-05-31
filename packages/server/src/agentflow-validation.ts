@@ -15,10 +15,10 @@ export function edgeIdFromReferences(edge: Pick<CanvasEdge, "from" | "to" | "bra
   return `edge:${edge.from}:${edge.branch ?? ""}->${edge.to}`;
 }
 
-export function normalizeAgentFlowDraft(doc: AgentFlowDoc): AgentFlowDoc {
+export function normalizeAgentFlowDraft(canvasDocument: AgentFlowDoc): AgentFlowDoc {
   let stepNumber = 0;
   let gateNumber = 0;
-  const nodes: AgentFlowNode[] = doc.nodes.map((node) => {
+  const nodes: AgentFlowNode[] = canvasDocument.nodes.map((node) => {
     const alias = typeof node.alias === "string" ? node.alias : "";
     if (node.kind === "input") {
       return {
@@ -57,31 +57,31 @@ export function normalizeAgentFlowDraft(doc: AgentFlowDoc): AgentFlowDoc {
     };
   });
   return {
-    ...doc,
-    name: doc.name ?? "",
-    sessions: doc.sessions.map((session) => ({
+    ...canvasDocument,
+    name: canvasDocument.name ?? "",
+    sessions: canvasDocument.sessions.map((session) => ({
       ...session,
       name: session.name ?? session.id,
       agentServerId: session.agentServerId ?? "",
     })),
     nodes,
-    edges: doc.edges ?? [],
+    edges: canvasDocument.edges ?? [],
   };
 }
 
 export function assertValidAgentFlowDraft(input: AgentFlowDoc): void {
-  const doc = normalizeAgentFlowDraft(input);
-  assertSymbolKey(doc.id, "workflow filename");
+  const canvasDocument = normalizeAgentFlowDraft(input);
+  assertSymbolKey(canvasDocument.id, "workflow filename");
 
   const sessionIds = new Set<string>();
-  for (const session of doc.sessions) {
+  for (const session of canvasDocument.sessions) {
     assertSymbolKey(session.id, "session key");
     if (sessionIds.has(session.id)) throw new Error(`Duplicate session "${session.id}".`);
     sessionIds.add(session.id);
   }
 
   const nodeIds = new Set<string>();
-  for (const node of doc.nodes) {
+  for (const node of canvasDocument.nodes) {
     assertSymbolKey(node.id, "node key");
     if (nodeIds.has(node.id)) throw new Error(`Duplicate node "${node.id}".`);
     nodeIds.add(node.id);
@@ -95,20 +95,20 @@ export function assertValidAgentFlowDraft(input: AgentFlowDoc): void {
   }
 
   const branchesByGate = new Map(
-    doc.nodes
+    canvasDocument.nodes
       .filter((node) => node.kind === "gate")
       .map((node) => [node.id, new Set(node.branches.map((branch) => branch.id))]),
   );
   const edgeIds = new Set<string>();
-  for (const edge of doc.edges) {
+  for (const edge of canvasDocument.edges) {
     if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
       throw new Error(`Edge "${edge.id}" references a missing node.`);
     }
     if (edge.branch && !branchesByGate.get(edge.from)?.has(edge.branch)) {
       throw new Error(`Edge from "${edge.from}" references missing branch "${edge.branch}".`);
     }
-    const source = doc.nodes.find((node) => node.id === edge.from);
-    const target = doc.nodes.find((node) => node.id === edge.to);
+    const source = canvasDocument.nodes.find((node) => node.id === edge.from);
+    const target = canvasDocument.nodes.find((node) => node.id === edge.to);
     if (target?.kind === "input") {
       throw new Error(`Edge "${edge.id}" cannot target an input node.`);
     }
@@ -122,18 +122,18 @@ export function assertValidAgentFlowDraft(input: AgentFlowDoc): void {
 }
 
 export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
-  const doc = normalizeAgentFlowDraft(input);
-  assertValidAgentFlowDraft(doc);
+  const canvasDocument = normalizeAgentFlowDraft(input);
+  assertValidAgentFlowDraft(canvasDocument);
 
-  const sessionIds = new Set(doc.sessions.map((session) => session.id));
-  for (const session of doc.sessions) {
+  const sessionIds = new Set(canvasDocument.sessions.map((session) => session.id));
+  for (const session of canvasDocument.sessions) {
     if (!session.agentServerId.trim()) {
       throw new Error(`Session "${session.id}" must define agentServerId before running.`);
     }
   }
 
   const inputVariables = new Set<string>();
-  for (const node of doc.nodes) {
+  for (const node of canvasDocument.nodes) {
     if (node.kind === "step" && (!node.sessionId || !sessionIds.has(node.sessionId))) {
       throw new Error(`Node "${node.id}" references missing session "${node.sessionId}".`);
     }
@@ -155,9 +155,9 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
 
   const businessInputsByGate = new Map<string, number>();
   const inputEdgesByTargetTag = new Map<string, CanvasEdge[]>();
-  for (const edge of doc.edges) {
-    const source = doc.nodes.find((node) => node.id === edge.from);
-    const target = doc.nodes.find((node) => node.id === edge.to);
+  for (const edge of canvasDocument.edges) {
+    const source = canvasDocument.nodes.find((node) => node.id === edge.from);
+    const target = canvasDocument.nodes.find((node) => node.id === edge.to);
     if (source?.kind === "gate" && !edge.branch) {
       throw new Error(`Edge "${edge.id}" leaving gate "${source.id}" must select a branch.`);
     }
@@ -186,31 +186,31 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
     } else if (edge.transmit === true && !edge.outputTag) {
       throw new Error(`Transmitting edge "${edge.id}" must define outputTag.`);
     } else if (edge.transmit === true && target?.kind === "step") {
-      const contentSource = contentSourceForEdge(edge, doc);
+      const contentSource = contentSourceForEdge(edge, canvasDocument);
       if (contentSource?.kind === "step" && contentSource.sessionId === target.sessionId) {
         throw new Error(`Same-session edge "${edge.id}" cannot declare transmission properties.`);
       }
       const targetTag = `${target.id}:${edge.outputTag}`;
       const matchingEdges = inputEdgesByTargetTag.get(targetTag) ?? [];
-      if (matchingEdges.some((candidate) => !areExclusiveGateBranches(candidate, edge, doc))) {
+      if (matchingEdges.some((candidate) => !areExclusiveGateBranches(candidate, edge, canvasDocument))) {
         throw new Error(`Node "${target.id}" has duplicate transmitted outputTag "${edge.outputTag}".`);
       }
       matchingEdges.push(edge);
       inputEdgesByTargetTag.set(targetTag, matchingEdges);
     }
   }
-  assertControlledLoopbacks(doc);
-  assertAcyclicExecutedEdges(doc);
+  assertControlledLoopbacks(canvasDocument);
+  assertAcyclicExecutedEdges(canvasDocument);
 }
 
-function areExclusiveGateBranches(first: CanvasEdge, second: CanvasEdge, doc: AgentFlowDoc): boolean {
+function areExclusiveGateBranches(first: CanvasEdge, second: CanvasEdge, canvasDocument: AgentFlowDoc): boolean {
   if (first.from !== second.from || !first.branch || !second.branch || first.branch === second.branch) return false;
-  return doc.nodes.find((node) => node.id === first.from)?.kind === "gate";
+  return canvasDocument.nodes.find((node) => node.id === first.from)?.kind === "gate";
 }
 
-function assertAcyclicExecutedEdges(doc: AgentFlowDoc): void {
+function assertAcyclicExecutedEdges(canvasDocument: AgentFlowDoc): void {
   const adjacency = new Map<string, string[]>();
-  for (const edge of doc.edges.filter((candidate) => !candidate.loopback)) {
+  for (const edge of canvasDocument.edges.filter((candidate) => !candidate.loopback)) {
     adjacency.set(edge.from, [...(adjacency.get(edge.from) ?? []), edge.to]);
   }
   const visiting = new Set<string>();
@@ -223,16 +223,16 @@ function assertAcyclicExecutedEdges(doc: AgentFlowDoc): void {
     visiting.delete(nodeId);
     visited.add(nodeId);
   };
-  for (const node of doc.nodes) visit(node.id);
+  for (const node of canvasDocument.nodes) visit(node.id);
 }
 
-function assertControlledLoopbacks(doc: AgentFlowDoc): void {
+function assertControlledLoopbacks(canvasDocument: AgentFlowDoc): void {
   const bySource = new Map<string, CanvasEdge[]>();
-  for (const edge of doc.edges.filter((candidate) => !candidate.loopback)) {
+  for (const edge of canvasDocument.edges.filter((candidate) => !candidate.loopback)) {
     bySource.set(edge.from, [...(bySource.get(edge.from) ?? []), edge]);
   }
-  const gateIds = new Set(doc.nodes.filter((node) => node.kind === "gate").map((node) => node.id));
-  for (const loopback of doc.edges.filter((edge) => edge.loopback)) {
+  const gateIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "gate").map((node) => node.id));
+  for (const loopback of canvasDocument.edges.filter((edge) => edge.loopback)) {
     const pending: Array<{ nodeId: string; crossedGateBranch: boolean }> = [{
       nodeId: loopback.to,
       crossedGateBranch: false,

@@ -52,43 +52,43 @@ const frontendExampleCanvas: CanvasDoc = {
 
 describe("canvasToWorkflow", () => {
   it("creates external agents from canvas sessions plus default fallback", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    expect(wf.agents.map((a) => a.id).sort()).toEqual([
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    expect(workflow.agents.map((firstAgent) => firstAgent.id).sort()).toEqual([
       "agent-server-claude-acp",
       "agent-server-codex-acp",
     ]);
   });
 
   it("preserves all 5 sessions bound to their selected agent server", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    expect(wf.sessions).toHaveLength(5);
-    expect(wf.sessions.find((s) => s.id === "s1")?.agentId).toBe("agent-server-claude-acp");
-    expect(wf.sessions.find((s) => s.id === "s3")?.agentId).toBe("agent-server-codex-acp");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    expect(workflow.sessions).toHaveLength(5);
+    expect(workflow.sessions.find((session) => session.id === "s1")?.agentId).toBe("agent-server-claude-acp");
+    expect(workflow.sessions.find((session) => session.id === "s3")?.agentId).toBe("agent-server-codex-acp");
   });
 
   it("drops the end node, keeps 12 runtime nodes", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    expect(wf.nodes).toHaveLength(12);
-    expect(wf.nodes.every((n) => n.kind !== "end" as string)).toBe(true);
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    expect(workflow.nodes).toHaveLength(12);
+    expect(workflow.nodes.every((node) => node.kind !== "end" as string)).toBe(true);
   });
 
   it("keeps controlled loopback edges and drops only edges to end", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    expect(wf.edges).toHaveLength(15);
-    expect(wf.edges.find((edge) => edge.id === "e6")).toMatchObject({ loopback: true, maxTraversals: 2 });
-    const g1 = wf.nodes.find((node) => node.id === "g1");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    expect(workflow.edges).toHaveLength(15);
+    expect(workflow.edges.find((edge) => edge.id === "e6")).toMatchObject({ loopback: true, maxTraversals: 2 });
+    const g1 = workflow.nodes.find((node) => node.id === "g1");
     expect(g1?.kind === "gate" && g1.branches.find((branch) => branch.id === "rework")?.maxTraversals).toBe(2);
   });
 
   it("same-session edges become trigger edges with no explicit transfer", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    const e1 = wf.edges.find((e) => e.id === "e1");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    const e1 = workflow.edges.find((edge) => edge.id === "e1");
     expect(e1?.kind).toBe("trigger");
   });
 
   it("cross-session tagged edge becomes tagged-output", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    const e2 = wf.edges.find((e) => e.id === "e2");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    const e2 = workflow.edges.find((edge) => edge.id === "e2");
     expect(e2?.kind).toBe("tagged-output");
     if (e2?.kind === "tagged-output") {
       expect(e2.outputTag.identifier).toBe("component_tree");
@@ -98,8 +98,8 @@ describe("canvasToWorkflow", () => {
   });
 
   it("agent nodes use the agent server selected on their session", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    const review = wf.nodes.find((n) => n.id === "n2c");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    const review = workflow.nodes.find((node) => node.id === "n2c");
     expect(review?.kind).toBe("agent");
     if (review?.kind === "agent") {
       expect(review.agentId).toBe("agent-server-codex-acp");
@@ -109,13 +109,13 @@ describe("canvasToWorkflow", () => {
   });
 
   it("gate input has no transfer configuration", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    expect(wf.edges.find((e) => e.id === "e4")?.kind).toBe("gate-input");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    expect(workflow.edges.find((edge) => edge.id === "e4")?.kind).toBe("gate-input");
   });
 
   it("gate output applies transfer rules against the step before the gate", () => {
-    const wf = canvasToWorkflow(frontendExampleCanvas);
-    const e5 = wf.edges.find((e) => e.id === "e5");
+    const workflow = canvasToWorkflow(frontendExampleCanvas);
+    const e5 = workflow.edges.find((edge) => edge.id === "e5");
     expect(e5?.kind).toBe("tagged-output");
     expect(e5?.sourcePortId).toBe("pass");
     if (e5?.kind === "tagged-output") {

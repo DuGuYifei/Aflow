@@ -25,7 +25,7 @@ function PermissionModal({ interaction, onRespond }: InteractionModalProps) {
   const options = interaction.options ?? [];
   const allowOption = pickAllowOption(options);
   const denyOption = pickDenyOption(options);
-  const otherOptions = options.filter((o) => o.optionId !== allowOption?.optionId && o.optionId !== denyOption?.optionId);
+  const otherOptions = options.filter((option) => option.optionId !== allowOption?.optionId && option.optionId !== denyOption?.optionId);
   const command = extractCommandSummary(toolCall);
   const justification = stringValue((asRecord(toolCall.rawInput) ?? {}).justification)
     || stringValue(toolCall.justification);
@@ -113,24 +113,24 @@ const ALLOW_NAME_HINTS = ['allow', 'approve', 'accept', 'yes', 'ok'];
 const DENY_NAME_HINTS = ['deny', 'reject', 'decline', 'no'];
 
 function pickAllowOption(options: ReadonlyArray<{ optionId: string; name?: string; kind?: string }>) {
-  for (const k of ALLOW_KIND_PRIORITY) {
-    const found = options.find((o) => o.kind === k);
+  for (const kind of ALLOW_KIND_PRIORITY) {
+    const found = options.find((option) => option.kind === kind);
     if (found) return found;
   }
-  for (const h of ALLOW_NAME_HINTS) {
-    const found = options.find((o) => (o.name ?? '').toLowerCase().includes(h));
+  for (const nameHint of ALLOW_NAME_HINTS) {
+    const found = options.find((option) => (option.name ?? '').toLowerCase().includes(nameHint));
     if (found) return found;
   }
   return undefined;
 }
 
 function pickDenyOption(options: ReadonlyArray<{ optionId: string; name?: string; kind?: string }>) {
-  for (const k of DENY_KIND_PRIORITY) {
-    const found = options.find((o) => o.kind === k);
+  for (const kind of DENY_KIND_PRIORITY) {
+    const found = options.find((option) => option.kind === kind);
     if (found) return found;
   }
-  for (const h of DENY_NAME_HINTS) {
-    const found = options.find((o) => (o.name ?? '').toLowerCase().includes(h));
+  for (const nameHint of DENY_NAME_HINTS) {
+    const found = options.find((option) => (option.name ?? '').toLowerCase().includes(nameHint));
     if (found) return found;
   }
   return undefined;
@@ -213,7 +213,7 @@ function FormElicitationModal({
   });
 
   const setValue = (name: string, value: string | number | boolean | string[]) => {
-    setValues((prev) => ({ ...prev, [name]: value }));
+    setValues((previous) => ({ ...previous, [name]: value }));
   };
 
   return (
@@ -298,7 +298,7 @@ function renderFieldControl(input: {
         <input
           type="checkbox"
           checked={Boolean(input.value)}
-          onChange={(e) => input.setValue(input.name, e.currentTarget.checked)}
+          onChange={(event) => input.setValue(input.name, event.currentTarget.checked)}
         />
         <span>{t('common.enabled')}</span>
       </label>
@@ -315,7 +315,7 @@ function renderFieldControl(input: {
       <select
         className="select-box"
         value={String(input.value ?? '')}
-        onChange={(e) => input.setValue(input.name, e.currentTarget.value)}
+        onChange={(event) => input.setValue(input.name, event.currentTarget.value)}
       >
         <option value="">{t('interaction.choose')}</option>
         {enumOptions.map((option) => (
@@ -331,7 +331,7 @@ function renderFieldControl(input: {
         className="input"
         type="number"
         value={typeof input.value === 'number' ? input.value : ''}
-        onChange={(e) => input.setValue(input.name, Number(e.currentTarget.value))}
+        onChange={(event) => input.setValue(input.name, Number(event.currentTarget.value))}
       />
     );
   }
@@ -341,7 +341,7 @@ function renderFieldControl(input: {
       className="input"
       type="text"
       value={String(input.value ?? '')}
-      onChange={(e) => input.setValue(input.name, e.currentTarget.value)}
+      onChange={(event) => input.setValue(input.name, event.currentTarget.value)}
     />
   );
 }

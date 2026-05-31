@@ -53,7 +53,7 @@ describe("WorkflowExecutor ACP per-node overrides", () => {
   test("applies the prompt transformer before sending and records the transformed prompt", async () => {
     let seenPrompt: string | undefined;
     const executor = new WorkflowExecutor({
-      promptTransformer: (prompt, ctx) => `[${ctx.agentServerId}] ${prompt.toUpperCase()}`,
+      promptTransformer: (prompt, context) => `[${context.agentServerId}] ${prompt.toUpperCase()}`,
       agentRunner: capture((r) => { seenPrompt = r.prompt; }),
     });
     const run = await executor.run(createWorkflow({ nodes: [agentNode("n1", "hello")], edges: [] }), "");
@@ -85,7 +85,7 @@ describe("WorkflowExecutor ACP per-node overrides", () => {
     });
 
     await executor.run(workflow, "");
-    const gateRequest = seen.find((r) => r.forkFromWorkflowSessionId);
+    const gateRequest = seen.find((request) => request.forkFromWorkflowSessionId);
     expect(gateRequest?.configOptions).toEqual({ model: "claude-haiku-4-5" });
     expect(gateRequest?.modeId).toBeUndefined();
   });

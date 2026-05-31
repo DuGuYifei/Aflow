@@ -16,9 +16,9 @@ export interface InitWorkspaceOptions {
   seedAgentServerId?: string;
 }
 
-async function pathExists(p: string): Promise<boolean> {
+async function pathExists(path: string): Promise<boolean> {
   try {
-    await access(p);
+    await access(path);
     return true;
   } catch {
     return false;
@@ -26,10 +26,10 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 export async function initWorkspace(
-  cwd: string = process.cwd(),
+  workingDirectory: string = process.cwd(),
   options: InitWorkspaceOptions = {},
 ): Promise<void> {
-  const root = join(cwd, SPECFLOW_WORKSPACE_PATH);
+  const root = join(workingDirectory, SPECFLOW_WORKSPACE_PATH);
 
   if (!await pathExists(root)) {
     if (!options.createIfMissing) return;
@@ -60,17 +60,17 @@ export async function initWorkspace(
   }
 
   const existingAgentflows = await readdir(agentflowsDir);
-  if (existingAgentflows.filter((f) => f.endsWith(".yaml")).length > 0) return;
+  if (existingAgentflows.filter((file) => file.endsWith(".yaml")).length > 0) return;
 
   const legacyFiles = await readdir(canvasDir);
-  const legacyYamlFiles = legacyFiles.filter((f) => f.endsWith(".yaml"));
+  const legacyYamlFiles = legacyFiles.filter((file) => file.endsWith(".yaml"));
   if (legacyYamlFiles.length > 0) {
     await Promise.all(
       legacyYamlFiles.map(async (file) => {
-        const raw = await readFile(join(canvasDir, file), "utf8");
-        const doc = parse(raw) as CanvasDoc;
-        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(doc, options.seedAgentServerId));
-        await saveAgentFlowAndLayout(agentflow.id, agentflow, layout, cwd);
+        const rawValue = await readFile(join(canvasDir, file), "utf8");
+        const canvasDocument = parse(rawValue) as CanvasDoc;
+        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(canvasDocument, options.seedAgentServerId));
+        await saveAgentFlowAndLayout(agentflow.id, agentflow, layout, workingDirectory);
       }),
     );
     return;
@@ -79,18 +79,18 @@ export async function initWorkspace(
   // Seed agentflows once when the agentflows dir is empty.
   if (legacyYamlFiles.length === 0) {
     await Promise.all(
-      SEED_CANVAS_DOCS.map((doc) => {
-        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(doc, options.seedAgentServerId));
-        return saveAgentFlowAndLayout(agentflow.id, agentflow, layout, cwd);
+      SEED_CANVAS_DOCS.map((canvasDocument) => {
+        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(canvasDocument, options.seedAgentServerId));
+        return saveAgentFlowAndLayout(agentflow.id, agentflow, layout, workingDirectory);
       }),
     );
   }
 }
 
-function withSeedAgentServer<T extends CanvasDoc>(doc: T, agentServerId: string | undefined): T {
-  if (!agentServerId) return doc;
+function withSeedAgentServer<T extends CanvasDoc>(canvasDocument: T, agentServerId: string | undefined): T {
+  if (!agentServerId) return canvasDocument;
   return {
-    ...doc,
-    sessions: doc.sessions.map((session) => ({ ...session, agentServerId })),
+    ...canvasDocument,
+    sessions: canvasDocument.sessions.map((session) => ({ ...session, agentServerId })),
   };
 }

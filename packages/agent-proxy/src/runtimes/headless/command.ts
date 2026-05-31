@@ -9,7 +9,7 @@ export async function runHeadlessAgent(
     throw new Error(`Agent server is not headless: ${resolved.id}`);
   }
 
-  const args = resolved.settings.argsTemplate.map((arg) => renderArg(arg, request.prompt));
+  const args = resolved.settings.argsTemplate.map((argument) => renderArg(argument, request.prompt));
   let output = "";
   let stderr = "";
   const child = spawn(resolved.command.command, args, {

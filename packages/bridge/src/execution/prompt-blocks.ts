@@ -14,21 +14,21 @@ export interface BuildPromptBlocksInput {
 }
 
 export async function buildPromptBlocksForNode(input: BuildPromptBlocksInput): Promise<PromptBlocks | undefined> {
-  const refs = [...input.node.images, ...input.node.relatedResources];
-  if (refs.length === 0) return undefined;
+  const references = [...input.node.images, ...input.node.relatedResources];
+  if (references.length === 0) return undefined;
 
   const blocks: PromptBlocks = [{ type: "text", text: input.prompt }];
-  for (const ref of refs) {
-    blocks.push(await contentBlockForResource(input.cwd, ref));
+  for (const reference of references) {
+    blocks.push(await contentBlockForResource(input.cwd, reference));
   }
   return blocks;
 }
 
-async function contentBlockForResource(cwd: string, ref: WorkflowResourceRef): Promise<PromptBlock> {
-  const resolvedPath = resolveResourcePath(cwd, ref.path);
+async function contentBlockForResource(workingDirectory: string, reference: WorkflowResourceRef): Promise<PromptBlock> {
+  const resolvedPath = resolveResourcePath(workingDirectory, reference.path);
   const uri = pathToFileURL(resolvedPath).href;
-  const name = ref.label ?? (basename(ref.path) || ref.path);
-  const mimeType = ref.mimeType ?? mimeTypeForPath(ref.path);
+  const name = reference.label ?? (basename(reference.path) || reference.path);
+  const mimeType = reference.mimeType ?? mimeTypeForPath(reference.path);
 
   try {
     const fileStat = await stat(resolvedPath);
@@ -94,8 +94,8 @@ function resourceLink(input: {
   };
 }
 
-function resolveResourcePath(cwd: string, resourcePath: string): string {
-  return isAbsolute(resourcePath) ? resolve(resourcePath) : resolve(cwd, resourcePath);
+function resolveResourcePath(workingDirectory: string, resourcePath: string): string {
+  return isAbsolute(resourcePath) ? resolve(resourcePath) : resolve(workingDirectory, resourcePath);
 }
 
 function isTextMime(mimeType: string | undefined): boolean {

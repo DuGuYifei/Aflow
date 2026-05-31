@@ -83,8 +83,8 @@ describe("agent server API", () => {
       },
     });
 
-    const del = await handle(new Request("http://specflow.test/api/agent-servers/my-custom", { method: "DELETE" }));
-    expect(del?.status).toBe(200);
+    const deleteResponse = await handle(new Request("http://specflow.test/api/agent-servers/my-custom", { method: "DELETE" }));
+    expect(deleteResponse?.status).toBe(200);
     expect((await loadLocalAgentServerConfig(root)).agent_servers["my-custom"]).toBeUndefined();
   });
 

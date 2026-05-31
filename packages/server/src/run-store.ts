@@ -52,24 +52,24 @@ function legacyRunPath(id: string, root: string) {
 }
 
 export async function listRuns(workflowId: string | undefined, root: string): Promise<RunRecord[]> {
-  const dir = runsDir(root);
+  const directory = runsDir(root);
   let files: string[];
   try {
-    files = await readdir(dir);
+    files = await readdir(directory);
   } catch {
     return [];
   }
   const runFiles = files
-    .filter((f) => f.endsWith(".json") || f.endsWith(".yaml"))
+    .filter((file) => file.endsWith(".json") || file.endsWith(".yaml"))
     .sort((a, b) => Number(a.endsWith(".yaml")) - Number(b.endsWith(".yaml")));
   const byId = new Map<string, RunRecord>();
   for (const file of runFiles) {
     try {
-      const raw = await readFile(join(dir, file), "utf8");
-      const rec = parseRunRecord(raw, file);
-      normalizeRunRecord(rec);
-      if (!workflowId || rec.workflowId === workflowId) {
-        byId.set(rec.id, rec);
+      const rawValue = await readFile(join(directory, file), "utf8");
+      const runRecord = parseRunRecord(rawValue, file);
+      normalizeRunRecord(runRecord);
+      if (!workflowId || runRecord.workflowId === workflowId) {
+        byId.set(runRecord.id, runRecord);
       }
     } catch {
       // skip malformed
@@ -81,18 +81,18 @@ export async function listRuns(workflowId: string | undefined, root: string): Pr
 }
 
 export async function loadRun(id: string, root: string): Promise<RunRecord> {
-  let raw: string;
+  let rawValue: string;
   let path = runPath(id, root);
   try {
-    raw = await readFile(path, "utf8");
+    rawValue = await readFile(path, "utf8");
   } catch (error) {
     if ((error as { code?: string }).code !== "ENOENT") throw error;
     path = legacyRunPath(id, root);
-    raw = await readFile(path, "utf8");
+    rawValue = await readFile(path, "utf8");
   }
-  const rec = parseRunRecord(raw, path);
-  normalizeRunRecord(rec);
-  return rec;
+  const runRecord = parseRunRecord(rawValue, path);
+  normalizeRunRecord(runRecord);
+  return runRecord;
 }
 
 export async function saveRun(record: RunRecord, root: string): Promise<void> {
@@ -111,44 +111,44 @@ export async function reconcileInterruptedRuns(root: string, reason: string): Pr
   const runs = await listRuns(undefined, root);
   const interrupted: string[] = [];
   const completedAt = new Date().toISOString();
-  for (const rec of runs) {
+  for (const runRecord of runs) {
     let changed = false;
-    const wasRunning = rec.status === "running";
-    const effectiveCompletedAt = rec.completedAt ?? completedAt;
+    const wasRunning = runRecord.status === "running";
+    const effectiveCompletedAt = runRecord.completedAt ?? completedAt;
     if (wasRunning) {
-      rec.status = "cancelled";
-      rec.errorMsg = reason;
-      rec.completedAt = completedAt;
-      rec.duration = formatDuration(rec.startedAt, completedAt);
+      runRecord.status = "cancelled";
+      runRecord.errorMsg = reason;
+      runRecord.completedAt = completedAt;
+      runRecord.duration = formatDuration(runRecord.startedAt, completedAt);
       changed = true;
     }
-    for (const [nodeId, state] of Object.entries(rec.nodeStates)) {
-      if (rec.status === "cancelled" && (state === "running" || state === "paused")) {
-        rec.nodeStates[nodeId] = "cancelled";
+    for (const [nodeId, state] of Object.entries(runRecord.nodeStates)) {
+      if (runRecord.status === "cancelled" && (state === "running" || state === "paused")) {
+        runRecord.nodeStates[nodeId] = "cancelled";
         changed = true;
-      } else if (rec.status === "error" && state === "running") {
-        rec.nodeStates[nodeId] = "error";
+      } else if (runRecord.status === "error" && state === "running") {
+        runRecord.nodeStates[nodeId] = "error";
         changed = true;
       }
     }
-    for (const invocation of rec.agentInvocations) {
+    for (const invocation of runRecord.agentInvocations) {
       if (invocation.status !== "running") continue;
-      if (rec.status === "cancelled") {
+      if (runRecord.status === "cancelled") {
         invocation.status = "cancelled";
-        invocation.error ??= rec.errorMsg ?? reason;
+        invocation.error ??= runRecord.errorMsg ?? reason;
         invocation.completedAt ??= effectiveCompletedAt;
         changed = true;
-      } else if (rec.status === "error") {
+      } else if (runRecord.status === "error") {
         invocation.status = "failed";
-        invocation.error ??= rec.errorMsg;
+        invocation.error ??= runRecord.errorMsg;
         invocation.completedAt ??= effectiveCompletedAt;
         changed = true;
       }
     }
-    await appendMissingTerminalLogEvents(rec, root, effectiveCompletedAt);
+    await appendMissingTerminalLogEvents(runRecord, root, effectiveCompletedAt);
     if (changed) {
-      await saveRun(rec, root);
-      interrupted.push(rec.id);
+      await saveRun(runRecord, root);
+      interrupted.push(runRecord.id);
     }
   }
   return interrupted;
@@ -221,22 +221,22 @@ export async function deleteRun(id: string, root: string): Promise<void> {
 }
 
 export function formatDuration(startedAt: string, completedAt: string): string {
-  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+  const totalSec = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function normalizeRunRecord(rec: RunRecord): void {
-  if (!rec.nodeOutputs) rec.nodeOutputs = {};
-  if (!rec.agentInvocations) rec.agentInvocations = [];
-  if (!rec.agentSessions) rec.agentSessions = [];
-  if (!rec.initialInput) rec.initialInput = "";
-  if (!rec.variableValues) rec.variableValues = {};
+function normalizeRunRecord(runRecord: RunRecord): void {
+  if (!runRecord.nodeOutputs) runRecord.nodeOutputs = {};
+  if (!runRecord.agentInvocations) runRecord.agentInvocations = [];
+  if (!runRecord.agentSessions) runRecord.agentSessions = [];
+  if (!runRecord.initialInput) runRecord.initialInput = "";
+  if (!runRecord.variableValues) runRecord.variableValues = {};
 
-  const maybeLegacy = rec as RunRecord & {
+  const maybeLegacy = runRecord as RunRecord & {
     agentflowSnapshot?: AgentFlowDoc;
     canvasSnapshot?: CanvasLayoutDoc | CanvasDoc;
   };
@@ -248,8 +248,8 @@ function normalizeRunRecord(rec: RunRecord): void {
   }
 }
 
-function parseRunRecord(raw: string, path: string): RunRecord {
+function parseRunRecord(rawValue: string, path: string): RunRecord {
   return path.endsWith(".json")
-    ? JSON.parse(raw) as RunRecord
-    : parse(raw) as RunRecord;
+    ? JSON.parse(rawValue) as RunRecord
+    : parse(rawValue) as RunRecord;
 }

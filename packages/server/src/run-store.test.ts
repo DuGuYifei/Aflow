@@ -11,11 +11,11 @@ import { splitCanvasDoc } from "./canvas-store";
 describe("run store snapshots", () => {
   it("stores agentflow and canvas snapshots separately", async () => {
     const root = await tempProject();
-    const doc = sampleCanvas();
-    const { agentflow, layout } = splitCanvasDoc(doc);
+    const canvasDocument = sampleCanvas();
+    const { agentflow, layout } = splitCanvasDoc(canvasDocument);
     const record: RunRecord = {
       id: "run1",
-      workflowId: doc.id,
+      workflowId: canvasDocument.id,
       label: "Run #1",
       status: "running",
       startedAt: new Date().toISOString(),
@@ -31,10 +31,10 @@ describe("run store snapshots", () => {
     };
 
     await saveRun(record, root);
-    const raw = JSON.parse(await readFile(join(root, ".aflow/.specflow", "runs", "run1.json"), "utf8")) as RunRecord;
-    expect(raw.agentflowSnapshot.nodes[0]).not.toHaveProperty("x");
-    expect(raw.canvasSnapshot.nodes[0]).toHaveProperty("nodeId");
-    expect(raw.agentSessions).toEqual([]);
+    const rawValue = JSON.parse(await readFile(join(root, ".aflow/.specflow", "runs", "run1.json"), "utf8")) as RunRecord;
+    expect(rawValue.agentflowSnapshot.nodes[0]).not.toHaveProperty("x");
+    expect(rawValue.canvasSnapshot.nodes[0]).toHaveProperty("nodeId");
+    expect(rawValue.agentSessions).toEqual([]);
   });
 
   it("adapts legacy run records with combined canvasSnapshot", async () => {
@@ -64,11 +64,11 @@ describe("run store snapshots", () => {
 
   it("reconciles interrupted runs, running invocations, and missing terminal log events", async () => {
     const root = await tempProject();
-    const doc = sampleCanvas();
-    const { agentflow, layout } = splitCanvasDoc(doc);
+    const canvasDocument = sampleCanvas();
+    const { agentflow, layout } = splitCanvasDoc(canvasDocument);
     const record: RunRecord = {
       id: "interrupted-run",
-      workflowId: doc.id,
+      workflowId: canvasDocument.id,
       label: "Interrupted",
       status: "cancelled",
       startedAt: "2026-05-19T10:00:00.000Z",

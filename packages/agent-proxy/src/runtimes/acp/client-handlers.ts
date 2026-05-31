@@ -102,16 +102,16 @@ export class AcpClientHandlers implements acp.Client {
 
   async createTerminal(params: acp.CreateTerminalRequest): Promise<acp.CreateTerminalResponse> {
     const terminalId = uuidv7();
-    const cwd = params.cwd ? assertInsideAllowedRoots(this.#allowedRoots, params.cwd) : this.#cwd;
-    const proc = Bun.spawn([params.command, ...(params.args ?? [])], {
-      cwd,
+    const workingDirectory = params.cwd ? assertInsideAllowedRoots(this.#allowedRoots, params.cwd) : this.#cwd;
+    const processHandle = Bun.spawn([params.command, ...(params.args ?? [])], {
+      cwd: workingDirectory,
       env: { ...process.env, ...envArrayToRecord(params.env) },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
     });
     const record: TerminalRecord = {
-      proc,
+      proc: processHandle,
       output: "",
       outputByteLimit: params.outputByteLimit ?? undefined,
       truncated: false,
@@ -123,7 +123,7 @@ export class AcpClientHandlers implements acp.Client {
     });
     void this.#captureTerminal(terminalId, record, "stdout");
     void this.#captureTerminal(terminalId, record, "stderr");
-    void proc.exited.then((exitCode) => { record.exitCode = exitCode; });
+    void processHandle.exited.then((exitCode) => { record.exitCode = exitCode; });
     return { terminalId };
   }
 
@@ -202,8 +202,8 @@ function applyLineWindow(content: string, line?: number | null, limit?: number |
   return selected.join("\n");
 }
 
-function envArrayToRecord(env?: acp.EnvVariable[]): Record<string, string> {
-  return Object.fromEntries((env ?? []).map((entry) => [entry.name, entry.value]));
+function envArrayToRecord(environment?: acp.EnvVariable[]): Record<string, string> {
+  return Object.fromEntries((environment ?? []).map((entry) => [entry.name, entry.value]));
 }
 
 function appendTerminalOutput(terminal: TerminalRecord, text: string): void {

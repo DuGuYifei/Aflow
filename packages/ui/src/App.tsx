@@ -58,9 +58,9 @@ const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
 
 function loadSidebarLayout(): SidebarLayout {
   try {
-    const raw = localStorage.getItem('sf-sidebar-layout');
-    if (!raw) return DEFAULT_SIDEBAR_LAYOUT;
-    const parsed = JSON.parse(raw) as Partial<SidebarLayout>;
+    const rawValue = localStorage.getItem('sf-sidebar-layout');
+    if (!rawValue) return DEFAULT_SIDEBAR_LAYOUT;
+    const parsed = JSON.parse(rawValue) as Partial<SidebarLayout>;
     return {
       workflowsWidth: typeof parsed.workflowsWidth === 'number' ? parsed.workflowsWidth : DEFAULT_SIDEBAR_LAYOUT.workflowsWidth,
       runsWidth: typeof parsed.runsWidth === 'number' ? parsed.runsWidth : DEFAULT_SIDEBAR_LAYOUT.runsWidth,
@@ -85,7 +85,7 @@ export function App() {
   const [runs, setRuns] = useState<Run[]>([]);
 
   const [activeRunId, setActiveRunId] = useState('');
-  const activeRun = runs.find((r) => r.id === activeRunId);
+  const activeRun = runs.find((run) => run.id === activeRunId);
 
   const [historicNodeStates, setHistoricNodeStates] = useState<RunStateMap>({});
   const [liveNodeStates, setLiveNodeStates] = useState<RunStateMap>({});
@@ -151,13 +151,13 @@ export function App() {
 
   // Variables are derived from InputNodes — both in edit and run view.
   const variables = useMemo(
-    () => nodes.filter((n): n is InputNode => n.kind === 'input')
-              .map((n) => ({ name: n.variableName, required: n.required, defaultValue: n.defaultValue, description: n.description })),
+    () => nodes.filter((node): node is InputNode => node.kind === 'input')
+              .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
     [nodes],
   );
   const displayVariables = useMemo(
-    () => displayNodes.filter((n): n is InputNode => n.kind === 'input')
-                      .map((n) => ({ name: n.variableName, required: n.required, defaultValue: n.defaultValue, description: n.description })),
+    () => displayNodes.filter((node): node is InputNode => node.kind === 'input')
+                      .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
     [displayNodes],
   );
   const hasAgentUpdates = useMemo(
@@ -216,12 +216,12 @@ export function App() {
   // Load active canvas + runs whenever workflow changes
   useEffect(() => {
     if (!activeWorkflow) return;
-    fetchCanvas(activeWorkflow).then((doc) => {
-      setNodes(doc.nodes as WorkflowNode[]);
-      setEdges(doc.edges as Edge[]);
-      setSessions(doc.sessions as Session[]);
-      setActiveCanvasName(doc.name);
-      setActiveSessionId(doc.sessions[0]?.id ?? '');
+    fetchCanvas(activeWorkflow).then((canvasDocument) => {
+      setNodes(canvasDocument.nodes as WorkflowNode[]);
+      setEdges(canvasDocument.edges as Edge[]);
+      setSessions(canvasDocument.sessions as Session[]);
+      setActiveCanvasName(canvasDocument.name);
+      setActiveSessionId(canvasDocument.sessions[0]?.id ?? '');
       setSelection(null);
     }).catch(console.error);
 
@@ -250,22 +250,22 @@ export function App() {
   const scheduleSave = useCallback(() => {
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      const doc = {
+      const canvasDocument = {
         id: activeWorkflow,
         name: activeCanvasName,
         sessions: sessionsRef.current,
         nodes: nodesRef.current,
         edges: edgesRef.current,
       };
-      saveCanvas(activeWorkflow, doc).catch(console.error);
+      saveCanvas(activeWorkflow, canvasDocument).catch(console.error);
     }, 300);
   }, [activeWorkflow, activeCanvasName]);
 
   // ── canvas edit handlers ──────────────────────────────────────────────────
 
   const onNodeMove = useCallback((id: string, x: number, y: number) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => n.id === id ? { ...n, x, y } : n);
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => node.id === id ? { ...node, x, y } : node);
       nodesRef.current = updated;
       scheduleSave();
       return updated;
@@ -273,8 +273,8 @@ export function App() {
   }, [scheduleSave]);
 
   const onEditNode = useCallback((id: string, patch: Record<string, unknown>) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => n.id === id ? { ...n, ...patch } as WorkflowNode : n);
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => node.id === id ? { ...node, ...patch } as WorkflowNode : node);
       nodesRef.current = updated;
       scheduleSave();
       return updated;
@@ -282,10 +282,10 @@ export function App() {
   }, [scheduleSave]);
 
   const onChangeSession = useCallback((id: string, sid: string) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== id || n.kind !== 'step') return n;
-        return { ...n, sessionId: sid };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== id || node.kind !== 'step') return node;
+        return { ...node, sessionId: sid };
       });
       nodesRef.current = updated;
       setEdges((current) => {
@@ -299,17 +299,17 @@ export function App() {
   }, [scheduleSave]);
 
   const onAddBranch = useCallback((gateId: string) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== gateId || n.kind !== 'gate') return n;
-        let suffix = n.branches.length + 1;
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== gateId || node.kind !== 'gate') return node;
+        let suffix = node.branches.length + 1;
         let id = `branch-${suffix}`;
-        while (n.branches.some((branch) => branch.id === id)) {
+        while (node.branches.some((branch) => branch.id === id)) {
           suffix += 1;
           id = `branch-${suffix}`;
         }
         const newBranch = { id, label: id };
-        return { ...n, branches: [...n.branches, newBranch] };
+        return { ...node, branches: [...node.branches, newBranch] };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -318,10 +318,10 @@ export function App() {
   }, [scheduleSave]);
 
   const onEditBranch = useCallback((gateId: string, branchId: string, patch: { label?: string; description?: string }) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== gateId || n.kind !== 'gate') return n;
-        return { ...n, branches: n.branches.map((b) => b.id === branchId ? { ...b, ...patch } : b) };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== gateId || node.kind !== 'gate') return node;
+        return { ...node, branches: node.branches.map((secondBranch) => secondBranch.id === branchId ? { ...secondBranch, ...patch } : secondBranch) };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -332,16 +332,16 @@ export function App() {
   const onDeleteBranch = useCallback((gateId: string, branchId: string) => {
     const gate = nodesRef.current.find((node): node is Extract<WorkflowNode, { kind: 'gate' }> => node.kind === 'gate' && node.id === gateId);
     if (!gate || gate.branches.length <= 1) return;
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== gateId || n.kind !== 'gate') return n;
-        return { ...n, branches: n.branches.filter((b) => b.id !== branchId) };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== gateId || node.kind !== 'gate') return node;
+        return { ...node, branches: node.branches.filter((secondBranch) => secondBranch.id !== branchId) };
       });
       nodesRef.current = updated;
       return updated;
     });
-    setEdges((es) => {
-      const updated = es.filter((e) => !(e.from === gateId && e.branch === branchId));
+    setEdges((previousEdges) => {
+      const updated = previousEdges.filter((edge) => !(edge.from === gateId && edge.branch === branchId));
       edgesRef.current = updated;
       scheduleSave();
       return updated;
@@ -349,10 +349,10 @@ export function App() {
   }, [scheduleSave]);
 
   const onAddPath = useCallback((nodeId: string, path = '') => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== nodeId || n.kind !== 'step') return n;
-        return { ...n, paths: [...(n.paths ?? []), path] };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, paths: [...(node.paths ?? []), path] };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -361,12 +361,12 @@ export function App() {
   }, [scheduleSave]);
 
   const onEditPath = useCallback((nodeId: string, index: number, value: string) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== nodeId || n.kind !== 'step') return n;
-        const paths = [...(n.paths ?? [])];
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        const paths = [...(node.paths ?? [])];
         paths[index] = value;
-        return { ...n, paths };
+        return { ...node, paths };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -375,10 +375,10 @@ export function App() {
   }, [scheduleSave]);
 
   const onDeletePath = useCallback((nodeId: string, index: number) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== nodeId || n.kind !== 'step') return n;
-        return { ...n, paths: (n.paths ?? []).filter((_, i) => i !== index) };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, paths: (node.paths ?? []).filter((_, pathIndex) => pathIndex !== index) };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -388,10 +388,10 @@ export function App() {
 
   const onUploadImages = useCallback(async (nodeId: string, files: File[]) => {
     const uploaded = await uploadCanvasAssets(activeWorkflow, 'image', files);
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== nodeId || n.kind !== 'step') return n;
-        return { ...n, images: [...(n.images ?? []), ...(uploaded.images ?? [])] };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, images: [...(node.images ?? []), ...(uploaded.images ?? [])] };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -400,10 +400,10 @@ export function App() {
   }, [activeWorkflow, scheduleSave]);
 
   const onDeleteImage = useCallback((nodeId: string, index: number) => {
-    setNodes((ns) => {
-      const updated = ns.map((n) => {
-        if (n.id !== nodeId || n.kind !== 'step') return n;
-        return { ...n, images: (n.images ?? []).filter((_, i) => i !== index) };
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, images: (node.images ?? []).filter((_, imageIndex) => imageIndex !== index) };
       });
       nodesRef.current = updated;
       scheduleSave();
@@ -414,8 +414,8 @@ export function App() {
   const onImportPaths = useCallback(async (nodeId: string, files: File[], directory: boolean) => {
     if (!files.length) return;
     const uploaded = await uploadCanvasAssets(activeWorkflow, 'path', files, directory);
-    setNodes((ns) => {
-      const updated = ns.map((node) => node.id === nodeId && node.kind === 'step'
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => node.id === nodeId && node.kind === 'step'
         ? { ...node, paths: [...(node.paths ?? []), ...uploaded.paths] }
         : node);
       nodesRef.current = updated;
@@ -425,8 +425,8 @@ export function App() {
   }, [activeWorkflow, scheduleSave]);
 
   const onEditEdge = useCallback((id: string, patch: Partial<Edge>) => {
-    setEdges((es) => {
-      const updated = es.map((e) => e.id === id ? { ...e, ...patch } : e);
+    setEdges((previousEdges) => {
+      const updated = previousEdges.map((edge) => edge.id === id ? { ...edge, ...patch } : edge);
       edgesRef.current = updated;
       scheduleSave();
       return updated;
@@ -434,8 +434,8 @@ export function App() {
   }, [scheduleSave]);
 
   const onDeleteEdge = useCallback((id: string) => {
-    setEdges((es) => {
-      const updated = es.filter((e) => e.id !== id);
+    setEdges((previousEdges) => {
+      const updated = previousEdges.filter((edge) => edge.id !== id);
       edgesRef.current = updated;
       scheduleSave();
       return updated;
@@ -445,8 +445,8 @@ export function App() {
   // ── node/edge create (from canvas) ────────────────────────────────────────
 
   const onAddNode = useCallback((node: WorkflowNode) => {
-    setNodes((ns) => {
-      const updated = [...ns, node];
+    setNodes((previousNodes) => {
+      const updated = [...previousNodes, node];
       nodesRef.current = updated;
       scheduleSave();
       return updated;
@@ -454,8 +454,8 @@ export function App() {
   }, [scheduleSave]);
 
   const onAddEdge = useCallback((edge: Edge) => {
-    setEdges((es) => {
-      const updated = [...es, edge];
+    setEdges((previousEdges) => {
+      const updated = [...previousEdges, edge];
       edgesRef.current = updated;
       scheduleSave();
       return updated;
@@ -463,12 +463,12 @@ export function App() {
   }, [scheduleSave]);
 
   const onDeleteNode = useCallback((id: string) => {
-    const node = nodesRef.current.find((n) => n.id === id);
+    const node = nodesRef.current.find((node) => node.id === id);
     if (!node) return;
     if ((node as WorkflowNode & { locked?: boolean }).locked) return;
     if (!window.confirm(t('node.deleteConfirm', { title: node.title }))) return;
-    const updatedNodes = nodesRef.current.filter((n) => n.id !== id);
-    const updatedEdges = edgesRef.current.filter((e) => e.from !== id && e.to !== id);
+    const updatedNodes = nodesRef.current.filter((node) => node.id !== id);
+    const updatedEdges = edgesRef.current.filter((edge) => edge.from !== id && edge.to !== id);
     nodesRef.current = updatedNodes;
     edgesRef.current = updatedEdges;
     setNodes(updatedNodes);
@@ -480,10 +480,10 @@ export function App() {
   // ── session management ────────────────────────────────────────────────────
 
   const onAddSession = useCallback((name: string, agentServerId: Session['agentServerId']) => {
-    setSessions((ss) => {
+    setSessions((previousSessions) => {
       const id = name.trim();
-      if (!isSymbolKey(id) || ss.some((session) => session.id === id)) return ss;
-      const updated = [...ss, { id, name: id, agentServerId }];
+      if (!isSymbolKey(id) || previousSessions.some((session) => session.id === id)) return previousSessions;
+      const updated = [...previousSessions, { id, name: id, agentServerId }];
       sessionsRef.current = updated;
       setActiveSessionId(id);
       scheduleSave();
@@ -493,10 +493,10 @@ export function App() {
 
   const onDeleteSession = useCallback((id: string) => {
     if (sessionsRef.current.length <= 1) return;
-    const remaining = sessionsRef.current.filter((s) => s.id !== id);
+    const remaining = sessionsRef.current.filter((session) => session.id !== id);
     const fallback = remaining[0]?.id ?? null;
-    const updatedNodes = nodesRef.current.map((n) =>
-      n.kind === 'step' && n.sessionId === id ? { ...n, sessionId: fallback } as WorkflowNode : n,
+    const updatedNodes = nodesRef.current.map((node) =>
+      node.kind === 'step' && node.sessionId === id ? { ...node, sessionId: fallback } as WorkflowNode : node,
     );
     sessionsRef.current = remaining;
     nodesRef.current    = updatedNodes;
@@ -510,8 +510,8 @@ export function App() {
   }, [scheduleSave]);
 
   const onUpdateSessionMcpServers = useCallback((id: string, mcpServers: string | undefined) => {
-    setSessions((ss) => {
-      const updated = ss.map((session) =>
+    setSessions((previousSessions) => {
+      const updated = previousSessions.map((session) =>
         session.id === id ? { ...session, mcpServers: mcpServers || undefined } : session,
       );
       sessionsRef.current = updated;
@@ -547,7 +547,7 @@ export function App() {
   // Variables are declared via InputNodes on the canvas. Editing a variable
   // default value from the SessionsBar patches the InputNode directly.
   const onEditVariable = useCallback((name: string, patch: Partial<{ defaultValue?: string; description?: string }>) => {
-    const inputNode = nodesRef.current.find((n): n is InputNode => n.kind === 'input' && n.variableName === name);
+    const inputNode = nodesRef.current.find((node): node is InputNode => node.kind === 'input' && node.variableName === name);
     if (inputNode) onEditNode(inputNode.id, patch);
   }, [onEditNode]);
 
@@ -563,7 +563,7 @@ export function App() {
 
   const onAddSessionRequest = useCallback(() => {
     setBarExpanded(true);
-    setAddSessionPing((n) => n + 1);
+    setAddSessionPing((previousPing) => previousPing + 1);
   }, []);
 
   // ── keyboard delete ───────────────────────────────────────────────────────
@@ -607,13 +607,13 @@ export function App() {
   }, []);
 
   const onRunInteractionEvent = useCallback((interaction: RunInteraction) => {
-    setPendingInteractions((prev) => {
+    setPendingInteractions((previous) => {
       if (interaction.status !== 'pending') {
-        return prev.filter((item) => item.id !== interaction.id);
+        return previous.filter((item) => item.id !== interaction.id);
       }
-      const index = prev.findIndex((item) => item.id === interaction.id);
-      if (index < 0) return [...prev, interaction];
-      const next = [...prev];
+      const index = previous.findIndex((item) => item.id === interaction.id);
+      if (index < 0) return [...previous, interaction];
+      const next = [...previous];
       next[index] = interaction;
       return next;
     });
@@ -638,63 +638,63 @@ export function App() {
     unsub = subscribeToRun(runId, (type: SseEventType, data: unknown) => {
       if (cancelled) return;
       if (type === 'node-status') {
-        const ev = data as {
+        const event = data as {
           nodeId: string;
           status: string;
           gateDecision?: { branchId: string; reason?: string };
           gateBranches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
           replay?: boolean;
         };
-        setLiveNodeStates((prev) => ({ ...prev, [ev.nodeId]: ev.status as import('./types').RunState }));
-        if (ev.gateDecision) {
-          const decision = ev.gateDecision;
-          setLogEvents((prev) => {
-            const last = prev[prev.length - 1];
-            if (last && last.type === 'gate-decision' && last.nodeId === ev.nodeId && last.branchId === decision.branchId) {
-              return prev;
+        setLiveNodeStates((previous) => ({ ...previous, [event.nodeId]: event.status as import('./types').RunState }));
+        if (event.gateDecision) {
+          const decision = event.gateDecision;
+          setLogEvents((previous) => {
+            const last = previous[previous.length - 1];
+            if (last && last.type === 'gate-decision' && last.nodeId === event.nodeId && last.branchId === decision.branchId) {
+              return previous;
             }
-            return [...prev.slice(-LOG_LIVE_CAP), {
+            return [...previous.slice(-LOG_LIVE_CAP), {
               type: 'gate-decision',
-              nodeId: ev.nodeId,
+              nodeId: event.nodeId,
               branchId: decision.branchId,
               reason: decision.reason,
-              branches: ev.gateBranches,
+              branches: event.gateBranches,
             }];
           });
         }
-        if (ev.status === 'paused' && !ev.replay) {
-          const node = nodesRef.current.find((candidate) => candidate.id === ev.nodeId);
+        if (event.status === 'paused' && !event.replay) {
+          const node = nodesRef.current.find((candidate) => candidate.id === event.nodeId);
           if (node?.kind === 'step' && node.sessionId) {
             setPausedNode({ runId, nodeId: node.id, specflowSessionId: node.sessionId, agentServerId: sessionsRef.current.find((session) => session.id === node.sessionId)?.agentServerId ?? '', pausedAt: new Date().toISOString() });
             setActiveSessionId(node.sessionId);
             setBarExpanded(true);
           }
-        } else if (ev.status === 'success') {
-          setPausedNode((paused) => paused?.nodeId === ev.nodeId ? null : paused);
+        } else if (event.status === 'success') {
+          setPausedNode((paused) => paused?.nodeId === event.nodeId ? null : paused);
         }
       } else if (type === 'terminal') {
-        const ev = data as Extract<TimelineEvent, { type: 'terminal' }> & { specflowSessionId?: string };
-        setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { ...ev, type: 'terminal' }]);
+        const event = data as Extract<TimelineEvent, { type: 'terminal' }> & { specflowSessionId?: string };
+        setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { ...event, type: 'terminal' }]);
       } else if (type === 'session-update') {
-        const ev = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string; specflowSessionId?: string };
-        setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { ...ev, type: 'session-update' }]);
+        const event = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string; specflowSessionId?: string };
+        setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { ...event, type: 'session-update' }]);
       } else if (type === 'interaction-requested') {
         onRunInteractionEvent(data as RunInteraction);
       } else if (type === 'run-status') {
-        const ev = data as { status: string; error?: string; replay?: boolean };
-        const uiStatus = runStatusFromEvent(ev.status);
-        setRuns((prev) => prev.map((r) =>
-          r.id === runId ? { ...r, status: uiStatus } : r,
+        const event = data as { status: string; error?: string; replay?: boolean };
+        const uiStatus = runStatusFromEvent(event.status);
+        setRuns((previous) => previous.map((run) =>
+          run.id === runId ? { ...run, status: uiStatus } : run,
         ));
         if (uiStatus !== 'running') {
-          if (!ev.replay) {
+          if (!event.replay) {
             setPausedNode(null);
           }
           cleanup();
-          if (!ev.replay) {
+          if (!event.replay) {
             fetchRuns(activeWorkflow).then((records) => {
               setRuns(records.map(apiRunToUiRun));
-              const fresh = records.find((r) => r.id === runId);
+              const fresh = records.find((run) => run.id === runId);
               if (fresh) {
                 setHistoricNodeStates(fresh.nodeStates);
                 setLiveNodeStates({});
@@ -715,11 +715,11 @@ export function App() {
     setLogHistoryTotal(0);
     setLogHistoryEarliestIndex(0);
     setPendingInteractions([]);
-    fetchRun(id).then((rec) => {
-      const uiRun = apiRunToUiRun(rec);
+    fetchRun(id).then((runRecord) => {
+      const uiRun = apiRunToUiRun(runRecord);
       setHistoricNodeStates(uiRun.nodeStates ?? {});
-      setRuns((prev) => prev.map((r) =>
-        r.id === id ? { ...r, canvasSnapshot: uiRun.canvasSnapshot, nodeStates: uiRun.nodeStates, nodeOutputs: uiRun.nodeOutputs } : r,
+      setRuns((previous) => previous.map((run) =>
+        run.id === id ? { ...run, canvasSnapshot: uiRun.canvasSnapshot, nodeStates: uiRun.nodeStates, nodeOutputs: uiRun.nodeOutputs } : run,
       ));
     }).catch(console.error);
     fetchPausedNodes(id).then((paused) => {
@@ -752,11 +752,11 @@ export function App() {
         return;
       }
       const olderEvents = apiRunLogsToTimelineEvents(page.events);
-      setLogEvents((prev) => [...olderEvents, ...prev]);
+      setLogEvents((previous) => [...olderEvents, ...previous]);
       setLogHistoryEarliestIndex(page.startIndex);
       setLogHistoryTotal(page.total);
-    } catch (err) {
-      console.error('Failed to load earlier logs', err);
+    } catch (error) {
+      console.error('Failed to load earlier logs', error);
     } finally {
       setLogHistoryLoading(false);
     }
@@ -777,8 +777,8 @@ export function App() {
   const onOpenNewRun = useCallback(() => {
     setRunStartError('');
     const defaults: Record<string, string> = {};
-    for (const n of nodesRef.current) {
-      if (n.kind === 'input') defaults[n.variableName] = n.defaultValue ?? '';
+    for (const node of nodesRef.current) {
+      if (node.kind === 'input') defaults[node.variableName] = node.defaultValue ?? '';
     }
     setRunConfigVars(defaults);
     setRunConfigBusy(false);
@@ -793,9 +793,9 @@ export function App() {
   const onRespondToInteraction = useCallback(async (interaction: RunInteraction, response: unknown) => {
     try {
       await respondToRunInteraction(interaction.runId, interaction.id, response);
-      setPendingInteractions((prev) => prev.filter((item) => item.id !== interaction.id));
-    } catch (err) {
-      console.error('Failed to respond to interaction', err);
+      setPendingInteractions((previous) => previous.filter((item) => item.id !== interaction.id));
+    } catch (error) {
+      console.error('Failed to respond to interaction', error);
     }
   }, []);
 
@@ -806,7 +806,7 @@ export function App() {
       const { runId } = await runCanvas(activeWorkflow, { initialInput, variableValues });
 
       const pending: RunStateMap = {};
-      for (const n of nodesRef.current) pending[n.id] = 'pending';
+      for (const node of nodesRef.current) pending[node.id] = 'pending';
       setLiveNodeStates(pending);
       setHistoricNodeStates({});
       setLogEvents([]);
@@ -828,7 +828,7 @@ export function App() {
           agent: sessionsRef.current[0]?.agentServerId ?? t('app.unconfigured'),
         };
       }
-      setRuns((prev) => [placeholder, ...prev]);
+      setRuns((previous) => [placeholder, ...previous]);
       setActiveRunId(runId);
       setBarExpanded(true);
 
@@ -840,13 +840,13 @@ export function App() {
         }
       }).catch(console.error);
       return true;
-    } catch (err) {
-      if (err instanceof AgentAuthenticationRequiredError) {
-        requestAuth(err.statuses, () => { void startRun(initialInput, variableValues); });
+    } catch (error) {
+      if (error instanceof AgentAuthenticationRequiredError) {
+        requestAuth(error.statuses, () => { void startRun(initialInput, variableValues); });
         return true;
       }
-      console.error('Failed to start run', err);
-      setRunStartError(t('app.runStartFailed', { message: errorMessage(err) }));
+      console.error('Failed to start run', error);
+      setRunStartError(t('app.runStartFailed', { message: errorMessage(error) }));
       return false;
     } finally {
       setRunStartBusy(false);
@@ -866,7 +866,7 @@ export function App() {
       const { runId: newRunId } = await apiRerunRun(runId);
       const initial = await fetchRun(newRunId);
       const placeholder = apiRunToUiRun(initial);
-      setRuns((prev) => [placeholder, ...prev]);
+      setRuns((previous) => [placeholder, ...previous]);
       setActiveRunId(newRunId);
       setLiveNodeStates(initial.nodeStates ?? {});
       setHistoricNodeStates({});
@@ -882,13 +882,13 @@ export function App() {
           setActiveSessionId(paused[0].specflowSessionId);
         }
       }).catch(console.error);
-    } catch (err) {
-      if (err instanceof AgentAuthenticationRequiredError) {
-        requestAuth(err.statuses, () => handleRerun(runId));
+    } catch (error) {
+      if (error instanceof AgentAuthenticationRequiredError) {
+        requestAuth(error.statuses, () => handleRerun(runId));
         return;
       }
-      console.error('Failed to re-run', err);
-      setRunStartError(t('app.runStartFailed', { message: errorMessage(err) }));
+      console.error('Failed to re-run', error);
+      setRunStartError(t('app.runStartFailed', { message: errorMessage(error) }));
     } finally {
       setRunStartBusy(false);
     }
@@ -898,7 +898,7 @@ export function App() {
     if (!window.confirm(t('app.deleteRunConfirm'))) return;
     try {
       await apiDeleteRun(id);
-      setRuns((prev) => prev
+      setRuns((previous) => previous
         .filter((run) => run.id !== id)
         .map((run) => ({
           ...run,
@@ -912,20 +912,20 @@ export function App() {
         setPendingInteractions([]);
       }
       refreshAgentSessions();
-    } catch (err) {
-      console.error('Failed to delete run', err);
+    } catch (error) {
+      console.error('Failed to delete run', error);
     }
   }, [activeRunId, refreshAgentSessions]);
 
   const onCancelRun = useCallback(async (id: string) => {
     try {
       await apiCancelRun(id);
-      setRuns((prev) => prev.map((r) =>
-        r.id === id ? { ...r, status: 'cancelled' } : r,
+      setRuns((previous) => previous.map((run) =>
+        run.id === id ? { ...run, status: 'cancelled' } : run,
       ));
-      setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.cancelRequested'), stream: 'system' }]);
-    } catch (err) {
-      console.error('Failed to cancel run', err);
+      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.cancelRequested'), stream: 'system' }]);
+    } catch (error) {
+      console.error('Failed to cancel run', error);
     }
   }, []);
 
@@ -944,7 +944,7 @@ export function App() {
     restoreRequestTokenRef.current += 1;
     const requestToken = restoreRequestTokenRef.current;
     terminateConversation(conversationRef.current);
-    setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: 'starting' }));
+    setRestoreStatusBySession((previous) => ({ ...previous, [session.id]: 'starting' }));
     setConversation({
       session,
       mode,
@@ -1011,7 +1011,7 @@ export function App() {
           if (mode === 'continue' && event.status === 'success' && event.selectedPrimitive === 'resume') {
             void loadRecordedContext().catch(console.error);
           }
-          setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: event.status }));
+          setRestoreStatusBySession((previous) => ({ ...previous, [session.id]: event.status }));
           const text = event.status === 'success'
             ? t('app.restoreSuccess', { primitive: event.selectedPrimitive ?? 'resume' })
             : event.status === 'failure'
@@ -1049,9 +1049,9 @@ export function App() {
           }
         }
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setRestoreStatusBySession((prev) => ({ ...prev, [session.id]: 'failure' }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRestoreStatusBySession((previous) => ({ ...previous, [session.id]: 'failure' }));
       setConversation((current) => current?.session.id === session.id
         ? { ...current, status: 'failure', events: [...current.events, { type: 'display-message', role: 'system', text: t('app.restoreFailed', { error: message }) }] }
         : current);
@@ -1063,9 +1063,9 @@ export function App() {
       const { runId: newRunId } = await resumeWorkflowRun(sourceRunId);
       const initial = await fetchRun(newRunId);
       const placeholder = apiRunToUiRun(initial);
-      setRuns((prev) => [
+      setRuns((previous) => [
         placeholder,
-        ...prev.map((run) => run.id === sourceRunId ? { ...run, resumedByRunId: newRunId } : run),
+        ...previous.map((run) => run.id === sourceRunId ? { ...run, resumedByRunId: newRunId } : run),
       ]);
       setActiveRunId(newRunId);
       setLiveNodeStates(initial.nodeStates ?? {});
@@ -1077,13 +1077,13 @@ export function App() {
       setPausedNode(null);
       setBarExpanded(true);
       attachToRun(newRunId);
-    } catch (err) {
-      if (err instanceof AgentAuthenticationRequiredError) {
-        requestAuth(err.statuses, () => onResumeRun(sourceRunId));
+    } catch (error) {
+      if (error instanceof AgentAuthenticationRequiredError) {
+        requestAuth(error.statuses, () => onResumeRun(sourceRunId));
         return;
       }
-      console.error('Failed to resume run', err);
-      setRunStartError(t('app.resumeFailed', { message: errorMessage(err) }));
+      console.error('Failed to resume run', error);
+      setRunStartError(t('app.resumeFailed', { message: errorMessage(error) }));
     }
   }, [attachToRun, requestAuth, t]);
 
@@ -1116,7 +1116,7 @@ export function App() {
     role: Extract<TimelineEvent, { type: 'display-message' }>['role'],
     text: string,
   ) => {
-    setLogEvents((prev) => [...prev.slice(-LOG_LIVE_CAP), {
+    setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), {
       type: 'display-message',
       role,
       text,
@@ -1153,12 +1153,12 @@ export function App() {
 
   const onCreateWorkflow = useCallback(async (name: string) => {
     try {
-      const doc = await createCanvas(name.trim() || t('app.untitledWorkflow'));
-      const summary = { id: doc.id, name: doc.name, runs: 0 };
-      setWorkflows((prev) => [summaryToWorkflow(summary), ...prev]);
-      setActiveWorkflow(doc.id);
-    } catch (err) {
-      console.error('Failed to create workflow', err);
+      const canvasDocument = await createCanvas(name.trim() || t('app.untitledWorkflow'));
+      const summary = { id: canvasDocument.id, name: canvasDocument.name, runs: 0 };
+      setWorkflows((previous) => [summaryToWorkflow(summary), ...previous]);
+      setActiveWorkflow(canvasDocument.id);
+    } catch (error) {
+      console.error('Failed to create workflow', error);
     }
   }, [t]);
 
@@ -1168,23 +1168,23 @@ export function App() {
     try {
       if (id === activeWorkflow) {
         clearTimeout(saveTimerRef.current);
-        const doc = {
+        const canvasDocument = {
           id,
           name: nextName,
           sessions: sessionsRef.current,
           nodes: nodesRef.current,
           edges: edgesRef.current,
         };
-        await saveCanvas(id, doc);
+        await saveCanvas(id, canvasDocument);
         setActiveCanvasName(nextName);
       } else {
-        const doc = await fetchCanvas(id);
-        await saveCanvas(id, { ...doc, name: nextName });
+        const canvasDocument = await fetchCanvas(id);
+        await saveCanvas(id, { ...canvasDocument, name: nextName });
       }
-      setWorkflows((prev) => prev.map((workflow) =>
+      setWorkflows((previous) => previous.map((workflow) =>
         workflow.id === id ? { ...workflow, name: nextName } : workflow));
-    } catch (err) {
-      console.error('Failed to rename workflow', err);
+    } catch (error) {
+      console.error('Failed to rename workflow', error);
     }
   }, [activeWorkflow]);
 
@@ -1194,7 +1194,7 @@ export function App() {
     try {
       clearTimeout(saveTimerRef.current);
       await apiDeleteCanvas(id);
-      setWorkflows((prev) => prev.filter((candidate) => candidate.id !== id));
+      setWorkflows((previous) => previous.filter((candidate) => candidate.id !== id));
       if (id === activeWorkflow) {
         const next = workflows.find((candidate) => candidate.id !== id);
         if (next) {
@@ -1217,17 +1217,17 @@ export function App() {
           setPausedNode(null);
         }
       }
-    } catch (err) {
-      console.error('Failed to delete workflow', err);
+    } catch (error) {
+      console.error('Failed to delete workflow', error);
     }
   }, [activeWorkflow, t, workflows]);
 
   // ── derived selection state ───────────────────────────────────────────────
 
-  const selectedNode     = selection?.kind === 'node' ? displayNodes.find((n) => n.id === selection.id) : null;
-  const selectedEdge     = selection?.kind === 'edge' ? displayEdges.find((e) => e.id === selection.id) : null;
-  const selectedFromNode = selectedEdge ? displayNodes.find((n) => n.id === selectedEdge.from) : undefined;
-  const selectedToNode   = selectedEdge ? displayNodes.find((n) => n.id === selectedEdge.to)   : undefined;
+  const selectedNode     = selection?.kind === 'node' ? displayNodes.find((node) => node.id === selection.id) : null;
+  const selectedEdge     = selection?.kind === 'edge' ? displayEdges.find((edge) => edge.id === selection.id) : null;
+  const selectedFromNode = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.from) : undefined;
+  const selectedToNode   = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.to)   : undefined;
   const selectedTransferSourceNode = selectedEdge ? resolveTransferSource(selectedEdge, displayNodes, displayEdges) : undefined;
 
   const selectedNodeWithState = selectedNode
@@ -1336,7 +1336,7 @@ export function App() {
           workflowName={activeCanvasName}
           variables={variables}
           values={runConfigVars}
-          setValue={(name, value) => setRunConfigVars((prev) => ({ ...prev, [name]: value }))}
+          setValue={(name, value) => setRunConfigVars((previous) => ({ ...previous, [name]: value }))}
           onCancel={() => setRunConfigOpen(false)}
           onStart={onStartConfiguredRun}
           busy={runConfigBusy}
@@ -1419,9 +1419,9 @@ export function App() {
           expanded={barExpanded}
           setExpanded={setBarExpanded}
           barHeight={barHeight}
-          setBarHeight={(h) => {
-            setBarHeight(h);
-            try { localStorage.setItem('sf-bar-h', String(h)); } catch { /* ignore */ }
+          setBarHeight={(height) => {
+            setBarHeight(height);
+            try { localStorage.setItem('sf-bar-h', String(height)); } catch { /* ignore */ }
           }}
           activeSessionId={activeSessionId}
           setActiveSessionId={setActiveSessionId}

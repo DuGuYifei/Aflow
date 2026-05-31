@@ -20,7 +20,7 @@ export function advertisedAuthMethods(
 export function authMethodInfos(
   methods: acp.AuthMethod[],
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
 ): AgentAuthenticationMethod[] {
   return methods.map((method) => {
     const common = {
@@ -28,7 +28,7 @@ export function authMethodInfos(
       name: method.name,
       ...("description" in method && method.description ? { description: method.description } : {}),
     };
-    if (resolveTerminalAuthTaskFromMethod(resolved, cwd, method)) {
+    if (resolveTerminalAuthTaskFromMethod(resolved, workingDirectory, method)) {
       return {
         ...common,
         type: "terminal",
@@ -64,15 +64,15 @@ export function isTerminalAuthMethod(method: acp.AuthMethod): method is Extract<
 }
 
 export function missingEnvVars(method: Extract<acp.AuthMethod, { type: "env_var" }>, resolved: ResolvedAgentServer): string[] {
-  const env = { ...process.env, ...(resolved.command.env ?? {}) };
+  const environment = { ...process.env, ...(resolved.command.env ?? {}) };
   return method.vars
-    .filter((entry) => !entry.optional && !env[entry.name])
+    .filter((entry) => !entry.optional && !environment[entry.name])
     .map((entry) => entry.name);
 }
 
 export function resolveTerminalAuthTaskFromMethod(
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
   method: acp.AuthMethod,
 ): TerminalAuthTask | undefined {
   if (isTerminalAuthMethod(method)) {
@@ -82,7 +82,7 @@ export function resolveTerminalAuthTaskFromMethod(
       label: method.name,
       command: resolved.command.command,
       args: [...resolved.command.args, ...(method.args ?? [])],
-      cwd: resolved.command.cwd ?? cwd,
+      cwd: resolved.command.cwd ?? workingDirectory,
       env: { ...(resolved.command.env ?? {}), ...(method.env ?? {}) },
       successPatterns: successPatternsForAuthMethod(resolved, method.id),
     };
@@ -96,7 +96,7 @@ export function resolveTerminalAuthTaskFromMethod(
     label: metadata.label,
     command: metadata.command,
     args: metadata.args,
-    cwd: resolved.command.cwd ?? cwd,
+    cwd: resolved.command.cwd ?? workingDirectory,
     env: metadata.env,
     successPatterns: successPatternsForAuthMethod(resolved, method.id),
   };
@@ -109,7 +109,7 @@ function shouldUseGeminiTerminalAuthShim(resolved: ResolvedAgentServer): boolean
 }
 
 function geminiTerminalAuthMethod(resolved: ResolvedAgentServer): acp.AuthMethod {
-  const args = resolved.command.args.filter((arg) => arg !== "--experimental-acp" && arg !== "--acp");
+  const args = resolved.command.args.filter((argument) => argument !== "--experimental-acp" && argument !== "--acp");
   return {
     id: GEMINI_TERMINAL_AUTH_METHOD_ID,
     name: "Login",
@@ -135,9 +135,9 @@ interface MetadataTerminalAuth {
 function metadataTerminalAuth(method: acp.AuthMethod): MetadataTerminalAuth | undefined {
   const meta = method._meta;
   if (!meta || typeof meta !== "object") return undefined;
-  const raw = meta["terminal-auth"];
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const value = raw as Record<string, unknown>;
+  const rawValue = meta["terminal-auth"];
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) return undefined;
+  const value = rawValue as Record<string, unknown>;
   const label = stringValue(value.label);
   const command = stringValue(value.command);
   if (!label || !command) return undefined;

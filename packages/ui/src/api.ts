@@ -344,24 +344,24 @@ export interface CanvasSummary {
 }
 
 export async function fetchCanvases(): Promise<CanvasSummary[]> {
-  const res = await fetch('/api/canvases');
-  if (!res.ok) throw new Error(`Failed to fetch canvases: ${res.status}`);
-  return res.json();
+  const response = await fetch('/api/canvases');
+  if (!response.ok) throw new Error(`Failed to fetch canvases: ${response.status}`);
+  return response.json();
 }
 
 export async function fetchCanvas(id: string): Promise<CanvasDoc> {
-  const res = await fetch(`/api/canvases/${id}`);
-  if (!res.ok) throw new Error(await apiError(res, `Failed to load canvas ${id}`));
-  return res.json();
+  const response = await fetch(`/api/canvases/${id}`);
+  if (!response.ok) throw new Error(await apiError(response, `Failed to load canvas ${id}`));
+  return response.json();
 }
 
-export async function saveCanvas(id: string, doc: CanvasDoc): Promise<void> {
-  const res = await fetch(`/api/canvases/${id}`, {
+export async function saveCanvas(id: string, canvasDocument: CanvasDoc): Promise<void> {
+  const response = await fetch(`/api/canvases/${id}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(doc),
+    body: JSON.stringify(canvasDocument),
   });
-  if (!res.ok) throw new Error(await apiError(res, `Failed to save canvas ${id}`));
+  if (!response.ok) throw new Error(await apiError(response, `Failed to save canvas ${id}`));
 }
 
 export async function uploadCanvasAssets(
@@ -375,49 +375,49 @@ export async function uploadCanvasAssets(
     body.append('files', file, file.name);
     body.append('relativePaths', (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
   }
-  const res = await fetch(`/api/canvases/${id}/assets?kind=${kind}&directory=${directory}`, { method: 'POST', body });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to import assets'));
-  return res.json();
+  const response = await fetch(`/api/canvases/${id}/assets?kind=${kind}&directory=${directory}`, { method: 'POST', body });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to import assets'));
+  return response.json();
 }
 
 export async function createCanvas(name: string): Promise<CanvasDoc> {
-  const res = await fetch('/api/canvases', {
+  const response = await fetch('/api/canvases', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name }),
   });
-  if (!res.ok) throw new Error(`Failed to create canvas: ${res.status}`);
-  return res.json();
+  if (!response.ok) throw new Error(`Failed to create canvas: ${response.status}`);
+  return response.json();
 }
 
 export async function deleteCanvas(id: string): Promise<void> {
-  const res = await fetch(`/api/canvases/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(await apiError(res, `Failed to delete canvas ${id}`));
+  const response = await fetch(`/api/canvases/${id}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await apiError(response, `Failed to delete canvas ${id}`));
 }
 
 export async function runCanvas(
   id: string,
-  opts?: { initialInput?: string; variableValues?: Record<string, string> },
+  options?: { initialInput?: string; variableValues?: Record<string, string> },
 ): Promise<{ runId: string }> {
-  const res = await fetch(`/api/canvases/${id}/run`, {
+  const response = await fetch(`/api/canvases/${id}/run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ initialInput: opts?.initialInput, variableValues: opts?.variableValues }),
+    body: JSON.stringify({ initialInput: options?.initialInput, variableValues: options?.variableValues }),
   });
-  if (!res.ok) await throwRunStartError(res, 'Failed to start run');
-  return res.json();
+  if (!response.ok) await throwRunStartError(response, 'Failed to start run');
+  return response.json();
 }
 
 export async function fetchRuns(workflowId: string): Promise<ApiRunRecord[]> {
-  const res = await fetch(`/api/runs?workflowId=${encodeURIComponent(workflowId)}`);
-  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
-  return res.json();
+  const response = await fetch(`/api/runs?workflowId=${encodeURIComponent(workflowId)}`);
+  if (!response.ok) throw new Error(`Failed to fetch runs: ${response.status}`);
+  return response.json();
 }
 
 export async function fetchRun(id: string): Promise<ApiRunRecord> {
-  const res = await fetch(`/api/runs/${id}`);
-  if (!res.ok) throw new Error(`Run ${id} not found`);
-  return res.json();
+  const response = await fetch(`/api/runs/${id}`);
+  if (!response.ok) throw new Error(`Run ${id} not found`);
+  return response.json();
 }
 
 export interface RunLogPage {
@@ -428,65 +428,65 @@ export interface RunLogPage {
 
 export async function fetchRunLogsRange(
   id: string,
-  opts: { tail?: number; from?: number; to?: number },
+  options: { tail?: number; from?: number; to?: number },
 ): Promise<RunLogPage> {
   const params = new URLSearchParams();
-  if (typeof opts.tail === 'number') params.set('tail', String(opts.tail));
-  if (typeof opts.from === 'number') params.set('from', String(opts.from));
-  if (typeof opts.to === 'number') params.set('to', String(opts.to));
-  const res = await fetch(`/api/runs/${id}/logs?${params.toString()}`);
-  if (!res.ok) throw new Error(`Run logs ${id} not found`);
-  return res.json();
+  if (typeof options.tail === 'number') params.set('tail', String(options.tail));
+  if (typeof options.from === 'number') params.set('from', String(options.from));
+  if (typeof options.to === 'number') params.set('to', String(options.to));
+  const response = await fetch(`/api/runs/${id}/logs?${params.toString()}`);
+  if (!response.ok) throw new Error(`Run logs ${id} not found`);
+  return response.json();
 }
 
 export async function fetchRunLogs(id: string): Promise<ApiRunLogEvent[]> {
-  const res = await fetch(`/api/runs/${id}/logs`);
-  if (!res.ok) throw new Error(`Run logs ${id} not found`);
-  return res.json();
+  const response = await fetch(`/api/runs/${id}/logs`);
+  if (!response.ok) throw new Error(`Run logs ${id} not found`);
+  return response.json();
 }
 
 export async function fetchAgentSessions(filter: { workflowId?: string; agentServerId?: string } = {}): Promise<AgentSessionRecord[]> {
   const params = new URLSearchParams();
   if (filter.workflowId) params.set('workflowId', filter.workflowId);
   if (filter.agentServerId) params.set('agentServerId', filter.agentServerId);
-  const qs = params.toString();
-  const res = await fetch(`/api/agent-sessions${qs ? `?${qs}` : ''}`);
-  if (!res.ok) throw new Error(`Failed to fetch agent sessions: ${res.status}`);
-  return res.json();
+  const queryString = params.toString();
+  const response = await fetch(`/api/agent-sessions${queryString ? `?${queryString}` : ''}`);
+  if (!response.ok) throw new Error(`Failed to fetch agent sessions: ${response.status}`);
+  return response.json();
 }
 
 export async function fetchAgentServers(): Promise<AgentServerEntry[]> {
-  const res = await fetch('/api/agent-servers');
-  if (!res.ok) throw new Error(`Failed to fetch agent servers: ${res.status}`);
-  return res.json();
+  const response = await fetch('/api/agent-servers');
+  if (!response.ok) throw new Error(`Failed to fetch agent servers: ${response.status}`);
+  return response.json();
 }
 
 export async function fetchAgentRegistry(): Promise<RegistryIndex> {
-  const res = await fetch('/api/agent-servers/registry');
-  if (!res.ok) throw new Error(`Failed to fetch ACP registry: ${res.status}`);
-  return res.json();
+  const response = await fetch('/api/agent-servers/registry');
+  if (!response.ok) throw new Error(`Failed to fetch ACP registry: ${response.status}`);
+  return response.json();
 }
 
 export async function saveAgentServer(id: string, settings: AgentServerSettings): Promise<AgentServerEntry[]> {
-  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}`, {
+  const response = await fetch(`/api/agent-servers/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(settings),
   });
-  if (!res.ok) throw new Error(`Failed to save agent server: ${res.status}`);
-  return res.json();
+  if (!response.ok) throw new Error(`Failed to save agent server: ${response.status}`);
+  return response.json();
 }
 
 export async function removeAgentServer(id: string): Promise<AgentServerEntry[]> {
-  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Failed to remove agent server: ${res.status}`);
-  return res.json();
+  const response = await fetch(`/api/agent-servers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(`Failed to remove agent server: ${response.status}`);
+  return response.json();
 }
 
 export async function fetchAgentServerAuth(id: string): Promise<AgentAuthenticationStatus> {
-  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/auth`);
-  if (!res.ok) throw new Error(await apiError(res, `Failed to inspect auth for ${id}`));
-  return res.json();
+  const response = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/auth`);
+  if (!response.ok) throw new Error(await apiError(response, `Failed to inspect auth for ${id}`));
+  return response.json();
 }
 
 export interface AgentServerCapabilities {
@@ -515,35 +515,35 @@ export interface SkillSummary {
 }
 
 export async function fetchAgentServerCapabilities(id: string): Promise<AgentServerCapabilities | undefined> {
-  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/capabilities`);
-  if (res.status === 404) return undefined;
-  if (!res.ok) throw new Error(await apiError(res, `Failed to fetch capabilities for ${id}`));
-  return res.json();
+  const response = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/capabilities`);
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new Error(await apiError(response, `Failed to fetch capabilities for ${id}`));
+  return response.json();
 }
 
 export async function refreshAgentServerCapabilities(id: string): Promise<AgentServerCapabilities> {
-  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/capabilities/refresh`, { method: 'POST' });
-  if (!res.ok) throw new Error(await apiError(res, `Failed to refresh capabilities for ${id}`));
-  return res.json();
+  const response = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/capabilities/refresh`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, `Failed to refresh capabilities for ${id}`));
+  return response.json();
 }
 
 export async function fetchSkills(): Promise<SkillSummary[]> {
-  const res = await fetch('/api/skills');
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to fetch skills'));
-  return res.json();
+  const response = await fetch('/api/skills');
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to fetch skills'));
+  return response.json();
 }
 
 export async function authenticateAgentServer(
   id: string,
   methodId: string,
 ): Promise<AgentAuthenticationResponse> {
-  const res = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/auth/${encodeURIComponent(methodId)}`, {
+  const response = await fetch(`/api/agent-servers/${encodeURIComponent(id)}/auth/${encodeURIComponent(methodId)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({}),
   });
-  if (!res.ok) throw new Error(await apiError(res, `Failed to authenticate ${id}`));
-  return res.json();
+  if (!response.ok) throw new Error(await apiError(response, `Failed to authenticate ${id}`));
+  return response.json();
 }
 
 export function subscribeToAuthTerminal(
@@ -552,9 +552,9 @@ export function subscribeToAuthTerminal(
   onError?: (error: Event) => void,
 ): () => void {
   const source = new EventSource(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/events`);
-  const handle = (e: MessageEvent) => {
+  const handle = (messageEvent: MessageEvent) => {
     try {
-      const event = JSON.parse(e.data) as AuthTerminalEvent;
+      const event = JSON.parse(messageEvent.data) as AuthTerminalEvent;
       onEvent(event);
       if (event.type === 'status' && event.status !== 'running') source.close();
     } catch { /* ignore bad json */ }
@@ -566,75 +566,75 @@ export function subscribeToAuthTerminal(
 }
 
 export async function sendAuthTerminalInput(sessionId: string, data: string): Promise<void> {
-  const res = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/input`, {
+  const response = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/input`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ data }),
   });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to send terminal input'));
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to send terminal input'));
 }
 
 export async function resizeAuthTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
-  const res = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/resize`, {
+  const response = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/resize`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ cols, rows }),
   });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to resize terminal'));
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to resize terminal'));
 }
 
 export async function cancelAuthTerminal(sessionId: string): Promise<void> {
-  const res = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to cancel terminal auth'));
+  const response = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to cancel terminal auth'));
 }
 
 export async function checkAuthTerminal(sessionId: string): Promise<AgentAuthenticationStatus> {
-  const res = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/check`, { method: 'POST' });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to check terminal auth'));
-  const body = await res.json() as { authStatus: AgentAuthenticationStatus };
+  const response = await fetch(`/api/agent-auth-terminals/${encodeURIComponent(sessionId)}/check`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to check terminal auth'));
+  const body = await response.json() as { authStatus: AgentAuthenticationStatus };
   return body.authStatus;
 }
 
 export async function fetchAgentSession(id: string): Promise<AgentSessionRecord> {
-  const res = await fetch(`/api/agent-sessions/${id}`);
-  if (!res.ok) throw new Error(`Agent session ${id} not found`);
-  return res.json();
+  const response = await fetch(`/api/agent-sessions/${id}`);
+  if (!response.ok) throw new Error(`Agent session ${id} not found`);
+  return response.json();
 }
 
 export async function restoreAgentSession(id: string, mode: RestoreMode): Promise<RestoreStartResponse> {
-  const res = await fetch(`/api/agent-sessions/${id}/restore`, {
+  const response = await fetch(`/api/agent-sessions/${id}/restore`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ mode }),
   });
-  if (!res.ok) throw new Error(`Failed to restore agent session: ${res.status}`);
-  return res.json();
+  if (!response.ok) throw new Error(`Failed to restore agent session: ${response.status}`);
+  return response.json();
 }
 
 export async function promptRestoredSession(restoreId: string, prompt: string): Promise<{ output: string }> {
-  const res = await fetch(`/api/agent-session-restores/${restoreId}/prompt`, {
+  const response = await fetch(`/api/agent-session-restores/${restoreId}/prompt`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt }),
   });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to prompt restored session'));
-  return res.json();
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to prompt restored session'));
+  return response.json();
 }
 
 export async function closeRestoredSession(restoreId: string): Promise<void> {
-  const res = await fetch(`/api/agent-session-restores/${restoreId}/close`, { method: 'POST' });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to close restored session'));
+  const response = await fetch(`/api/agent-session-restores/${restoreId}/close`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to close restored session'));
 }
 
 export async function cancelRestoredSession(restoreId: string): Promise<void> {
-  const res = await fetch(`/api/agent-session-restores/${restoreId}/cancel`, { method: 'POST' });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to cancel restored session'));
+  const response = await fetch(`/api/agent-session-restores/${restoreId}/cancel`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to cancel restored session'));
 }
 
 export async function fetchPausedNodes(runId: string): Promise<PausedNodeSession[]> {
-  const res = await fetch(`/api/runs/${runId}/paused-nodes`);
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to fetch paused nodes'));
-  return res.json();
+  const response = await fetch(`/api/runs/${runId}/paused-nodes`);
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to fetch paused nodes'));
+  return response.json();
 }
 
 export interface ResumableSessionSuggestion {
@@ -648,10 +648,10 @@ export interface ResumableSessionSuggestion {
 }
 
 export async function fetchResumableSession(runId: string): Promise<ResumableSessionSuggestion | undefined> {
-  const res = await fetch(`/api/runs/${runId}/resumable-session`);
-  if (res.status === 404) return undefined;
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to look up resumable session'));
-  return res.json();
+  const response = await fetch(`/api/runs/${runId}/resumable-session`);
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to look up resumable session'));
+  return response.json();
 }
 
 /**
@@ -660,24 +660,24 @@ export async function fetchResumableSession(runId: string): Promise<ResumableSes
  * continuation prompt against their existing ACP session.
  */
 export async function resumeWorkflowRun(runId: string): Promise<{ runId: string }> {
-  const res = await fetch(`/api/runs/${runId}/resume-workflow`, { method: 'POST' });
-  if (!res.ok) await throwRunStartError(res, 'Failed to resume workflow');
-  return res.json();
+  const response = await fetch(`/api/runs/${runId}/resume-workflow`, { method: 'POST' });
+  if (!response.ok) await throwRunStartError(response, 'Failed to resume workflow');
+  return response.json();
 }
 
 export async function promptPausedNode(runId: string, nodeId: string, prompt: string): Promise<{ output: string }> {
-  const res = await fetch(`/api/runs/${runId}/paused-nodes/${nodeId}/prompt`, {
+  const response = await fetch(`/api/runs/${runId}/paused-nodes/${nodeId}/prompt`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt }),
   });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to prompt paused node'));
-  return res.json();
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to prompt paused node'));
+  return response.json();
 }
 
 export async function continuePausedNode(runId: string, nodeId: string): Promise<void> {
-  const res = await fetch(`/api/runs/${runId}/paused-nodes/${nodeId}/continue`, { method: 'POST' });
-  if (!res.ok) throw new Error(await apiError(res, 'Failed to continue paused node'));
+  const response = await fetch(`/api/runs/${runId}/paused-nodes/${nodeId}/continue`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to continue paused node'));
 }
 
 export async function deleteRun(id: string): Promise<void> {
@@ -685,34 +685,34 @@ export async function deleteRun(id: string): Promise<void> {
 }
 
 export async function cancelRun(id: string): Promise<void> {
-  const res = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed to cancel run: ${res.status}`);
+  const response = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
+  if (!response.ok) throw new Error(`Failed to cancel run: ${response.status}`);
 }
 
 export async function rerunRun(
   id: string,
-  opts?: { initialInput?: string; variableValues?: Record<string, string> },
+  options?: { initialInput?: string; variableValues?: Record<string, string> },
 ): Promise<{ runId: string }> {
-  const res = await fetch(`/api/runs/${id}/rerun`, {
+  const response = await fetch(`/api/runs/${id}/rerun`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ initialInput: opts?.initialInput, variableValues: opts?.variableValues }),
+    body: JSON.stringify({ initialInput: options?.initialInput, variableValues: options?.variableValues }),
   });
-  if (!res.ok) await throwRunStartError(res, 'Failed to re-run');
-  return res.json();
+  if (!response.ok) await throwRunStartError(response, 'Failed to re-run');
+  return response.json();
 }
 
 export async function respondToRunInteraction(
   runId: string,
   interactionId: string,
-  response: unknown,
+  interactionResponse: unknown,
 ): Promise<void> {
-  const res = await fetch(`/api/runs/${runId}/interactions/${interactionId}/respond`, {
+  const response = await fetch(`/api/runs/${runId}/interactions/${interactionId}/respond`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(response),
+    body: JSON.stringify(interactionResponse),
   });
-  if (!res.ok) throw new Error(`Failed to respond to interaction: ${res.status}`);
+  if (!response.ok) throw new Error(`Failed to respond to interaction: ${response.status}`);
 }
 
 export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'run-status' | 'interaction-requested';
@@ -725,9 +725,9 @@ export function subscribeToRun(
   const query = options.replay === false ? "?replay=false" : "";
   const source = new EventSource(`/api/runs/${runId}/events${query}`);
 
-  const handle = (type: SseEventType) => (e: MessageEvent) => {
+  const handle = (type: SseEventType) => (messageEvent: MessageEvent) => {
     try {
-      onEvent(type, JSON.parse(e.data));
+      onEvent(type, JSON.parse(messageEvent.data));
     } catch { /* ignore bad json */ }
   };
 
@@ -747,9 +747,9 @@ export function subscribeToRestore(
 ): () => void {
   const source = new EventSource(`/api/agent-session-restores/${restoreId}/events`);
 
-  const handle = (type: RestoreSseEventType) => (e: MessageEvent) => {
+  const handle = (type: RestoreSseEventType) => (messageEvent: MessageEvent) => {
     try {
-      onEvent(type, JSON.parse(e.data) as RestoreStreamEvent);
+      onEvent(type, JSON.parse(messageEvent.data) as RestoreStreamEvent);
     } catch { /* ignore bad json */ }
   };
 
@@ -761,51 +761,51 @@ export function subscribeToRestore(
   return () => source.close();
 }
 
-async function apiError(res: Response, fallback: string): Promise<string> {
+async function apiError(response: Response, fallback: string): Promise<string> {
   try {
-    const body = await res.json() as { error?: string };
-    return body.error || `${fallback}: ${res.status}`;
+    const body = await response.json() as { error?: string };
+    return body.error || `${fallback}: ${response.status}`;
   } catch {
-    return `${fallback}: ${res.status}`;
+    return `${fallback}: ${response.status}`;
   }
 }
 
-async function throwRunStartError(res: Response, fallback: string): Promise<never> {
+async function throwRunStartError(response: Response, fallback: string): Promise<never> {
   let body: { error?: string; authStatuses?: AgentAuthenticationStatus[] } = {};
   try {
-    body = await res.json();
+    body = await response.json();
   } catch {
     // Fall through to the status-based error below.
   }
   if (body.authStatuses?.length) {
     throw new AgentAuthenticationRequiredError(body.authStatuses);
   }
-  throw new Error(body.error || `${fallback}: ${res.status}`);
+  throw new Error(body.error || `${fallback}: ${response.status}`);
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-export function apiRunToUiRun(rec: ApiRunRecord): Run {
-  const canvasSnapshot = combineSnapshot(rec.agentflowSnapshot, rec.canvasSnapshot);
+export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
+  const canvasSnapshot = combineSnapshot(runRecord.agentflowSnapshot, runRecord.canvasSnapshot);
   return {
-    id: rec.id,
-    workflowId: rec.workflowId,
-    label: rec.label,
-    ticket: rec.ticket ?? '',
-    status: rec.status,
-    activeNode: rec.activeNode,
-    pausedNodeId: rec.pausedNodeId,
-    time: formatTime(rec.startedAt),
-    duration: rec.duration ?? '—',
-    agent: rec.agent,
-    errorMsg: rec.errorMsg,
-    nodeOutputs: rec.nodeOutputs,
+    id: runRecord.id,
+    workflowId: runRecord.workflowId,
+    label: runRecord.label,
+    ticket: runRecord.ticket ?? '',
+    status: runRecord.status,
+    activeNode: runRecord.activeNode,
+    pausedNodeId: runRecord.pausedNodeId,
+    time: formatTime(runRecord.startedAt),
+    duration: runRecord.duration ?? '—',
+    agent: runRecord.agent,
+    errorMsg: runRecord.errorMsg,
+    nodeOutputs: runRecord.nodeOutputs,
     canvasSnapshot,
-    nodeStates: rec.nodeStates,
-    initialInput: rec.initialInput,
-    variableValues: rec.variableValues,
-    resumedFromRunId: rec.resumedFromRunId,
-    resumedByRunId: rec.resumedByRunId,
+    nodeStates: runRecord.nodeStates,
+    initialInput: runRecord.initialInput,
+    variableValues: runRecord.variableValues,
+    resumedFromRunId: runRecord.resumedFromRunId,
+    resumedByRunId: runRecord.resumedByRunId,
   };
 }
 
@@ -886,21 +886,21 @@ function defaultWidth(kind: WorkflowNode['kind']): number {
   return 220;
 }
 
-export function summaryToWorkflow(s: CanvasSummary): Workflow {
+export function summaryToWorkflow(summary: CanvasSummary): Workflow {
   return {
-    id: s.id,
-    name: s.name,
-    meta: `${s.runs} runs`,
-    runs: s.runs,
+    id: summary.id,
+    name: summary.name,
+    meta: `${summary.runs} runs`,
+    runs: summary.runs,
   };
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso);
+  const date = new Date(iso);
   const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
+  const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (diffDays === 0) return `${time} · today`;
   if (diffDays === 1) return `yesterday · ${time}`;
   return `${diffDays}d ago`;

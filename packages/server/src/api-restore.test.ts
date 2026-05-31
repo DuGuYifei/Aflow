@@ -218,7 +218,7 @@ async function readUntil(response: Response, patterns: string[]): Promise<string
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let text = "";
-  for (let i = 0; i < 12 && !patterns.every((pattern) => text.includes(pattern)); i += 1) {
+  for (let index = 0; index < 12 && !patterns.every((pattern) => text.includes(pattern)); index += 1) {
     const result = await reader.read();
     if (result.done) break;
     text += decoder.decode(result.value, { stream: true });

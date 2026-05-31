@@ -29,7 +29,7 @@ export async function resolveRegistryAcpCommand(input: {
 async function resolveRegistryDistribution(
   agent: RegistryAgent,
   cacheDir: string,
-  env: Record<string, string>,
+  environment: Record<string, string>,
 ): Promise<AgentServerCommand> {
   const platform = platformKey();
   const binary = agent.distribution.binary?.[platform];
@@ -39,16 +39,16 @@ async function resolveRegistryDistribution(
       registryId: agent.id,
       version: agent.version,
       target: binary,
-      extraEnv: env,
+      extraEnv: environment,
     });
   }
-  if (agent.distribution.npx) return packageTargetCommand("npx", agent.distribution.npx, env);
-  if (agent.distribution.uvx) return packageTargetCommand("uvx", agent.distribution.uvx, env);
+  if (agent.distribution.npx) return packageTargetCommand("npx", agent.distribution.npx, environment);
+  if (agent.distribution.uvx) return packageTargetCommand("uvx", agent.distribution.uvx, environment);
   throw new Error(`ACP registry agent has no supported distribution for ${platform}: ${agent.id}`);
 }
 
 function platformKey(): string {
-  const os = process.platform === "darwin"
+  const platform = process.platform === "darwin"
     ? "darwin"
     : process.platform === "win32"
       ? "windows"
@@ -58,5 +58,5 @@ function platformKey(): string {
     : process.arch === "arm64"
       ? "aarch64"
       : process.arch;
-  return `${os}-${arch}`;
+  return `${platform}-${arch}`;
 }

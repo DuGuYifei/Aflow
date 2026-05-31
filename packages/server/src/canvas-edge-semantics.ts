@@ -1,7 +1,7 @@
 import type { AgentFlowDoc, AgentFlowNode, CanvasEdge } from "./canvas-doc";
 
-export function findAgentFlowNode(doc: AgentFlowDoc, id: string): AgentFlowNode {
-  const node = doc.nodes.find((candidate) => candidate.id === id);
+export function findAgentFlowNode(canvasDocument: AgentFlowDoc, id: string): AgentFlowNode {
+  const node = canvasDocument.nodes.find((candidate) => candidate.id === id);
   if (!node) throw new Error(`Missing node "${id}".`);
   return node;
 }
@@ -12,20 +12,20 @@ export function findAgentFlowNode(doc: AgentFlowDoc, id: string): AgentFlowNode 
  */
 export function contentSourceForEdge(
   edge: CanvasEdge,
-  doc: AgentFlowDoc,
+  canvasDocument: AgentFlowDoc,
   visitedGateIds = new Set<string>(),
 ): AgentFlowNode | undefined {
-  const source = findAgentFlowNode(doc, edge.from);
+  const source = findAgentFlowNode(canvasDocument, edge.from);
   if (source.kind !== "gate") return source;
   if (visitedGateIds.has(source.id)) {
     throw new Error(`Gate chain contains a cycle at node "${source.id}".`);
   }
   visitedGateIds.add(source.id);
-  const incoming = doc.edges.find((candidate) =>
+  const incoming = canvasDocument.edges.find((candidate) =>
     !candidate.loopback
     && candidate.to === source.id
-    && findAgentFlowNode(doc, candidate.from).kind !== "input");
-  return incoming ? contentSourceForEdge(incoming, doc, visitedGateIds) : undefined;
+    && findAgentFlowNode(canvasDocument, candidate.from).kind !== "input");
+  return incoming ? contentSourceForEdge(incoming, canvasDocument, visitedGateIds) : undefined;
 }
 
 export function hasTransferProperties(edge: CanvasEdge): boolean {

@@ -61,21 +61,21 @@ async function serveCommand(): Promise<void> {
 }
 
 async function runWorkflowCommand(args: string[]): Promise<void> {
-  const opts = parseRunArgs(args);
-  const filePath = resolve(process.cwd(), opts.file);
-  const doc = await loadAgentFlowFile(filePath);
-  const normalizedValues = normalizeVariableValues(doc, opts.values);
-  const prepared = prepareCanvasRun(doc, {
-    initialInput: opts.initialInput,
+  const options = parseRunArgs(args);
+  const filePath = resolve(process.cwd(), options.file);
+  const canvasDocument = await loadAgentFlowFile(filePath);
+  const normalizedValues = normalizeVariableValues(canvasDocument, options.values);
+  const prepared = prepareCanvasRun(canvasDocument, {
+    initialInput: options.initialInput,
     variableValues: normalizedValues,
   });
 
-  printRunPlan(filePath, doc, prepared.variables);
+  printRunPlan(filePath, canvasDocument, prepared.variables);
 
   if (prepared.missingVariables.length > 0) {
     console.log("\nMissing required variables:");
-    for (const v of prepared.missingVariables) {
-      console.log(`  - ${v.name}${v.description ? ` (${v.description})` : ""}`);
+    for (const variable of prepared.missingVariables) {
+      console.log(`  - ${variable.name}${variable.description ? ` (${variable.description})` : ""}`);
     }
     console.log("\nPass them with -Dname=value, for example: -Dvalue=1 or -Dspecflow_value=1");
     process.exitCode = 2;
@@ -90,7 +90,7 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
     return;
   }
 
-  if (!opts.yes) {
+  if (!options.yes) {
     const confirmed = await confirm("Run this workflow?");
     if (!confirmed) {
       console.log("Cancelled.");
@@ -101,8 +101,8 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
   console.log("\nStarting run...");
   const nodeTitles = new Map(
     prepared.doc.nodes
-      .filter((n) => n.kind === "step" || n.kind === "gate")
-      .map((n) => [n.id, `${n.alias} ${n.title}`]),
+      .filter((node) => node.kind === "step" || node.kind === "gate")
+      .map((node) => [node.id, `${node.alias} ${node.title}`]),
   );
 
   const run = await executeAgentFlowDoc({
@@ -139,37 +139,37 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
 
 function parseRunArgs(args: string[]): RunCliOptions {
   let file = "";
-  let yes = false;
+  let assumeYes = false;
   let initialInput = "";
   const values: Record<string, string> = {};
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === "-y" || arg === "--yes") {
-      yes = true;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "-y" || argument === "--yes") {
+      assumeYes = true;
       continue;
     }
-    if (arg === "--input") {
-      initialInput = args[++i] ?? "";
+    if (argument === "--input") {
+      initialInput = args[++index] ?? "";
       continue;
     }
-    if (arg.startsWith("--input=")) {
-      initialInput = arg.slice("--input=".length);
+    if (argument.startsWith("--input=")) {
+      initialInput = argument.slice("--input=".length);
       continue;
     }
-    if (arg === "-D") {
-      assignDefine(values, args[++i] ?? "");
+    if (argument === "-D") {
+      assignDefine(values, args[++index] ?? "");
       continue;
     }
-    if (arg.startsWith("-D")) {
-      assignDefine(values, arg.slice(2));
+    if (argument.startsWith("-D")) {
+      assignDefine(values, argument.slice(2));
       continue;
     }
     if (!file) {
-      file = arg;
+      file = argument;
       continue;
     }
-    throw new Error(`Unexpected argument: ${arg}`);
+    throw new Error(`Unexpected argument: ${argument}`);
   }
 
   if (!file) {
@@ -177,17 +177,17 @@ function parseRunArgs(args: string[]): RunCliOptions {
     process.exit(2);
   }
 
-  return { file, yes, initialInput, values };
+  return { file, yes: assumeYes, initialInput, values };
 }
 
-function assignDefine(target: Record<string, string>, raw: string): void {
-  const eq = raw.indexOf("=");
-  if (eq <= 0) throw new Error(`Invalid -D value "${raw}". Expected -Dname=value.`);
-  target[raw.slice(0, eq)] = raw.slice(eq + 1);
+function assignDefine(target: Record<string, string>, rawValue: string): void {
+  const equalsIndex = rawValue.indexOf("=");
+  if (equalsIndex <= 0) throw new Error(`Invalid -D value "${rawValue}". Expected -Dname=value.`);
+  target[rawValue.slice(0, equalsIndex)] = rawValue.slice(equalsIndex + 1);
 }
 
-function normalizeVariableValues(doc: AgentFlowDoc, values: Record<string, string>): Record<string, string> {
-  const names = new Set(doc.nodes.filter((n) => n.kind === "input").map((n) => n.variableName));
+function normalizeVariableValues(canvasDocument: AgentFlowDoc, values: Record<string, string>): Record<string, string> {
+  const names = new Set(canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.variableName));
   const normalized: Record<string, string> = {};
   for (const [key, value] of Object.entries(values)) {
     const fullKey = key.startsWith("specflow_") ? key : `specflow_${key}`;
@@ -196,24 +196,24 @@ function normalizeVariableValues(doc: AgentFlowDoc, values: Record<string, strin
   return normalized;
 }
 
-function printRunPlan(filePath: string, doc: AgentFlowDoc, variables: RunInputVariable[]): void {
-  const runtimeNodes = doc.nodes.filter((n) => n.kind === "step" || n.kind === "gate");
-  console.log(`Workflow: ${doc.name} (${doc.id})`);
+function printRunPlan(filePath: string, canvasDocument: AgentFlowDoc, variables: RunInputVariable[]): void {
+  const runtimeNodes = canvasDocument.nodes.filter((node) => node.kind === "step" || node.kind === "gate");
+  console.log(`Workflow: ${canvasDocument.name} (${canvasDocument.id})`);
   console.log(`File: ${filePath}`);
-  console.log(`Sessions: ${doc.sessions.length}`);
-  for (const s of doc.sessions) {
-    console.log(`  - ${s.name} [${s.agentServerId ?? s.agent ?? "unconfigured"}]`);
+  console.log(`Sessions: ${canvasDocument.sessions.length}`);
+  for (const session of canvasDocument.sessions) {
+    console.log(`  - ${session.name} [${session.agentServerId ?? session.agent ?? "unconfigured"}]`);
   }
   console.log(`Nodes: ${runtimeNodes.length}`);
-  for (const n of runtimeNodes) {
-    console.log(`  - ${n.alias} ${n.title} (${n.kind})`);
+  for (const node of runtimeNodes) {
+    console.log(`  - ${node.alias} ${node.title} (${node.kind})`);
   }
 
   if (variables.length > 0) {
     console.log("Variables:");
-    for (const v of variables) {
-      const shown = v.value === "" ? "<empty>" : v.value;
-      console.log(`  - ${v.name} = ${shown} (${v.source})`);
+    for (const variable of variables) {
+      const shown = variable.value === "" ? "<empty>" : variable.value;
+      console.log(`  - ${variable.name} = ${shown} (${variable.source})`);
     }
   } else {
     console.log("Variables: none");
@@ -239,9 +239,9 @@ function printRunUsage(): void {
   console.error("Usage: specflow run <agentflow.yaml> [-Dname=value ...] [--input text] [--yes]");
 }
 
-async function inspectWorkflowAuthentication(doc: AgentFlowDoc): Promise<AgentAuthenticationStatus[]> {
+async function inspectWorkflowAuthentication(canvasDocument: AgentFlowDoc): Promise<AgentAuthenticationStatus[]> {
   const servers = new Map((await listAgentServers(process.cwd())).map((entry) => [entry.id, entry]));
-  const agentServerIds = [...new Set(doc.sessions
+  const agentServerIds = [...new Set(canvasDocument.sessions
     .map((session) => session.agentServerId ?? session.agent)
     .filter((id): id is string => Boolean(id) && id !== "unconfigured"))];
   return Promise.all(agentServerIds

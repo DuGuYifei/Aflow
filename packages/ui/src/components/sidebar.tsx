@@ -63,7 +63,7 @@ export function Sidebar({
   const [editingWorkflowName, setEditingWorkflowName] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
-  const wf = workflows.find((w) => w.id === activeWorkflow) || workflows[0];
+  const workflow = workflows.find((workflow) => workflow.id === activeWorkflow) || workflows[0];
   const runLabelById = new Map(runs.map((run) => [run.id, run.label]));
   const workflowPanelWidth = layout.workflowsCollapsed ? COLLAPSED_WIDTH : layout.workflowsWidth;
   const runsPanelWidth = layout.runsCollapsed ? COLLAPSED_WIDTH : layout.runsWidth;
@@ -86,7 +86,7 @@ export function Sidebar({
   };
 
   const filteredWorkflows = query.trim()
-    ? workflows.filter((w) => w.name.toLowerCase().includes(query.toLowerCase()))
+    ? workflows.filter((workflow) => workflow.name.toLowerCase().includes(query.toLowerCase()))
     : workflows;
   const submitCreateWorkflow = () => {
     const name = (createInputRef.current?.value ?? newWorkflowName).trim();
@@ -181,20 +181,20 @@ export function Sidebar({
             ref={searchRef}
             placeholder={t('sidebar.search')}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleSearchKeyDown}
           />
           <span className="kbd">⌘K</span>
         </div>
         <div className="col-list">
-          {filteredWorkflows.map((w) => (
+          {filteredWorkflows.map((workflow) => (
             <div
-              key={w.id}
-              className={`wf-card${w.id === activeWorkflow ? ' active' : ''}`}
-              onClick={() => onSelectWorkflow(w.id)}
+              key={workflow.id}
+              className={`wf-card${workflow.id === activeWorkflow ? ' active' : ''}`}
+              onClick={() => onSelectWorkflow(workflow.id)}
             >
               <div className="wf-row">
-                {editingWorkflowId === w.id ? (
+                {editingWorkflowId === workflow.id ? (
                   <input
                     className="input sm workflow-name-input"
                     value={editingWorkflowName}
@@ -212,14 +212,14 @@ export function Sidebar({
                     }}
                   />
                 ) : (
-                  <div className="name">{w.name}</div>
+                  <div className="name">{workflow.name}</div>
                 )}
                 <button
                   className="btn sm icon workflow-rename"
                   title={t('sidebar.renameWorkflow')}
                   onClick={(event) => {
                     event.stopPropagation();
-                    startRenameWorkflow(w);
+                    startRenameWorkflow(workflow);
                   }}
                 >
                   <Icon name="edit" size={10} />
@@ -229,15 +229,15 @@ export function Sidebar({
                   title={t('sidebar.deleteWorkflow')}
                   onClick={(event) => {
                     event.stopPropagation();
-                    onDeleteWorkflow(w.id);
+                    onDeleteWorkflow(workflow.id);
                   }}
                 >
                   <Icon name="trash" size={10} />
                 </button>
               </div>
               <div className="meta">
-                <span><Icon name="flow" size={10} style={{ verticalAlign: -1 }} /> {w.meta}</span>
-                <span><Icon name="history" size={10} style={{ verticalAlign: -1 }} /> {t('sidebar.runsCount', { count: w.runs })}</span>
+                <span><Icon name="flow" size={10} style={{ verticalAlign: -1 }} /> {workflow.meta}</span>
+                <span><Icon name="history" size={10} style={{ verticalAlign: -1 }} /> {t('sidebar.runsCount', { count: workflow.runs })}</span>
               </div>
             </div>
           ))}
@@ -257,7 +257,7 @@ export function Sidebar({
         <div className="col-head">
           <div>
             <div className="col-title">{t('sidebar.runs')}</div>
-            <div className="col-sub">{wf?.name}</div>
+            <div className="col-sub">{workflow?.name}</div>
           </div>
           <div className="col-actions">
             <button className="btn sm icon" title={t('sidebar.collapsePanel')} onClick={() => setCollapsed('runsCollapsed', true)}>
@@ -269,56 +269,56 @@ export function Sidebar({
           </div>
         </div>
         <div className="col-list">
-          {runs.map((r) => (
+          {runs.map((run) => (
             <div
-              key={r.id}
-              className={`run-card${r.id === activeRun ? ' active' : ''}`}
-              onClick={() => onSelectRun(r.id)}
+              key={run.id}
+              className={`run-card${run.id === activeRun ? ' active' : ''}`}
+              onClick={() => onSelectRun(run.id)}
             >
               <div className="row">
-                <span className={`status-dot ${r.status}`} />
-                <span className="label">{r.label}</span>
-                <div className="actions" onClick={(e) => e.stopPropagation()}>
-                  {onResumeRun && !r.resumedByRunId && (r.status === 'cancelled' || r.status === 'error') && (
-                    <button className="btn sm icon" title={t('sidebar.resumeSessionTitle')} onClick={() => onResumeRun(r.id)}>
+                <span className={`status-dot ${run.status}`} />
+                <span className="label">{run.label}</span>
+                <div className="actions" onClick={(event) => event.stopPropagation()}>
+                  {onResumeRun && !run.resumedByRunId && (run.status === 'cancelled' || run.status === 'error') && (
+                    <button className="btn sm icon" title={t('sidebar.resumeSessionTitle')} onClick={() => onResumeRun(run.id)}>
                       <Icon name="play-circle" size={11} />
                     </button>
                   )}
-                  <button className="btn sm icon" title={t('sidebar.rerunTitle')} onClick={() => onRerunRun(r.id)}>
+                  <button className="btn sm icon" title={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
                     <Icon name="rotate" size={11} />
                   </button>
-                  <button className="btn sm icon" title={t('sidebar.delete')} onClick={() => onDeleteRun(r.id)}>
+                  <button className="btn sm icon" title={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
                     <Icon name="trash" size={11} />
                   </button>
                 </div>
               </div>
-              <div className="ticket">{r.ticket}</div>
-              {r.resumedFromRunId && (
-                <button className="run-link" onClick={(event) => { event.stopPropagation(); onSelectRun(r.resumedFromRunId!); }}>
-                  Resumed from {runLabelById.get(r.resumedFromRunId) ?? r.resumedFromRunId}
+              <div className="ticket">{run.ticket}</div>
+              {run.resumedFromRunId && (
+                <button className="run-link" onClick={(event) => { event.stopPropagation(); onSelectRun(run.resumedFromRunId!); }}>
+                  Resumed from {runLabelById.get(run.resumedFromRunId) ?? run.resumedFromRunId}
                 </button>
               )}
-              {r.resumedByRunId && (
-                <button className="run-link" onClick={(event) => { event.stopPropagation(); onSelectRun(r.resumedByRunId!); }}>
-                  Continued as {runLabelById.get(r.resumedByRunId) ?? r.resumedByRunId}
+              {run.resumedByRunId && (
+                <button className="run-link" onClick={(event) => { event.stopPropagation(); onSelectRun(run.resumedByRunId!); }}>
+                  Continued as {runLabelById.get(run.resumedByRunId) ?? run.resumedByRunId}
                 </button>
               )}
               <div className="meta-row">
-                <span>{r.time}</span>
+                <span>{run.time}</span>
                 <span>·</span>
-                <span>{r.duration}</span>
+                <span>{run.duration}</span>
                 <span style={{ marginLeft: 'auto' }} className="agent-badge">
-                  <span className="dot" />{r.agent}
+                  <span className="dot" />{run.agent}
                 </span>
               </div>
-              {r.errorMsg && (
+              {run.errorMsg && (
                 <div style={{ color: 'var(--err)', fontSize: 10.5, fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                  {r.errorMsg}
+                  {run.errorMsg}
                 </div>
               )}
-              {r.status === 'running' && r.progress && (
+              {run.status === 'running' && run.progress && (
                 <div style={{ color: 'var(--running)', fontSize: 10.5, fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-                  {r.progress}
+                  {run.progress}
                 </div>
               )}
             </div>

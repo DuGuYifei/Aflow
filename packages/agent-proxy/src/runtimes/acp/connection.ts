@@ -223,12 +223,12 @@ export class AcpAgentConnection {
     const next: AgentAvailableCommand[] = [];
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
-      const raw = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
-      if (typeof raw.name !== "string" || typeof raw.description !== "string") continue;
+      const rawValue = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
+      if (typeof rawValue.name !== "string" || typeof rawValue.description !== "string") continue;
       next.push({
-        name: raw.name,
-        description: raw.description,
-        ...(typeof raw.input?.hint === "string" ? { inputHint: raw.input.hint } : {}),
+        name: rawValue.name,
+        description: rawValue.description,
+        ...(typeof rawValue.input?.hint === "string" ? { inputHint: rawValue.input.hint } : {}),
       });
     }
     this.#availableCommands = next;
@@ -523,12 +523,12 @@ export async function runAcpAgent(
         if (Array.isArray(update.availableCommands)) {
           for (const item of update.availableCommands) {
             if (!item || typeof item !== "object") continue;
-            const raw = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
-            if (typeof raw.name !== "string" || typeof raw.description !== "string") continue;
+            const rawValue = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
+            if (typeof rawValue.name !== "string" || typeof rawValue.description !== "string") continue;
             availableCommands.push({
-              name: raw.name,
-              description: raw.description,
-              ...(typeof raw.input?.hint === "string" ? { inputHint: raw.input.hint } : {}),
+              name: rawValue.name,
+              description: rawValue.description,
+              ...(typeof rawValue.input?.hint === "string" ? { inputHint: rawValue.input.hint } : {}),
             });
           }
         }
@@ -877,12 +877,12 @@ export async function probeAcpAgentCapabilities(input: {
         if (Array.isArray(update.availableCommands)) {
           for (const item of update.availableCommands) {
             if (!item || typeof item !== "object") continue;
-            const raw = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
-            if (typeof raw.name !== "string" || typeof raw.description !== "string") continue;
+            const rawValue = item as { name?: unknown; description?: unknown; input?: { hint?: unknown } };
+            if (typeof rawValue.name !== "string" || typeof rawValue.description !== "string") continue;
             availableCommands.push({
-              name: raw.name,
-              description: raw.description,
-              ...(typeof raw.input?.hint === "string" ? { inputHint: raw.input.hint } : {}),
+              name: rawValue.name,
+              description: rawValue.description,
+              ...(typeof rawValue.input?.hint === "string" ? { inputHint: rawValue.input.hint } : {}),
             });
           }
         }
@@ -922,13 +922,13 @@ export async function probeAcpAgentCapabilities(input: {
 
 export async function inspectAcpAgentAuthentication(
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
 ): Promise<AgentAuthenticationStatus> {
-  const client = createAuthClient(resolved, cwd);
+  const client = createAuthClient(resolved, workingDirectory);
   try {
     const initializeResponse = await client.initialize();
     assertProtocolVersion(initializeResponse);
-    return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
+    return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, workingDirectory);
   } finally {
     await client.close().catch(() => {});
   }
@@ -936,10 +936,10 @@ export async function inspectAcpAgentAuthentication(
 
 export async function authenticateAcpAgent(
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
   methodId: string,
 ): Promise<AgentAuthenticationStatus> {
-  const client = createAuthClient(resolved, cwd);
+  const client = createAuthClient(resolved, workingDirectory);
   try {
     const initializeResponse = await client.initialize();
     assertProtocolVersion(initializeResponse);
@@ -948,7 +948,7 @@ export async function authenticateAcpAgent(
     if (!method) {
       throw new Error(`ACP agent "${resolved.id}" does not advertise auth method "${methodId}".`);
     }
-    if (resolveTerminalAuthTaskFromMethod(resolved, cwd, method)) {
+    if (resolveTerminalAuthTaskFromMethod(resolved, workingDirectory, method)) {
       throw new Error(`ACP agent "${resolved.id}" requires terminal authentication for "${methodId}".`);
     }
     if (isEnvAuthMethod(method)) {
@@ -958,7 +958,7 @@ export async function authenticateAcpAgent(
       }
     }
     await client.connection.authenticate({ methodId: method.id });
-    return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, cwd);
+    return await inspectInitializedAuthentication(client.connection, initializeResponse, resolved, workingDirectory);
   } finally {
     await client.close().catch(() => {});
   }
@@ -966,10 +966,10 @@ export async function authenticateAcpAgent(
 
 export async function resolveAcpTerminalAuthTask(
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
   methodId: string,
 ): Promise<TerminalAuthTask | undefined> {
-  const client = createAuthClient(resolved, cwd);
+  const client = createAuthClient(resolved, workingDirectory);
   try {
     const initializeResponse = await client.initialize();
     assertProtocolVersion(initializeResponse);
@@ -978,7 +978,7 @@ export async function resolveAcpTerminalAuthTask(
     if (!method) {
       throw new Error(`ACP agent "${resolved.id}" does not advertise auth method "${methodId}".`);
     }
-    return resolveTerminalAuthTaskFromMethod(resolved, cwd, method);
+    return resolveTerminalAuthTaskFromMethod(resolved, workingDirectory, method);
   } finally {
     await client.close().catch(() => {});
   }
@@ -998,12 +998,12 @@ function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined, 
 
 function createAuthClient(
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
   onTerminalEvent?: (event: AgentTerminalEvent) => void,
 ): AcpAgentClient {
   return new AcpAgentClient({
     resolved,
-    cwd,
+    cwd: workingDirectory,
     onTerminalEvent,
     request: {},
     appendOutput() {},
@@ -1020,10 +1020,10 @@ async function inspectInitializedAuthentication(
   connection: acp.ClientSideConnection,
   initializeResponse: acp.InitializeResponse,
   resolved: ResolvedAgentServer,
-  cwd: string,
+  workingDirectory: string,
 ): Promise<AgentAuthenticationStatus> {
   const methods = advertisedAuthMethods(initializeResponse.authMethods, resolved);
-  let needsAuth = !(await isAgentAuthenticated(connection, cwd));
+  let needsAuth = !(await isAgentAuthenticated(connection, workingDirectory));
 
   if (needsAuth) {
     const configuredEnvMethod = methods.find((method) =>
@@ -1032,7 +1032,7 @@ async function inspectInitializedAuthentication(
     if (configuredEnvMethod) {
       try {
         await connection.authenticate({ methodId: configuredEnvMethod.id });
-        needsAuth = !(await isAgentAuthenticated(connection, cwd));
+        needsAuth = !(await isAgentAuthenticated(connection, workingDirectory));
       } catch {
         // Keep the auth prompt available when a stored credential is rejected.
       }
@@ -1042,23 +1042,23 @@ async function inspectInitializedAuthentication(
   return {
     agentServerId: resolved.id,
     needsAuth,
-    methods: authMethodInfos(methods, resolved, cwd),
+    methods: authMethodInfos(methods, resolved, workingDirectory),
   };
 }
 
 async function isAgentAuthenticated(
   connection: acp.ClientSideConnection,
-  cwd: string,
+  workingDirectory: string,
 ): Promise<boolean> {
-  return canCreateSessionWithoutAuth(connection, cwd);
+  return canCreateSessionWithoutAuth(connection, workingDirectory);
 }
 
 async function canCreateSessionWithoutAuth(
   connection: acp.ClientSideConnection,
-  cwd: string,
+  workingDirectory: string,
 ): Promise<boolean> {
   try {
-    await connection.newSession({ cwd, mcpServers: [] });
+    await connection.newSession({ cwd: workingDirectory, mcpServers: [] });
     return true;
   } catch (error) {
     if (isAuthRequiredError(error)) return false;
@@ -1089,7 +1089,7 @@ async function applyPerRequestOverrides(input: {
   const { connection, sessionId, request, caps, resolvedId } = input;
   if (request.modeId) {
     const available = caps?.modes?.availableModes ?? [];
-    if (available.length > 0 && !available.some((m) => m.id === request.modeId)) {
+    if (available.length > 0 && !available.some((mode) => mode.id === request.modeId)) {
       throw new Error(`Per-node ACP mode "${request.modeId}" is not advertised by ${resolvedId}.`);
     }
     await connection.setSessionMode({ sessionId, modeId: request.modeId });

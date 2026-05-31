@@ -42,7 +42,7 @@ export function AuthTerminalModal({ sessionId, agentServerId, onClose, onAuthSta
   }, [sessionId, onAuthStatus, t]);
 
   const sendInput = useCallback((data: string) => {
-    void sendAuthTerminalInput(sessionId, data).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    void sendAuthTerminalInput(sessionId, data).catch((error) => setError(error instanceof Error ? error.message : String(error)));
   }, [sessionId]);
 
   const resize = useCallback((cols: number, rows: number) => {
@@ -55,8 +55,8 @@ export function AuthTerminalModal({ sessionId, agentServerId, onClose, onAuthSta
       const authStatus = await checkAuthTerminal(sessionId);
       await onAuthStatus(authStatus);
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setChecking(false);
     }

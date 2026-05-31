@@ -36,8 +36,8 @@ export function assertInsideAllowedRoots(roots: string[], candidate: string): st
 }
 
 function isInsideResolvedRoot(root: string, candidate: string): boolean {
-  const rel = relative(root, candidate);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  const relativePath = relative(root, candidate);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 export function safeRelativeCommand(baseDir: string, command: string): string {

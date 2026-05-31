@@ -36,8 +36,8 @@ export function AgentAuthModal({ statuses: initialStatuses, onClose, onReady, on
       }
       await applyAuthStatus(result);
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('');
     }

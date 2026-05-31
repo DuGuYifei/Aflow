@@ -22,9 +22,16 @@
 ## Code style
 
 - No comments explaining what code does — names should be self-explanatory.
+- Do not use unclear abbreviations in identifiers. Prefer complete, readable names for variables, parameters, functions, and types so the purpose is obvious at a glance. Common domain or protocol terms such as `id`, `URL`, `HTTP`, `API`, `ACP`, and `JSON` are allowed.
 - Comments only for non-obvious constraints, invariants, or workarounds.
 - No error handling for impossible scenarios. Validate only at system boundaries.
 - No feature flags or backwards-compatibility shims — change the code directly.
+
+## Git commits
+
+- Use a Conventional Commits prefix: `feat:`, `fix:`, `docs:`, `style:`, `refactor:`, `test:`, `chore:`, `perf:`, `build:`, `ci:`, or `revert:`.
+- A short scope keyword may be added between the prefix and the colon when it helps readers understand the commit quickly, for example `feat(auth): add terminal login` or `fix(canvas): preserve branch labels`.
+- Keep the scope optional, lowercase, concise, and focused on the primary area or intent of the commit.
 
 ## Workflow domain
 

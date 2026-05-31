@@ -9,7 +9,7 @@ function flow(body: string): string {
 
 describe("agentflow ACP per-node fields", () => {
   test("parses modeId + configOptions on a step node and mcpServers on a session", () => {
-    const doc = parseAgentFlowSource(flow(`sessions:
+    const canvasDocument = parseAgentFlowSource(flow(`sessions:
   judge:
     agentServerId: claude-acp
     mcpServers: '${MCP_JSON}'
@@ -25,9 +25,9 @@ nodes:
       thought_level: high
 edges: []
 `), "wf");
-    const session = doc.sessions.find((s) => s.id === "judge");
+    const session = canvasDocument.sessions.find((session) => session.id === "judge");
     expect(session?.mcpServers).toBe(MCP_JSON);
-    const step = doc.nodes.find((n) => n.id === "n1");
+    const step = canvasDocument.nodes.find((node) => node.id === "n1");
     expect(step).toMatchObject({ modeId: "plan", configOptions: { model: "claude-sonnet-4-5", thought_level: "high" } });
   });
 
@@ -58,12 +58,12 @@ edges:
   - from: n1
     to: g1
 `);
-    const doc = parseAgentFlowSource(source, "wf");
-    const reparsed = parseAgentFlowSource(stringifyAgentFlowSource(doc), "wf");
+    const canvasDocument = parseAgentFlowSource(source, "wf");
+    const reparsed = parseAgentFlowSource(stringifyAgentFlowSource(canvasDocument), "wf");
     expect(reparsed.sessions[0].mcpServers).toBe(MCP_JSON);
-    const step = reparsed.nodes.find((n) => n.id === "n1");
+    const step = reparsed.nodes.find((node) => node.id === "n1");
     expect(step).toMatchObject({ modeId: "plan", configOptions: { model: "claude-sonnet-4-5" } });
-    const gate = reparsed.nodes.find((n) => n.id === "g1");
+    const gate = reparsed.nodes.find((node) => node.id === "g1");
     expect(gate).toMatchObject({ configOptions: { model: "claude-haiku-4-5" } });
   });
 

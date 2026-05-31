@@ -31,10 +31,10 @@ function agentIdForServer(agentServerId: string): string {
   return `agent-server-${agentServerId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
-export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
-  const endNodeIds = new Set(doc.nodes.filter((node) => node.kind === "end").map((node) => node.id));
-  const inputNodeIds = new Set(doc.nodes.filter((node) => node.kind === "input").map((node) => node.id));
-  const agentServerIds = new Set<string>(doc.sessions.map(agentServerIdForSession));
+export function canvasToWorkflow(canvasDocument: AgentFlowDoc): Workflow {
+  const endNodeIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "end").map((node) => node.id));
+  const inputNodeIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.id));
+  const agentServerIds = new Set<string>(canvasDocument.sessions.map(agentServerIdForSession));
 
   const agents: Workflow["agents"] = [...agentServerIds].map((agentServerId) => ({
     id: agentIdForServer(agentServerId),
@@ -43,7 +43,7 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
     agentServerId,
   }));
 
-  const sessions: Workflow["sessions"] = doc.sessions.map((session) => ({
+  const sessions: Workflow["sessions"] = canvasDocument.sessions.map((session) => ({
     id: session.id,
     name: session.name,
     agentId: agentIdForServer(agentServerIdForSession(session)),
@@ -51,10 +51,10 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
     ...(session.mcpServers && session.mcpServers.trim() ? { mcpServers: session.mcpServers } : {}),
   }));
 
-  const nodes: Workflow["nodes"] = doc.nodes
+  const nodes: Workflow["nodes"] = canvasDocument.nodes
     .filter((node) => node.kind !== "end" && node.kind !== "input")
     .map((node) => {
-      if (node.kind === "step") return buildAgentNode(node, doc);
+      if (node.kind === "step") return buildAgentNode(node, canvasDocument);
       return {
         id: node.id,
         kind: "gate",
@@ -66,7 +66,7 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
           id: branch.id,
           label: branch.label,
           description: branch.description,
-          maxTraversals: doc.edges.find((edge) => edge.from === node.id && edge.branch === branch.id)?.maxTraversals ?? 1,
+          maxTraversals: canvasDocument.edges.find((edge) => edge.from === node.id && edge.branch === branch.id)?.maxTraversals ?? 1,
         })),
         ...(node.configOptions && Object.keys(node.configOptions).length > 0
           ? { configOptions: node.configOptions }
@@ -74,16 +74,16 @@ export function canvasToWorkflow(doc: AgentFlowDoc): Workflow {
       } satisfies GateNode;
     });
 
-  const edges: Workflow["edges"] = doc.edges
+  const edges: Workflow["edges"] = canvasDocument.edges
     .filter((edge) => !endNodeIds.has(edge.to) && !endNodeIds.has(edge.from))
     .filter((edge) => !inputNodeIds.has(edge.from))
-    .map((edge) => buildEdge(edge, doc));
+    .map((edge) => buildEdge(edge, canvasDocument));
 
-  return { id: doc.id, name: doc.name, agents, sessions, nodes, edges };
+  return { id: canvasDocument.id, name: canvasDocument.name, agents, sessions, nodes, edges };
 }
 
-function buildAgentNode(node: AgentFlowStepNode, doc: AgentFlowDoc): AgentNode {
-  const session = doc.sessions.find((candidate) => candidate.id === node.sessionId);
+function buildAgentNode(node: AgentFlowStepNode, canvasDocument: AgentFlowDoc): AgentNode {
+  const session = canvasDocument.sessions.find((candidate) => candidate.id === node.sessionId);
   return {
     id: node.id,
     kind: "agent",
@@ -113,9 +113,9 @@ function buildAgentNode(node: AgentFlowStepNode, doc: AgentFlowDoc): AgentNode {
   };
 }
 
-function buildEdge(edge: CanvasEdge, doc: AgentFlowDoc): TriggerEdge | GateInputEdge | TaggedOutputEdge {
-  const source = findAgentFlowNode(doc, edge.from);
-  const target = findAgentFlowNode(doc, edge.to);
+function buildEdge(edge: CanvasEdge, canvasDocument: AgentFlowDoc): TriggerEdge | GateInputEdge | TaggedOutputEdge {
+  const source = findAgentFlowNode(canvasDocument, edge.from);
+  const target = findAgentFlowNode(canvasDocument, edge.to);
 
   if (target.kind === "gate") {
     return {
@@ -128,7 +128,7 @@ function buildEdge(edge: CanvasEdge, doc: AgentFlowDoc): TriggerEdge | GateInput
     };
   }
 
-  const effectiveSource = contentSourceForEdge(edge, doc);
+  const effectiveSource = contentSourceForEdge(edge, canvasDocument);
   if (!effectiveSource) throw new Error(`Gate node "${source.id}" requires one business input edge.`);
   const sourceSessionId = effectiveSource.kind === "step" ? effectiveSource.sessionId : undefined;
   const targetSessionId = target.kind === "step" ? target.sessionId : undefined;

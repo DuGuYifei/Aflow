@@ -101,7 +101,7 @@ export function buildAgentSessionsForRun(record: RunRecord): AgentSessionRecord[
       acpSessionId: invocation.acpSessionId,
     });
     const seenAt = invocation.completedAt ?? record.completedAt ?? invocation.startedAt;
-    const ref: AgentSessionInvocationRef = {
+    const reference: AgentSessionInvocationRef = {
       runId: record.id,
       invocationId: invocation.id,
       nodeRunId: invocation.nodeRunId,
@@ -133,7 +133,7 @@ export function buildAgentSessionsForRun(record: RunRecord): AgentSessionRecord[
         latestStatus: invocation.status,
         runIds: [record.id],
         invocationIds: [invocation.id],
-        invocations: [ref],
+        invocations: [reference],
         restoreAttempts: [],
       });
       continue;
@@ -154,7 +154,7 @@ export function buildAgentSessionsForRun(record: RunRecord): AgentSessionRecord[
     }
     addUnique(existing.runIds, record.id);
     addUnique(existing.invocationIds, invocation.id);
-    upsertInvocationRef(existing.invocations, ref);
+    upsertInvocationRef(existing.invocations, reference);
   }
 
   return sortedSessions([...byId.values()]);
@@ -213,14 +213,14 @@ function agentSessionsForRun(run: RunRecord): AgentSessionRecord[] {
   return run.agentSessions.length > 0 ? run.agentSessions : buildAgentSessionsForRun(run);
 }
 
-function upsertInvocationRef(refs: AgentSessionInvocationRef[], ref: AgentSessionInvocationRef): void {
-  const index = refs.findIndex((candidate) => candidate.invocationId === ref.invocationId);
+function upsertInvocationRef(references: AgentSessionInvocationRef[], reference: AgentSessionInvocationRef): void {
+  const index = references.findIndex((candidate) => candidate.invocationId === reference.invocationId);
   if (index >= 0) {
-    refs[index] = ref;
+    references[index] = reference;
   } else {
-    refs.push(ref);
+    references.push(reference);
   }
-  refs.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  references.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
 function addUnique(values: string[], value: string): void {

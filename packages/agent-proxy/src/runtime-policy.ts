@@ -18,10 +18,10 @@ function effectiveAdditionalDirectories(
 ): string[] | undefined {
   const configured = resolved.settings.additionalDirectories ?? [];
   const requested = request.additionalDirectories ?? [];
-  const all = [...configured, ...requested]
-    .map((dir) => {
-      const expanded = expandHome(dir);
+  const directories = [...configured, ...requested]
+    .map((directory) => {
+      const expanded = expandHome(directory);
       return isAbsolute(expanded) ? expanded : resolve(request.cwd, expanded);
     });
-  return all.length > 0 ? [...new Set(all)] : undefined;
+  return directories.length > 0 ? [...new Set(directories)] : undefined;
 }

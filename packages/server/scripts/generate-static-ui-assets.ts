@@ -31,18 +31,18 @@ ${entries.join("\n")}
 
 await writeFile(outputPath, content, "utf8");
 
-async function listFiles(dir: string): Promise<string[]> {
-  const out: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
+async function listFiles(directory: string): Promise<string[]> {
+  const output: string[] = [];
+  const entries = await readdir(directory, { withFileTypes: true });
 
   for (const entry of entries) {
-    const path = join(dir, entry.name);
+    const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      out.push(...await listFiles(path));
+      output.push(...await listFiles(path));
     } else if (entry.isFile()) {
-      out.push(path);
+      output.push(path);
     }
   }
 
-  return out;
+  return output;
 }

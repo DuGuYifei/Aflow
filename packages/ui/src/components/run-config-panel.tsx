@@ -22,20 +22,20 @@ export function RunConfigPanel({
   busy,
 }: RunConfigPanelProps) {
   const { t } = useI18n();
-  const missingVariables = variables.filter((v) => v.required !== false && (values[v.name] ?? v.defaultValue ?? '').trim() === '');
+  const missingVariables = variables.filter((variable) => variable.required !== false && (values[variable.name] ?? variable.defaultValue ?? '').trim() === '');
   const canStart = !busy && missingVariables.length === 0;
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
+  const handleKeyDown = (element: React.KeyboardEvent) => {
+    if ((element.ctrlKey || element.metaKey) && element.key === 'Enter') {
+      element.preventDefault();
       if (canStart) onStart();
     }
-    if (e.key === 'Escape') onCancel();
+    if (element.key === 'Escape') onCancel();
   };
 
   return (
     <div className="run-modal-overlay" onMouseDown={onCancel}>
-      <div className="run-modal" onMouseDown={(e) => e.stopPropagation()} onKeyDown={handleKeyDown}>
+      <div className="run-modal" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleKeyDown}>
         <div className="run-modal-head">
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="label"><Icon name="play-circle" size={11} /> {t('runConfig.startRun')}</div>
@@ -56,14 +56,14 @@ export function RunConfigPanel({
                 </span>
               </div>
               <div className="run-var-list">
-                {variables.map((v, index) => {
-                  const effective = values[v.name] ?? v.defaultValue ?? '';
-                  const isRequired = v.required !== false;
-                  const isDefault = effective === (v.defaultValue ?? '');
+                {variables.map((variable, index) => {
+                  const effective = values[variable.name] ?? variable.defaultValue ?? '';
+                  const isRequired = variable.required !== false;
+                  const isDefault = effective === (variable.defaultValue ?? '');
                   return (
-                    <div key={v.name} className="run-var-row">
-                      <label htmlFor={`run-var-${index}`}>{v.name}</label>
-                      {isRequired && (values[v.name] ?? v.defaultValue ?? '').trim() === '' && (
+                    <div key={variable.name} className="run-var-row">
+                      <label htmlFor={`run-var-${index}`}>{variable.name}</label>
+                      {isRequired && (values[variable.name] ?? variable.defaultValue ?? '').trim() === '' && (
                         <span className="run-var-required">{t('common.required')}</span>
                       )}
                       <div className="run-var-control">
@@ -71,21 +71,21 @@ export function RunConfigPanel({
                           id={`run-var-${index}`}
                           className="input"
                           value={effective}
-                          onChange={(e) => setValue(v.name, e.target.value)}
+                          onChange={(event) => setValue(variable.name, event.target.value)}
                           autoFocus={index === 0}
                         />
                         {!isDefault && (
                           <button
                             className="btn sm ghost"
                             title={t('runConfig.resetToDefault')}
-                            onClick={() => setValue(v.name, v.defaultValue ?? '')}
+                            onClick={() => setValue(variable.name, variable.defaultValue ?? '')}
                           >
                             <Icon name="rotate" size={10} />
                           </button>
                         )}
                       </div>
-                      {v.description && <div className="hint">{v.description}</div>}
-                      {isDefault && v.defaultValue && <div className="hint mono">{t('runConfig.defaultValue', { value: v.defaultValue })}</div>}
+                      {variable.description && <div className="hint">{variable.description}</div>}
+                      {isDefault && variable.defaultValue && <div className="hint mono">{t('runConfig.defaultValue', { value: variable.defaultValue })}</div>}
                     </div>
                   );
                 })}

@@ -21,14 +21,14 @@ export interface RunningSpecflowServer {
 export async function startSpecflowServer(
   options: SpecflowServerOptions = {},
 ): Promise<RunningSpecflowServer> {
-  const cwd = process.cwd();
-  await initWorkspace(cwd, { createIfMissing: true });
+  const workingDirectory = process.cwd();
+  await initWorkspace(workingDirectory, { createIfMissing: true });
 
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
   const mode = options.mode ?? defaultServerMode();
-  const skillStore = new SkillStore({ root: cwd });
-  const capabilityStore = new AgentServerStore({ root: cwd });
+  const skillStore = new SkillStore({ root: workingDirectory });
+  const capabilityStore = new AgentServerStore({ root: workingDirectory });
   const bridge = createSpecflowBridge({
     promptTransformer: async (prompt, context) => {
       // Skip the work if there are no `/` candidates at all — keeps the hot
@@ -47,7 +47,7 @@ export async function startSpecflowServer(
     },
   });
   const devUi = mode === "development" ? await createDevUiProxy() : undefined;
-  const handleApi = createApiHandler(bridge, cwd);
+  const handleApi = createApiHandler(bridge, workingDirectory);
 
   const server = startHttpServer({ bridge, devUi, host, preferredPort, handleApi });
 
@@ -81,7 +81,7 @@ interface HttpServerOptions {
   devUi?: Awaited<ReturnType<typeof createDevUiProxy>>;
   host: string;
   preferredPort: number;
-  handleApi: (req: Request) => Promise<Response | null>;
+  handleApi: (request: Request) => Promise<Response | null>;
 }
 
 function startHttpServer({ bridge, devUi, host, preferredPort, handleApi }: HttpServerOptions) {

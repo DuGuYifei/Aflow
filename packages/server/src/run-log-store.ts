@@ -64,14 +64,14 @@ export async function appendRunLogEvent(root: string, event: RunLogEvent): Promi
 }
 
 export async function listRunLogEvents(root: string, runId: string): Promise<RunLogEvent[]> {
-  let raw: string;
+  let rawValue: string;
   try {
-    raw = await readFile(runLogPath(root, runId), "utf8");
+    rawValue = await readFile(runLogPath(root, runId), "utf8");
   } catch {
     return [];
   }
   const events: RunLogEvent[] = [];
-  for (const line of raw.split(/\r?\n/)) {
+  for (const line of rawValue.split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
       events.push(JSON.parse(line) as RunLogEvent);
@@ -103,16 +103,16 @@ export async function listRunLogEventsRange(
   runId: string,
   options: { from?: number; to?: number; tail?: number } = {},
 ): Promise<RunLogEventPage> {
-  const all = await listRunLogEvents(root, runId);
-  const total = all.length;
+  const events = await listRunLogEvents(root, runId);
+  const total = events.length;
   if (typeof options.tail === "number" && options.tail > 0) {
     const startIndex = Math.max(0, total - options.tail);
-    return { events: all.slice(startIndex), total, startIndex };
+    return { events: events.slice(startIndex), total, startIndex };
   }
   const from = Math.max(0, options.from ?? 0);
-  const to = Math.min(total, options.to ?? total);
-  if (to <= from) return { events: [], total, startIndex: from };
-  return { events: all.slice(from, to), total, startIndex: from };
+  const toSequence = Math.min(total, options.to ?? total);
+  if (toSequence <= from) return { events: [], total, startIndex: from };
+  return { events: events.slice(from, toSequence), total, startIndex: from };
 }
 
 export async function deleteRunLog(root: string, runId: string): Promise<void> {

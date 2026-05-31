@@ -15,14 +15,14 @@ interface TerminalSurfaceProps {
 
 export const TerminalSurface = forwardRef<TerminalSurfaceHandle, TerminalSurfaceProps>(function TerminalSurface(
   { onData, onResize },
-  ref,
+  reference,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const pendingInputRef = useRef('');
   const inputTimerRef = useRef<number | undefined>(undefined);
 
-  useImperativeHandle(ref, () => ({
+  useImperativeHandle(reference, () => ({
     write(data: string) {
       terminalRef.current?.write(data);
     },
@@ -66,7 +66,7 @@ export const TerminalSurface = forwardRef<TerminalSurfaceHandle, TerminalSurface
       }
     });
 
-    const fit = () => {
+    const fitTerminal = () => {
       try {
         fitAddon.fit();
         onResize?.(terminal.cols, terminal.rows);
@@ -75,10 +75,10 @@ export const TerminalSurface = forwardRef<TerminalSurfaceHandle, TerminalSurface
       }
     };
 
-    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : undefined;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fitTerminal) : undefined;
     resizeObserver?.observe(host);
     window.setTimeout(() => {
-      fit();
+      fitTerminal();
       terminal.focus();
     }, 0);
 

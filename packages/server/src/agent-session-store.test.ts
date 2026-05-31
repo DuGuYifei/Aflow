@@ -32,7 +32,7 @@ describe("agent session store", () => {
       runIds: ["run1"],
       invocationIds: ["inv1", "inv2"],
     });
-    expect(savedRun.agentSessions[0]?.invocations.map((ref) => ref.nodeId)).toEqual(["n1", "n2"]);
+    expect(savedRun.agentSessions[0]?.invocations.map((reference) => reference.nodeId)).toEqual(["n1", "n2"]);
     expect(savedRun.agentSessions[0]?.restoreAttempts).toEqual([]);
   });
 
@@ -149,15 +149,15 @@ function sampleRun(
     supportsResume?: boolean;
   } = {},
 ): RunRecord {
-  const doc = sampleCanvas();
-  const { agentflow, layout } = splitCanvasDoc(doc);
+  const canvasDocument = sampleCanvas();
+  const { agentflow, layout } = splitCanvasDoc(canvasDocument);
   const invocationIds = options.invocationIds ?? ["inv1", "inv2"];
   const startedAt = "2026-05-19T10:00:00.000Z";
   const completedAt = options.completedAt ?? "2026-05-19T10:02:00.000Z";
 
   return {
     id,
-    workflowId: doc.id,
+    workflowId: canvasDocument.id,
     label: "Run",
     status: "success",
     startedAt,

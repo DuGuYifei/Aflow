@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, AgentFlowStepNode } from "./canvas-doc";
 
-const doc: AgentFlowDoc = {
+const canvasDocument: AgentFlowDoc = {
   id: "simple",
   name: "Simple",
   sessions: [{ id: "s1", name: "codex", agentServerId: "codex-acp" }],
@@ -29,13 +29,13 @@ const doc: AgentFlowDoc = {
 
 describe("prepareCanvasRun", () => {
   it("reports missing input nodes without defaults", () => {
-    const prepared = prepareCanvasRun(doc);
-    expect(prepared.missingVariables.map((v) => v.name)).toEqual(["specflow_value"]);
+    const prepared = prepareCanvasRun(canvasDocument);
+    expect(prepared.missingVariables.map((variable) => variable.name)).toEqual(["specflow_value"]);
     expect(findStep(prepared.doc, "n1").prompt).toBe("1 +  = ?");
   });
 
   it("substitutes provided variable values into step prompts", () => {
-    const prepared = prepareCanvasRun(doc, { variableValues: { specflow_value: "1" } });
+    const prepared = prepareCanvasRun(canvasDocument, { variableValues: { specflow_value: "1" } });
     expect(prepared.missingVariables).toHaveLength(0);
     expect(prepared.variables[0]).toMatchObject({
       name: "specflow_value",
@@ -47,14 +47,14 @@ describe("prepareCanvasRun", () => {
   });
 
   it("treats empty overrides as missing", () => {
-    const prepared = prepareCanvasRun(doc, { variableValues: { specflow_value: "" } });
-    expect(prepared.missingVariables.map((v) => v.name)).toEqual(["specflow_value"]);
+    const prepared = prepareCanvasRun(canvasDocument, { variableValues: { specflow_value: "" } });
+    expect(prepared.missingVariables.map((variable) => variable.name)).toEqual(["specflow_value"]);
   });
 
   it("allows optional inputs to stay empty", () => {
     const prepared = prepareCanvasRun({
-      ...doc,
-      nodes: doc.nodes.map((node) => (
+      ...canvasDocument,
+      nodes: canvasDocument.nodes.map((node) => (
         node.kind === "input" ? { ...node, required: false } : node
       )),
     });
@@ -69,7 +69,7 @@ describe("prepareCanvasRun", () => {
 });
 
 function findStep(input: AgentFlowDoc, id: string): AgentFlowStepNode {
-  const node = input.nodes.find((n): n is AgentFlowStepNode => n.kind === "step" && n.id === id);
+  const node = input.nodes.find((node): node is AgentFlowStepNode => node.kind === "step" && node.id === id);
   if (!node) throw new Error(`Missing step ${id}`);
   return node;
 }

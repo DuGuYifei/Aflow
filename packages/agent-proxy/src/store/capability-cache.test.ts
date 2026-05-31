@@ -70,13 +70,13 @@ describe("AgentServerStore capability cache", () => {
     const store = new AgentServerStore({ root });
     await store.setCapabilities("claude-acp", snapshot);
     const entriesValid = await store.listAgentServers();
-    expect(entriesValid.find((e) => e.id === "claude-acp")?.capabilities).toBeDefined();
+    expect(entriesValid.find((entry) => entry.id === "claude-acp")?.capabilities).toBeDefined();
 
     await writeFile(
       join(root, ".aflow/.specflow", "agent-servers.json"),
       JSON.stringify({ agentServers: { "claude-acp": { type: "registry", registryId: "claude-code", installedVersion: "9.9.9" } } }),
     );
     const entriesStale = await new AgentServerStore({ root }).listAgentServers();
-    expect(entriesStale.find((e) => e.id === "claude-acp")?.capabilities).toBeUndefined();
+    expect(entriesStale.find((entry) => entry.id === "claude-acp")?.capabilities).toBeUndefined();
   });
 });

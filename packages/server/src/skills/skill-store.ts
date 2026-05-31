@@ -63,20 +63,20 @@ export class SkillStore {
    * the first match in a straight `.find` is already the winner.
    */
   async list(): Promise<Skill[]> {
-    const all = [
+    const loadedSkills = [
       ...(await loadDir(this.#globalDir, "global")),
       ...(await loadDir(this.#projectDir, "projectLocal")),
     ];
-    return all.sort((a, b) => {
+    return loadedSkills.sort((a, b) => {
       if (a.name !== b.name) return a.name.localeCompare(b.name);
       return sourcePrecedence(b.source) - sourcePrecedence(a.source);
     });
   }
 
-  async find(name: string, opts?: { source?: SkillSource }): Promise<Skill | undefined> {
-    const all = await this.list();
-    if (opts?.source) return all.find((s) => s.name === name && s.source === opts.source);
-    return pickSkillPrecedence(all.filter((s) => s.name === name));
+  async find(name: string, options?: { source?: SkillSource }): Promise<Skill | undefined> {
+    const skills = await this.list();
+    if (options?.source) return skills.find((skill) => skill.name === name && skill.source === options.source);
+    return pickSkillPrecedence(skills.filter((skill) => skill.name === name));
   }
 }
 
@@ -93,17 +93,17 @@ export function pickSkillPrecedence(candidates: Skill[]): Skill | undefined {
   }, undefined);
 }
 
-async function loadDir(dir: string, source: SkillSource): Promise<Skill[]> {
+async function loadDir(directory: string, source: SkillSource): Promise<Skill[]> {
   let entries: string[];
   try {
-    entries = await readdir(dir);
+    entries = await readdir(directory);
   } catch (error) {
     if ((error as { code?: string }).code === "ENOENT") return [];
     throw error;
   }
   const skills: Skill[] = [];
   for (const name of entries) {
-    const filePath = join(dir, name, "SKILL.md");
+    const filePath = join(directory, name, "SKILL.md");
     try {
       const info = await stat(filePath);
       if (!info.isFile()) continue;
@@ -112,8 +112,8 @@ async function loadDir(dir: string, source: SkillSource): Promise<Skill[]> {
       // non-directory in `.agents/skills/`. Either way it isn't a skill.
       continue;
     }
-    const raw = await readFile(filePath, "utf8");
-    const parsed = parseSkillFile(raw, name, filePath);
+    const rawValue = await readFile(filePath, "utf8");
+    const parsed = parseSkillFile(rawValue, name, filePath);
     if (parsed) skills.push({ ...parsed, source });
   }
   return skills;
@@ -125,8 +125,8 @@ async function loadDir(dir: string, source: SkillSource): Promise<Skill[]> {
  * without frontmatter fall back to the directory name + empty description so
  * we still get something useful.
  */
-function parseSkillFile(raw: string, dirName: string, filePath: string): Omit<Skill, "source"> | undefined {
-  const trimmed = raw.replace(/^﻿/, "");
+function parseSkillFile(rawValue: string, dirName: string, filePath: string): Omit<Skill, "source"> | undefined {
+  const trimmed = rawValue.replace(/^﻿/, "");
   const match = trimmed.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (!match) {
     // No frontmatter — the directory name is the skill name and the whole
@@ -140,9 +140,9 @@ function parseSkillFile(raw: string, dirName: string, filePath: string): Omit<Sk
     return undefined;
   }
   if (!front || typeof front !== "object") return undefined;
-  const obj = front as Record<string, unknown>;
-  const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : dirName;
-  const description = typeof obj.description === "string" ? obj.description : "";
+  const frontmatter = front as Record<string, unknown>;
+  const name = typeof frontmatter.name === "string" && frontmatter.name.trim() ? frontmatter.name.trim() : dirName;
+  const description = typeof frontmatter.description === "string" ? frontmatter.description : "";
   const body = trimmed.slice(match[0].length).trim();
   return { name, description, body, filePath };
 }

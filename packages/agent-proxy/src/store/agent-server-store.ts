@@ -120,8 +120,8 @@ export class AgentServerStore {
     if (this.#capabilities) return;
     this.#capabilities = new Map();
     try {
-      const raw = await readFile(this.#capabilitiesFile, "utf8");
-      const parsed = JSON.parse(raw) as CapabilitiesCacheFile;
+      const rawValue = await readFile(this.#capabilitiesFile, "utf8");
+      const parsed = JSON.parse(rawValue) as CapabilitiesCacheFile;
       for (const [id, entry] of Object.entries(parsed.capabilities ?? {})) {
         if (!entry || typeof entry !== "object") continue;
         // Trust on-disk shape; this file is owned by the proxy and isn't user-edited.
@@ -180,8 +180,8 @@ async function readConfig(path: string): Promise<Record<string, unknown>> {
 }
 
 function configEntries(config: Record<string, unknown>): Record<string, unknown> {
-  const raw = config.agentServers ?? config.agent_servers;
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const rawValue = config.agentServers ?? config.agent_servers;
+  return rawValue && typeof rawValue === "object" && !Array.isArray(rawValue) ? rawValue as Record<string, unknown> : {};
 }
 
 function mergeConfigEntries(
@@ -211,47 +211,47 @@ function mergeSettings(base: unknown, local: unknown): unknown {
 
 function normalizeSettings(value: unknown): AgentServerSettings | undefined {
   if (!isPlainObject(value)) return undefined;
-  const raw = value as CommonRawSettings;
-  const env = recordOfStrings(raw.env);
-  const cwd = stringValue(raw.cwd);
-  const additionalDirectories = arrayOfStrings(raw.additionalDirectories ?? raw.additional_directories);
+  const rawValue = value as CommonRawSettings;
+  const environment = recordOfStrings(rawValue.env);
+  const workingDirectory = stringValue(rawValue.cwd);
+  const additionalDirectories = arrayOfStrings(rawValue.additionalDirectories ?? rawValue.additional_directories);
 
-  if (raw.type === "registry") {
-    const registryId = stringValue(raw.registryId ?? raw.registry_id);
+  if (rawValue.type === "registry") {
+    const registryId = stringValue(rawValue.registryId ?? rawValue.registry_id);
     if (!registryId) return undefined;
     return {
       type: "registry",
       registryId,
-      installedVersion: stringValue(raw.installedVersion ?? raw.installed_version),
-      cwd,
-      env,
+      installedVersion: stringValue(rawValue.installedVersion ?? rawValue.installed_version),
+      cwd: workingDirectory,
+      env: environment,
       additionalDirectories,
     };
   }
 
-  if (raw.type === "custom") {
-    const command = stringValue(raw.command);
+  if (rawValue.type === "custom") {
+    const command = stringValue(rawValue.command);
     if (!command) return undefined;
     return {
       type: "custom",
       command,
-      args: arrayOfStrings(raw.args),
-      cwd,
-      env,
+      args: arrayOfStrings(rawValue.args),
+      cwd: workingDirectory,
+      env: environment,
       additionalDirectories,
     };
   }
 
-  if (raw.type === "headless") {
-    const command = stringValue(raw.command);
+  if (rawValue.type === "headless") {
+    const command = stringValue(rawValue.command);
     if (!command) return undefined;
     return {
       type: "headless",
       command,
-      argsTemplate: arrayOfStrings(raw.argsTemplate ?? raw.args_template),
-      timeoutMs: numberValue(raw.timeoutMs ?? raw.timeout_ms),
-      cwd,
-      env,
+      argsTemplate: arrayOfStrings(rawValue.argsTemplate ?? rawValue.args_template),
+      timeoutMs: numberValue(rawValue.timeoutMs ?? rawValue.timeout_ms),
+      cwd: workingDirectory,
+      env: environment,
       additionalDirectories,
     };
   }

@@ -19,9 +19,9 @@ export { assertSymbolKey, edgeIdFromReferences } from "./agentflow-validation";
 export const AGENTFLOW_SOURCE_VERSION = 1;
 const SYMBOL_KEY = /^[a-z][a-z0-9-]*$/;
 
-export function parseAgentFlowSource(raw: string, workflowId: string): AgentFlowDoc {
+export function parseAgentFlowSource(rawValue: string, workflowId: string): AgentFlowDoc {
   assertSymbolKey(workflowId, "workflow filename");
-  const source = asRecord(parse(raw), "agentflow");
+  const source = asRecord(parse(rawValue), "agentflow");
   if (source.version !== AGENTFLOW_SOURCE_VERSION) {
     throw new Error(`Agentflow "${workflowId}" must declare version: ${AGENTFLOW_SOURCE_VERSION}.`);
   }
@@ -31,7 +31,7 @@ export function parseAgentFlowSource(raw: string, workflowId: string): AgentFlow
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = parseEdges(source.edges, nodes, nodeIds);
 
-  const doc = normalizeAgentFlowDraft({
+  const canvasDocument = normalizeAgentFlowDraft({
     id: workflowId,
     name: optionalString(source.name) ?? "",
     sessions,
@@ -39,12 +39,12 @@ export function parseAgentFlowSource(raw: string, workflowId: string): AgentFlow
     edges,
     variables: parseVariables(source.variables),
   });
-  assertValidAgentFlowDraft(doc);
-  return doc;
+  assertValidAgentFlowDraft(canvasDocument);
+  return canvasDocument;
 }
 
-export function stringifyAgentFlowSource(doc: AgentFlowDoc): string {
-  const normalized = normalizeAgentFlowDraft(doc);
+export function stringifyAgentFlowSource(canvasDocument: AgentFlowDoc): string {
+  const normalized = normalizeAgentFlowDraft(canvasDocument);
   assertValidAgentFlowDraft(normalized);
 
   return stringify({
@@ -73,8 +73,8 @@ export function keyFromLabel(label: string, fallback: string): string {
   return SYMBOL_KEY.test(key) ? key : fallback;
 }
 
-function parseSessions(raw: Record<string, unknown>): CanvasSession[] {
-  return Object.entries(raw).map(([id, input]) => {
+function parseSessions(rawValue: Record<string, unknown>): CanvasSession[] {
+  return Object.entries(rawValue).map(([id, input]) => {
     assertSymbolKey(id, "session key");
     const session = asRecord(input, `session "${id}"`);
     return {
@@ -111,8 +111,8 @@ function assertMcpServersString(value: string, sessionId: string): string {
   return value;
 }
 
-function parseNodes(raw: Record<string, unknown>): AgentFlowNode[] {
-  return Object.entries(raw).map(([id, input]) => {
+function parseNodes(rawValue: Record<string, unknown>): AgentFlowNode[] {
+  return Object.entries(rawValue).map(([id, input]) => {
     assertSymbolKey(id, "node key");
     const node = asRecord(input, `node "${id}"`);
     const kind = requireString(node.kind, `node "${id}".kind`);
@@ -179,8 +179,8 @@ function parseNodes(raw: Record<string, unknown>): AgentFlowNode[] {
   });
 }
 
-function parseBranches(raw: Record<string, unknown>, nodeId: string): CanvasBranch[] {
-  const branches = Object.entries(raw).map(([id, input]) => {
+function parseBranches(rawValue: Record<string, unknown>, nodeId: string): CanvasBranch[] {
+  const branches = Object.entries(rawValue).map(([id, input]) => {
     assertSymbolKey(id, `node "${nodeId}" branch key`);
     const branch = input == null ? {} : asRecord(input, `node "${nodeId}" branch "${id}"`);
     return {
@@ -192,8 +192,8 @@ function parseBranches(raw: Record<string, unknown>, nodeId: string): CanvasBran
   return branches;
 }
 
-function parseEdges(raw: unknown, nodes: AgentFlowNode[], nodeIds: Set<string>): CanvasEdge[] {
-  if (!Array.isArray(raw)) throw new Error("edges must be an array.");
+function parseEdges(rawValue: unknown, nodes: AgentFlowNode[], nodeIds: Set<string>): CanvasEdge[] {
+  if (!Array.isArray(rawValue)) throw new Error("edges must be an array.");
   const branchesByGate = new Map(
     nodes
       .filter((node) => node.kind === "gate")
@@ -201,20 +201,20 @@ function parseEdges(raw: unknown, nodes: AgentFlowNode[], nodeIds: Set<string>):
   );
   const edgeIds = new Set<string>();
 
-  return raw.map((input, index) => {
+  return rawValue.map((input, index) => {
     const edge = asRecord(input, `edges[${index}]`);
     const from = requireString(edge.from, `edges[${index}].from`);
-    const to = requireString(edge.to, `edges[${index}].to`);
+    const targetNodeId = requireString(edge.to, `edges[${index}].to`);
     if (!nodeIds.has(from)) throw new Error(`Edge references missing source node "${from}".`);
-    if (!nodeIds.has(to)) throw new Error(`Edge references missing target node "${to}".`);
+    if (!nodeIds.has(targetNodeId)) throw new Error(`Edge references missing target node "${targetNodeId}".`);
     const branch = optionalString(edge.branch);
     if (branch && !branchesByGate.get(from)?.has(branch)) {
       throw new Error(`Edge from "${from}" references missing branch "${branch}".`);
     }
     const parsed: CanvasEdge = {
-      id: edgeIdFromReferences({ from, to, branch }),
+      id: edgeIdFromReferences({ from, to: targetNodeId, branch }),
       from,
-      to,
+      to: targetNodeId,
       ...(edge.transmit === true ? { transmit: true } : {}),
       ...(optionalString(edge.outputTag) ? { outputTag: optionalString(edge.outputTag)! } : {}),
       ...(optionalString(edge.handoffPrompt) ? { handoffPrompt: optionalString(edge.handoffPrompt)! } : {}),
@@ -278,8 +278,8 @@ function serializeNode(node: AgentFlowNode): Record<string, unknown> {
   });
 }
 
-function parseImages(raw: unknown[], nodeId: string): Array<{ path: string; label?: string; mimeType?: string }> {
-  return raw.map((input, index) => {
+function parseImages(rawValue: unknown[], nodeId: string): Array<{ path: string; label?: string; mimeType?: string }> {
+  return rawValue.map((input, index) => {
     const image = asRecord(input, `node "${nodeId}".images[${index}]`);
     return compact({
       path: requireString(image.path, `node "${nodeId}".images[${index}].path`),
@@ -289,31 +289,31 @@ function parseImages(raw: unknown[], nodeId: string): Array<{ path: string; labe
   });
 }
 
-function parsePaths(raw: unknown[], nodeId: string): string[] {
-  return raw.map((input, index) => requireString(input, `node "${nodeId}".paths[${index}]`));
+function parsePaths(rawValue: unknown[], nodeId: string): string[] {
+  return rawValue.map((input, index) => requireString(input, `node "${nodeId}".paths[${index}]`));
 }
 
-function parseConfigOptions(raw: unknown, nodeId: string): Record<string, string | boolean> | undefined {
-  if (raw === undefined || raw === null) return undefined;
-  if (typeof raw !== "object" || Array.isArray(raw)) {
+function parseConfigOptions(rawValue: unknown, nodeId: string): Record<string, string | boolean> | undefined {
+  if (rawValue === undefined || rawValue === null) return undefined;
+  if (typeof rawValue !== "object" || Array.isArray(rawValue)) {
     throw new Error(`node "${nodeId}".configOptions must be a key/value object.`);
   }
-  const entries = Object.entries(raw as Record<string, unknown>);
+  const entries = Object.entries(rawValue as Record<string, unknown>);
   if (entries.length === 0) return undefined;
-  const out: Record<string, string | boolean> = {};
+  const output: Record<string, string | boolean> = {};
   for (const [key, value] of entries) {
     if (typeof value !== "string" && typeof value !== "boolean") {
       throw new Error(`node "${nodeId}".configOptions["${key}"] must be a string or boolean.`);
     }
-    out[key] = value;
+    output[key] = value;
   }
-  return out;
+  return output;
 }
 
-function parseVariables(raw: unknown): CanvasVariable[] | undefined {
-  if (raw === undefined) return undefined;
-  if (!Array.isArray(raw)) throw new Error("variables must be an array.");
-  return raw.map((input, index) => {
+function parseVariables(rawValue: unknown): CanvasVariable[] | undefined {
+  if (rawValue === undefined) return undefined;
+  if (!Array.isArray(rawValue)) throw new Error("variables must be an array.");
+  return rawValue.map((input, index) => {
     const variable = asRecord(input, `variables[${index}]`);
     return compact({
       name: requireString(variable.name, `variables[${index}].name`),

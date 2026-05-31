@@ -46,10 +46,10 @@ async function downloadAndExtract(target: RegistryBinaryTarget, versionDir: stri
   const args = archivePath.endsWith(".zip")
     ? ["unzip", "-o", archivePath, "-d", versionDir]
     : ["tar", "-xf", archivePath, "-C", versionDir];
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
-  const exitCode = await proc.exited;
+  const processHandle = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+  const exitCode = await processHandle.exited;
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
+    const stderr = await new Response(processHandle.stderr).text();
     throw new Error(`Failed to extract registry agent archive: ${stderr}`);
   }
 }

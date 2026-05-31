@@ -44,11 +44,11 @@ describe("WorkflowExecutor", () => {
   });
 
   test("sends node images and related resources as ACP content blocks", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-prompt-blocks-"));
-    await writeFile(join(cwd, "screenshot.png"), new Uint8Array([1, 2, 3]));
-    await writeFile(join(cwd, "note.txt"), "hello text", "utf8");
-    await writeFile(join(cwd, "capture.wav"), new Uint8Array([4, 5, 6]));
-    await writeFile(join(cwd, "archive.bin"), new Uint8Array([7, 8, 9]));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-prompt-blocks-"));
+    await writeFile(join(workingDirectory, "screenshot.png"), new Uint8Array([1, 2, 3]));
+    await writeFile(join(workingDirectory, "note.txt"), "hello text", "utf8");
+    await writeFile(join(workingDirectory, "capture.wav"), new Uint8Array([4, 5, 6]));
+    await writeFile(join(workingDirectory, "archive.bin"), new Uint8Array([7, 8, 9]));
 
     let promptBlocks: AgentCommandRequest["promptBlocks"];
     const node = agentNode("source", "inspect <specflow_input>");
@@ -62,7 +62,7 @@ describe("WorkflowExecutor", () => {
     ];
 
     const executor = new WorkflowExecutor({
-      cwd,
+      cwd: workingDirectory,
       agentRunner: async (request) => {
         promptBlocks = request.promptBlocks;
         return { agentServerId: request.agentServerId, exitCode: 0, output: "done" };

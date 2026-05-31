@@ -8,11 +8,11 @@ import { AgentProxySessionPool } from "./session-pool";
 
 describe("AgentProxySessionPool", () => {
   it("uses one ACP process for multiple sessions and forks a parent session", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-pool-"));
-    const specflowDir = join(cwd, ".aflow/.specflow");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-pool-"));
+    const specflowDir = join(workingDirectory, ".aflow/.specflow");
     const fakeAgentPath = fileURLToPath(new URL("./runtimes/acp/test-fixtures/fake-agent.ts", import.meta.url));
     await mkdir(specflowDir, { recursive: true });
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
     await writeFile(join(specflowDir, "agent-servers.json"), JSON.stringify({
       agent_servers: {
         fake: {
@@ -24,13 +24,13 @@ describe("AgentProxySessionPool", () => {
       },
     }), "utf8");
 
-    const pool = new AgentProxySessionPool({ root: cwd });
+    const pool = new AgentProxySessionPool({ root: workingDirectory });
     const lifecycle: string[] = [];
     const onLifecycleEvent = (event: { type: string }) => lifecycle.push(event.type);
     try {
       const first = await pool.run({
         agentServerId: "fake",
-        cwd,
+        cwd: workingDirectory,
         workflowSessionId: "session-a",
         prompt: "first",
         onLifecycleEvent,
@@ -38,7 +38,7 @@ describe("AgentProxySessionPool", () => {
       });
       const second = await pool.run({
         agentServerId: "fake",
-        cwd,
+        cwd: workingDirectory,
         workflowSessionId: "session-a",
         prompt: "second",
         onLifecycleEvent,
@@ -46,7 +46,7 @@ describe("AgentProxySessionPool", () => {
       });
       const separate = await pool.run({
         agentServerId: "fake",
-        cwd,
+        cwd: workingDirectory,
         workflowSessionId: "session-b",
         prompt: "separate",
         onLifecycleEvent,
@@ -54,7 +54,7 @@ describe("AgentProxySessionPool", () => {
       });
       const forked = await pool.run({
         agentServerId: "fake",
-        cwd,
+        cwd: workingDirectory,
         workflowSessionId: "session-a-fork-01",
         forkFromWorkflowSessionId: "session-a",
         prompt: "fork",

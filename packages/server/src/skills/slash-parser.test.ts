@@ -35,7 +35,7 @@ describe("parsePromptSlashCommands", () => {
 
   test("captures multiple commands across lines", () => {
     const parsed = parsePromptSlashCommands("/first\nsome text\n/second arg");
-    expect(parsed.map((p) => (p.kind === "unqualified" ? p.name : ""))).toEqual(["first", "second"]);
+    expect(parsed.map((path) => (path.kind === "unqualified" ? path.name : ""))).toEqual(["first", "second"]);
   });
 
   test("range covers the whole command token", () => {

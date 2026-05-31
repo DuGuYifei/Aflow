@@ -57,8 +57,8 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
       ]);
       setServers(serverList);
       setRegistry(registryIndex.agents);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoadingRegistry(false);
     }
@@ -77,8 +77,8 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
       await inspectAuthIfNeeded(agent.id);
       onChanged?.();
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('');
       setBusyMessage('');
@@ -91,8 +91,8 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
       setServers(await removeAgentServer(id));
       onChanged?.();
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('');
     }
@@ -111,8 +111,8 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
       await inspectAuthIfNeeded(server.id);
       onChanged?.();
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('');
       setBusyMessage('');
@@ -142,8 +142,8 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
       await inspectAuthIfNeeded(id);
       onChanged?.();
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('');
     }
@@ -156,7 +156,7 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
 
   return (
     <div className="run-modal-overlay" onMouseDown={onClose}>
-      <div className="agent-server-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="agent-server-modal" onMouseDown={(event) => event.stopPropagation()}>
         <div className="run-modal-head">
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="label"><Icon name="settings" size={11} /> {t('agentServers.label')}</div>
@@ -240,12 +240,12 @@ export function AgentServerManager({ onClose, onChanged, onAuthRequired }: Agent
         {tab === 'custom' && (
           <div className="agent-server-custom">
             <div className="agent-server-form">
-              <input className="input" value={customId} onChange={(e) => setCustomId(e.target.value)} placeholder={t('agentServers.customId')} />
-              <input className="input" value={customCommand} onChange={(e) => setCustomCommand(e.target.value)} placeholder={t('agentServers.customCommand')} />
-              <input className="input" value={customArgs} onChange={(e) => setCustomArgs(e.target.value)} placeholder={t('agentServers.customArgs')} />
-              <input className="input" value={customCwd} onChange={(e) => setCustomCwd(e.target.value)} placeholder={t('agentServers.customCwd')} />
-              <textarea className="textarea code" value={customAdditionalDirs} onChange={(e) => setCustomAdditionalDirs(e.target.value)} placeholder={t('agentServers.customDirs')} rows={3} />
-              <textarea className="textarea code" value={customEnv} onChange={(e) => setCustomEnv(e.target.value)} placeholder={t('agentServers.customEnv')} rows={4} />
+              <input className="input" value={customId} onChange={(event) => setCustomId(event.target.value)} placeholder={t('agentServers.customId')} />
+              <input className="input" value={customCommand} onChange={(event) => setCustomCommand(event.target.value)} placeholder={t('agentServers.customCommand')} />
+              <input className="input" value={customArgs} onChange={(event) => setCustomArgs(event.target.value)} placeholder={t('agentServers.customArgs')} />
+              <input className="input" value={customCwd} onChange={(event) => setCustomCwd(event.target.value)} placeholder={t('agentServers.customCwd')} />
+              <textarea className="textarea code" value={customAdditionalDirs} onChange={(event) => setCustomAdditionalDirs(event.target.value)} placeholder={t('agentServers.customDirs')} rows={3} />
+              <textarea className="textarea code" value={customEnv} onChange={(event) => setCustomEnv(event.target.value)} placeholder={t('agentServers.customEnv')} rows={4} />
               <button className="btn primary" disabled={!customId.trim() || !customCommand.trim() || Boolean(busy)} onClick={saveCustom}>
                 <Icon name="check" size={12} />{t('agentServers.saveCustom')}
               </button>

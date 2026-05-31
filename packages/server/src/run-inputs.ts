@@ -18,7 +18,7 @@ export interface PreparedCanvasRun {
 }
 
 export function prepareCanvasRun(
-  doc: AgentFlowDoc,
+  canvasDocument: AgentFlowDoc,
   input: {
     initialInput?: string;
     variableValues?: Record<string, string>;
@@ -28,22 +28,22 @@ export function prepareCanvasRun(
   const variables: RunInputVariable[] = [];
   const effectiveValues: Record<string, string> = {};
 
-  for (const n of doc.nodes) {
-    if (n.kind !== "input") continue;
+  for (const node of canvasDocument.nodes) {
+    if (node.kind !== "input") continue;
 
-    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, n.variableName);
-    const overrideValue = overrides[n.variableName];
-    const value = hasOverride ? overrideValue : n.defaultValue ?? "";
-    const required = n.required !== false;
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, node.variableName);
+    const overrideValue = overrides[node.variableName];
+    const value = hasOverride ? overrideValue : node.defaultValue ?? "";
+    const required = node.required !== false;
     const isMissing = required && value.trim() === "";
     const source = isMissing ? "missing" : hasOverride ? "override" : "default";
 
-    effectiveValues[n.variableName] = value;
+    effectiveValues[node.variableName] = value;
     variables.push({
-      name: n.variableName,
+      name: node.variableName,
       required,
-      defaultValue: n.defaultValue,
-      description: n.description,
+      defaultValue: node.defaultValue,
+      description: node.description,
       value,
       source,
     });
@@ -57,17 +57,17 @@ export function prepareCanvasRun(
   const substitute = (s: string | undefined) =>
     s?.replace(tokenRx, (orig, key: string) => (key in effectiveValues ? effectiveValues[key] : orig));
 
-  const substitutedNodes = doc.nodes.map((n) => {
-    if (n.kind === "step") return { ...n, prompt: substitute(n.prompt) ?? "" };
-    if (n.kind === "gate") return { ...n, decisionCriteria: substitute(n.decisionCriteria) ?? "" };
-    return n;
+  const substitutedNodes = canvasDocument.nodes.map((node) => {
+    if (node.kind === "step") return { ...node, prompt: substitute(node.prompt) ?? "" };
+    if (node.kind === "gate") return { ...node, decisionCriteria: substitute(node.decisionCriteria) ?? "" };
+    return node;
   });
 
   return {
-    doc: { ...doc, nodes: substitutedNodes },
+    doc: { ...canvasDocument, nodes: substitutedNodes },
     initialInput: substitute(input.initialInput) ?? input.initialInput ?? "",
     variables,
     effectiveValues,
-    missingVariables: variables.filter((v) => v.source === "missing"),
+    missingVariables: variables.filter((variable) => variable.source === "missing"),
   };
 }

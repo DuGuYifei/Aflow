@@ -16,14 +16,14 @@ const fakeAgentPath = fileURLToPath(new URL("./test-fixtures/fake-agent.ts", imp
 
 describe("runAcpAgent", () => {
   it("runs an ACP subprocess through the official SDK and services client requests", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
     const terminalEvents: string[] = [];
     const lifecycleEvents: string[] = [];
 
     const result = await runAcpAgent(resolved(), {
       agentServerId: "fake-acp",
-      cwd,
+      cwd: workingDirectory,
       prompt: "hello",
       onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
       onTerminalEvent: (event) => terminalEvents.push(`${event.stream}:${event.chunk}`),
@@ -36,7 +36,7 @@ describe("runAcpAgent", () => {
     expect(result.output).toContain("file:file-content");
     expect(result.output).toContain("terminal:terminal-output");
     expect(result.output).toContain("permission:allow");
-    expect(await readFile(join(cwd, "out.txt"), "utf8")).toBe("written-by-agent");
+    expect(await readFile(join(workingDirectory, "out.txt"), "utf8")).toBe("written-by-agent");
     expect(terminalEvents.some((event) => event.includes("[acp:stop] end_turn"))).toBe(true);
     expect(lifecycleEvents).toEqual([
       "process_started",
@@ -60,15 +60,15 @@ describe("runAcpAgent", () => {
   });
 
   it("does not re-authenticate an already authorized agent that advertises methods", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
 
     const result = await runAcpAgent(resolved({
       authMethods: "agent",
       preauthorized: true,
     }), {
       agentServerId: "fake-acp",
-      cwd,
+      cwd: workingDirectory,
       prompt: "hello",
     });
 
@@ -78,8 +78,8 @@ describe("runAcpAgent", () => {
   });
 
   it("downgrades unsupported binary prompt blocks to resource links", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
     const promptBlocks: AgentRunRequest["promptBlocks"] = [
       { type: "text", text: "inspect" },
       {
@@ -106,7 +106,7 @@ describe("runAcpAgent", () => {
 
     const result = await runAcpAgent(resolved(), {
       agentServerId: "fake-acp",
-      cwd,
+      cwd: workingDirectory,
       prompt: "inspect",
       promptBlocks,
     });
@@ -116,12 +116,12 @@ describe("runAcpAgent", () => {
   });
 
   it("keeps binary prompt blocks when the agent advertises support", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
 
     const result = await runAcpAgent(resolved({ promptCapabilities: "image,audio,embeddedContext" }), {
       agentServerId: "fake-acp",
-      cwd,
+      cwd: workingDirectory,
       prompt: "inspect",
       promptBlocks: [
         { type: "text", text: "inspect" },
@@ -152,12 +152,12 @@ describe("runAcpAgent", () => {
   });
 
   it("applies advertised model config through setSessionConfigOption", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
 
     const result = await runAcpAgent(resolved({ env: { SPECFLOW_FAKE_ACP_CODEX_MODEL_CONFIG: "1" } }), {
       agentServerId: "fake-acp",
-      cwd,
+      cwd: workingDirectory,
       prompt: "hello",
       configOptions: { model: "gpt-5.5", reasoning: "high" },
       onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
@@ -169,12 +169,12 @@ describe("runAcpAgent", () => {
   });
 
   it("rejects config options that were not advertised by the agent", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-"));
-    await writeFile(join(cwd, "input.txt"), "file-content", "utf8");
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
 
     const result = await runAcpAgent(resolved(), {
       agentServerId: "fake-acp",
-      cwd,
+      cwd: workingDirectory,
       prompt: "hello",
       configOptions: { stale_key: "x" },
     });
@@ -270,8 +270,8 @@ describe("ACP auth inspection", () => {
   });
 
   it("reports env vars required by the agent and authenticates once they are configured", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-"));
-    const inspected = await inspectAcpAgentAuthentication(resolved({ authMethods: "env_var" }), cwd);
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-auth-"));
+    const inspected = await inspectAcpAgentAuthentication(resolved({ authMethods: "env_var" }), workingDirectory);
     expect(inspected).toEqual({
       agentServerId: "fake-acp",
       needsAuth: true,
@@ -286,7 +286,7 @@ describe("ACP auth inspection", () => {
 
     const authenticated = await authenticateAcpAgent(
       resolved({ authMethods: "env_var", env: { SPECFLOW_FAKE_TOKEN: "token" } }),
-      cwd,
+      workingDirectory,
       "env",
     );
     expect(authenticated.needsAuth).toBe(false);
@@ -294,12 +294,12 @@ describe("ACP auth inspection", () => {
   });
 
   it("uses ACP-native session probing for authentication status", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-claude-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-auth-claude-"));
 
-    const missing = await inspectAcpAgentAuthentication(resolvedClaude({ authMethods: "terminal" }), cwd);
+    const missing = await inspectAcpAgentAuthentication(resolvedClaude({ authMethods: "terminal" }), workingDirectory);
     const ready = await inspectAcpAgentAuthentication(
       resolvedClaude({ authMethods: "terminal", preauthorized: true }),
-      cwd,
+      workingDirectory,
     );
 
     expect(missing.needsAuth).toBe(true);
@@ -307,12 +307,12 @@ describe("ACP auth inspection", () => {
   });
 
   it("resolves terminal authentication as a reusable terminal task", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-terminal-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-auth-terminal-"));
     const task = await resolveAcpTerminalAuthTask(
       resolvedClaude({
         authMethods: "terminal",
         preauthorized: true,
-        commandCwd: cwd,
+        commandCwd: workingDirectory,
       }),
       await mkdtemp(join(tmpdir(), "specflow-acp-auth-terminal-root-")),
       "terminal",
@@ -320,18 +320,18 @@ describe("ACP auth inspection", () => {
 
     expect(task?.command).toBe("bun");
     expect(task?.args).toEqual([fakeAgentPath, "--fake-auth"]);
-    expect(task?.cwd).toBe(cwd);
+    expect(task?.cwd).toBe(workingDirectory);
   });
 
   it("only applies the Gemini terminal shim when official auth methods are absent", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "specflow-acp-auth-gemini-"));
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-auth-gemini-"));
     const official = await inspectAcpAgentAuthentication(
       resolvedGemini({ authMethods: "env_var" }),
-      cwd,
+      workingDirectory,
     );
     const shim = await resolveAcpTerminalAuthTask(
       resolvedGemini(),
-      cwd,
+      workingDirectory,
       "spawn-gemini-cli",
     );
 

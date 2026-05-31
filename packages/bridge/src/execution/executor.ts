@@ -480,13 +480,13 @@ export class WorkflowExecutor {
   }): NodeExecutionResult {
     // Record a synthetic nodeRun so downstream consumers (saveRun, logs) see
     // the resumed node in the same shape as a freshly-executed one.
-    const at = new Date().toISOString();
+    const occurredAt = new Date().toISOString();
     input.run.nodeRuns.push({
       id: uuidv7(),
       nodeId: input.node.id,
       status: "done",
-      startedAt: at,
-      completedAt: at,
+      startedAt: occurredAt,
+      completedAt: occurredAt,
       output: input.output,
       ...(input.chosenBranchId ? { gateDecision: { branchId: input.chosenBranchId } } : {}),
     });
@@ -494,13 +494,13 @@ export class WorkflowExecutor {
       runId: input.run.id,
       nodeId: input.node.id,
       status: "running",
-      at,
+      at: occurredAt,
     });
     this.#onNodeStatus?.({
       runId: input.run.id,
       nodeId: input.node.id,
       status: "done",
-      at,
+      at: occurredAt,
       output: input.output,
       ...(input.chosenBranchId ? { gateDecision: { branchId: input.chosenBranchId } } : {}),
     });
@@ -1033,13 +1033,13 @@ function gateBranchStatuses(node: Extract<WorkflowNode, { kind: "gate" }>, trave
  * where the YAML was bypassed (programmatic Workflow construction).
  */
 function parseMcpServersField(
-  raw: string | undefined,
+  rawValue: string | undefined,
   sessionId: string,
 ): AgentCommandRequest["mcpServers"] {
-  if (!raw || !raw.trim()) return undefined;
+  if (!rawValue || !rawValue.trim()) return undefined;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(rawValue);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Session "${sessionId}" has invalid mcpServers JSON: ${detail}`);

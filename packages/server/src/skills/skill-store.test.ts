@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { SkillStore } from "./skill-store";
 
-async function writeSkill(dir: string, name: string, frontmatter: string, body: string): Promise<void> {
-  const skillDir = join(dir, name);
+async function writeSkill(directory: string, name: string, frontmatter: string, body: string): Promise<void> {
+  const skillDir = join(directory, name);
   await mkdir(skillDir, { recursive: true });
   await writeFile(join(skillDir, "SKILL.md"), `---\n${frontmatter}\n---\n\n${body}\n`);
 }
@@ -19,7 +19,7 @@ describe("SkillStore", () => {
 
     const store = new SkillStore({ root: "/unused", globalDir, projectDir });
     const skills = await store.list();
-    const byName = Object.fromEntries(skills.map((s) => [s.name, s]));
+    const byName = Object.fromEntries(skills.map((skill) => [skill.name, skill]));
     expect(byName.intro).toMatchObject({ source: "global", description: "A global skill", body: "Global intro body." });
     expect(byName.reviewer).toMatchObject({ source: "projectLocal", body: "Review carefully." });
   });

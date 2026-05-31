@@ -1,8 +1,8 @@
 import type { Edge, WorkflowNode } from './types';
 import { closesGateControlledCycle, normalizeTransferConfiguration, resolveTransferSource, wouldCreateExecutedCycle } from './edge-semantics';
 
-declare function describe(name: string, fn: () => void): void;
-declare function test(name: string, fn: () => void): void;
+declare function describe(name: string, callback: () => void): void;
+declare function test(name: string, callback: () => void): void;
 declare const expect: (value: unknown) => {
   toBe(expected: unknown): void;
   toEqual(expected: unknown): void;

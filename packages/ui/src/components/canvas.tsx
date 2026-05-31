@@ -8,24 +8,24 @@ import { useI18n } from '../i18n';
 
 // ── geometry ──────────────────────────────────────────────────────────────────
 
-function nodeAnchorOut(n: WorkflowNode, branch?: string): { x: number; y: number } {
-  if (n.kind === 'gate') {
-    const branches = n.branches;
-    const i = branches.findIndex((b) => b.id === branch);
-    const h = 110;
+function nodeAnchorOut(node: WorkflowNode, branchId?: string): { x: number; y: number } {
+  if (node.kind === 'gate') {
+    const branches = node.branches;
+    const branchIndex = branches.findIndex((branch) => branch.id === branchId);
+    const height = 110;
     const total = branches.length + 1;
-    const t = (i + 1) / (total + 1);
-    return { x: n.x + n.w, y: n.y + h * t };
+    const positionRatio = (branchIndex + 1) / (total + 1);
+    return { x: node.x + node.w, y: node.y + height * positionRatio };
   }
-  if (n.kind === 'input') return { x: n.x + (n.w || 200), y: n.y + 36 };
-  return { x: n.x + (n.w || 220), y: n.y + 60 };
+  if (node.kind === 'input') return { x: node.x + (node.w || 200), y: node.y + 36 };
+  return { x: node.x + (node.w || 220), y: node.y + 60 };
 }
 
-function nodeAnchorIn(n: WorkflowNode): { x: number; y: number } {
-  if (n.kind === 'gate') return { x: n.x, y: n.y + 110 / 2 };
-  if (n.kind === 'end')  return { x: n.x - 2, y: n.y + 18 };
-  if (n.kind === 'input') return { x: n.x, y: n.y + 36 }; // should not happen; InputNode has no input
-  return { x: n.x, y: n.y + 60 };
+function nodeAnchorIn(node: WorkflowNode): { x: number; y: number } {
+  if (node.kind === 'gate') return { x: node.x, y: node.y + 110 / 2 };
+  if (node.kind === 'end')  return { x: node.x - 2, y: node.y + 18 };
+  if (node.kind === 'input') return { x: node.x, y: node.y + 36 }; // should not happen; InputNode has no input
+  return { x: node.x, y: node.y + 60 };
 }
 
 function edgePath(from: { x: number; y: number }, to: { x: number; y: number }, loopback?: boolean): string {
@@ -33,8 +33,8 @@ function edgePath(from: { x: number; y: number }, to: { x: number; y: number }, 
     const top = Math.min(from.y, to.y) - 50;
     return `M ${from.x} ${from.y} C ${from.x + 60} ${from.y}, ${from.x + 80} ${top}, ${from.x + 30} ${top} L ${to.x - 30} ${top} C ${to.x - 80} ${top}, ${to.x - 60} ${to.y}, ${to.x} ${to.y}`;
   }
-  const dx = Math.max(40, Math.abs(to.x - from.x) * 0.45);
-  return `M ${from.x} ${from.y} C ${from.x + dx} ${from.y}, ${to.x - dx} ${to.y}, ${to.x} ${to.y}`;
+  const deltaX = Math.max(40, Math.abs(to.x - from.x) * 0.45);
+  return `M ${from.x} ${from.y} C ${from.x + deltaX} ${from.y}, ${to.x - deltaX} ${to.y}, ${to.x} ${to.y}`;
 }
 
 function edgeMid(from: { x: number; y: number }, to: { x: number; y: number }, loopback?: boolean): { x: number; y: number } {
@@ -53,13 +53,13 @@ export function calculateCanvasFit(nodes: WorkflowNode[], viewport: { width: num
   if (nodes.length === 0 || viewport.width <= 0 || viewport.height <= 0) return null;
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const n of nodes) {
-    const w = n.w || 220;
-    const h = NODE_H[n.kind] ?? 120;
-    minX = Math.min(minX, n.x);
-    minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + w);
-    maxY = Math.max(maxY, n.y + h);
+  for (const node of nodes) {
+    const width = node.w || 220;
+    const height = NODE_H[node.kind] ?? 120;
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + width);
+    maxY = Math.max(maxY, node.y + height);
   }
 
   const leftAnchor = 96;
@@ -88,36 +88,36 @@ export function calculateCanvasFit(nodes: WorkflowNode[], viewport: { width: num
 // ── node cards ────────────────────────────────────────────────────────────────
 
 interface StepCardProps {
-  n: Extract<WorkflowNode, { kind: 'step' }>;
+  node: Extract<WorkflowNode, { kind: 'step' }>;
   session: Session | undefined;
   selected: boolean;
   runState: string | undefined;
-  onMouseDown: (e: React.MouseEvent, id: string) => void;
+  onMouseDown: (element: React.MouseEvent, id: string) => void;
   onSelect: (id: string) => void;
   onContinue?: () => void;
 }
 
-function StepCard({ n, session, selected, runState, onMouseDown, onSelect, onContinue }: StepCardProps) {
+function StepCard({ node, session, selected, runState, onMouseDown, onSelect, onContinue }: StepCardProps) {
   const { t } = useI18n();
-  const cls = ['node'];
-  if (selected)               cls.push('selected');
-  if (runState === 'running') cls.push('running');
-  if (runState === 'paused')  cls.push('paused');
-  if (runState === 'success') cls.push('success');
-  if (runState === 'error')   cls.push('error');
-  if (n.locked)               cls.push('locked');
+  const classNames = ['node'];
+  if (selected)               classNames.push('selected');
+  if (runState === 'running') classNames.push('running');
+  if (runState === 'paused')  classNames.push('paused');
+  if (runState === 'success') classNames.push('success');
+  if (runState === 'error')   classNames.push('error');
+  if (node.locked)            classNames.push('locked');
 
   return (
     <div
-      className={cls.join(' ')}
-      data-session={n.sessionId || ''}
-      style={{ left: n.x, top: n.y, width: n.w, '--session-color': session ? sessionAccent(session) : 'var(--ink-3)' } as React.CSSProperties}
-      onMouseDown={(e) => onMouseDown(e, n.id)}
-      onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
+      className={classNames.join(' ')}
+      data-session={node.sessionId || ''}
+      style={{ left: node.x, top: node.y, width: node.w, '--session-color': session ? sessionAccent(session) : 'var(--ink-3)' } as React.CSSProperties}
+      onMouseDown={(event) => onMouseDown(event, node.id)}
+      onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}
     >
       <div className="node-head">
-        <span className="node-id">{n.alias}</span>
-        {n.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
+        <span className="node-id">{node.alias}</span>
+        {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
         <span className="node-state-icon">
           {runState === 'running' && <><Icon name="loader" size={11} style={{ animation: 'spin 1.4s linear infinite' }} />{t('canvas.running')}</>}
           {runState === 'paused'  && <><span style={{ color: 'var(--warn)' }}>{t('canvas.paused')}</span><button className="btn sm primary node-continue" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onContinue?.(); }}>{t('canvas.continue')}</button></>}
@@ -126,144 +126,145 @@ function StepCard({ n, session, selected, runState, onMouseDown, onSelect, onCon
           {runState === 'pending' && <span style={{ color: 'var(--ink-3)' }}>{t('canvas.queued')}</span>}
         </span>
       </div>
-      <h3 className="node-title">{n.title}</h3>
-      <p className="node-desc">{n.prompt}</p>
+      <h3 className="node-title">{node.title}</h3>
+      <p className="node-desc">{node.prompt}</p>
       <div className="node-meta">
-        {(n.images || []).map((a, i) => (
-          <span className="chip attach" key={i}><Icon name="attachment-img" size={10} />{a.label ?? a.path}</span>
+        {(node.images || []).map((attachment, index) => (
+          <span className="chip attach" key={index}><Icon name="attachment-img" size={10} />{attachment.label ?? attachment.path}</span>
         ))}
-        {(n.paths || []).map((p, i) => (
-          <span className="chip path" key={i}>
-            <Icon name={p.endsWith('/') ? 'folder' : 'file'} size={10} />{p}
+        {(node.paths || []).map((path, index) => (
+          <span className="chip path" key={index}>
+            <Icon name={path.endsWith('/') ? 'folder' : 'file'} size={10} />{path}
           </span>
         ))}
       </div>
-      <div className="port in"  data-port="in"  data-node={n.id} />
-      <div className="port out" data-port="out" data-node={n.id} />
+      <div className="port in"  data-port="in"  data-node={node.id} />
+      <div className="port out" data-port="out" data-node={node.id} />
     </div>
   );
 }
 
 interface GateCardProps {
-  n: GateNode;
+  node: GateNode;
   selected: boolean;
   runState: string | undefined;
-  onMouseDown: (e: React.MouseEvent, id: string) => void;
+  onMouseDown: (element: React.MouseEvent, id: string) => void;
   onSelect: (id: string) => void;
   onAddBranch: (gateId: string) => void;
 }
 
-function GateCard({ n, selected, runState, onMouseDown, onSelect, onAddBranch }: GateCardProps) {
+function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch }: GateCardProps) {
   const { t } = useI18n();
-  const cls = ['gate-wrap'];
-  if (selected)               cls.push('selected');
-  if (runState === 'running') cls.push('running');
-  if (runState === 'success') cls.push('success');
-  if (runState === 'error')   cls.push('error');
+  const classNames = ['gate-wrap'];
+  if (selected)               classNames.push('selected');
+  if (runState === 'running') classNames.push('running');
+  if (runState === 'success') classNames.push('success');
+  if (runState === 'error')   classNames.push('error');
 
-  const w = n.w, h = 110;
-  const branches = n.branches;
+  const width = node.w;
+  const height = 110;
+  const branches = node.branches;
 
   return (
     <div
-      className={cls.join(' ')}
-      style={{ left: n.x, top: n.y, width: w, height: h }}
-      onMouseDown={(e) => onMouseDown(e, n.id)}
-      onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
+      className={classNames.join(' ')}
+      style={{ left: node.x, top: node.y, width, height }}
+      onMouseDown={(event) => onMouseDown(event, node.id)}
+      onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}
     >
       <div className="gate-card">
         <div className="gate-head">
-          <span className="node-id">{n.alias}</span>
+          <span className="node-id">{node.alias}</span>
           <span className="gate-sub"><Icon name="route" size={10} /> {t('canvas.gateBranches', { count: branches.length })}</span>
         </div>
-        <h3 className="gate-title">{n.title}</h3>
+        <h3 className="gate-title">{node.title}</h3>
       </div>
-      <div className="gate-port-in" data-port="in" data-node={n.id} />
-      {branches.map((b, i) => {
+      <div className="gate-port-in" data-port="in" data-node={node.id} />
+      {branches.map((branch, index) => {
         const total = branches.length + 1;
-        const t = (i + 1) / (total + 1);
-        const top = h * t - 6;
+        const positionRatio = (index + 1) / (total + 1);
+        const top = height * positionRatio - 6;
         return (
           <div
-            key={b.id}
-            className={`gate-port-out ${b.id}`}
+            key={branch.id}
+            className={`gate-port-out ${branch.id}`}
             data-port="gate-out"
-            data-node={n.id}
-            data-branch={b.id}
-            style={{ right: -7, top, borderColor: branchAccent(b) }}
+            data-node={node.id}
+            data-branch={branch.id}
+            style={{ right: -7, top, borderColor: branchAccent(branch) }}
           >
-            <span className="pl">{b.label}</span>
+            <span className="pl">{branch.label}</span>
           </div>
         );
       })}
       <div
         className="gate-port-add"
-        style={{ right: -8, top: h * (branches.length + 1) / (branches.length + 2) - 7 }}
+        style={{ right: -8, top: height * (branches.length + 1) / (branches.length + 2) - 7 }}
         title={t('canvas.addBranchTitle')}
-        onClick={(e) => { e.stopPropagation(); onAddBranch(n.id); }}
+        onClick={(event) => { event.stopPropagation(); onAddBranch(node.id); }}
       >+</div>
     </div>
   );
 }
 
 interface EndCardProps {
-  n: Extract<WorkflowNode, { kind: 'end' }>;
+  node: Extract<WorkflowNode, { kind: 'end' }>;
   selected: boolean;
-  onMouseDown: (e: React.MouseEvent, id: string) => void;
+  onMouseDown: (element: React.MouseEvent, id: string) => void;
   onSelect: (id: string) => void;
 }
 
-function EndCard({ n, selected, onMouseDown, onSelect }: EndCardProps) {
+function EndCard({ node, selected, onMouseDown, onSelect }: EndCardProps) {
   const { t } = useI18n();
-  const cls = ['end-node'];
-  if (selected) cls.push('selected');
+  const classNames = ['end-node'];
+  if (selected) classNames.push('selected');
 
   return (
     <div
-      className={cls.join(' ')}
-      style={{ left: n.x, top: n.y }}
-      onMouseDown={(e) => onMouseDown(e, n.id)}
-      onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
-      data-port="in" data-node={n.id}
+      className={classNames.join(' ')}
+      style={{ left: node.x, top: node.y }}
+      onMouseDown={(event) => onMouseDown(event, node.id)}
+      onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}
+      data-port="in" data-node={node.id}
     >
-      <Icon name="check" size={11} />{n.title || t('canvas.end')}
+      <Icon name="check" size={11} />{node.title || t('canvas.end')}
     </div>
   );
 }
 
 interface InputCardProps {
-  n: InputNode;
+  node: InputNode;
   selected: boolean;
-  onMouseDown: (e: React.MouseEvent, id: string) => void;
+  onMouseDown: (element: React.MouseEvent, id: string) => void;
   onSelect: (id: string) => void;
 }
 
-function InputCard({ n, selected, onMouseDown, onSelect }: InputCardProps) {
-  const cls = ['input-node'];
-  if (selected) cls.push('selected');
+function InputCard({ node, selected, onMouseDown, onSelect }: InputCardProps) {
+  const classNames = ['input-node'];
+  if (selected) classNames.push('selected');
 
   return (
     <div
-      className={cls.join(' ')}
-      style={{ left: n.x, top: n.y, width: n.w || 200 }}
-      onMouseDown={(e) => onMouseDown(e, n.id)}
-      onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
+      className={classNames.join(' ')}
+      style={{ left: node.x, top: node.y, width: node.w || 200 }}
+      onMouseDown={(event) => onMouseDown(event, node.id)}
+      onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}
     >
       <div className="input-node-head">
         <Icon name="tag" size={10} />
-        <span className="node-id">{n.alias}</span>
-        <span style={{ flex: 1 }}>{n.title}</span>
+        <span className="node-id">{node.alias}</span>
+        <span style={{ flex: 1 }}>{node.title}</span>
       </div>
       <div className="input-node-var">
-        <span className="var-chip">&lt;{n.variableName}&gt;</span>
-        {n.defaultValue && (
+        <span className="var-chip">&lt;{node.variableName}&gt;</span>
+        {node.defaultValue && (
           <span style={{ color: 'var(--ink-4)', fontSize: 9.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {n.defaultValue}
+            {node.defaultValue}
           </span>
         )}
       </div>
       {/* output-only port */}
-      <div className="port out" data-port="out" data-node={n.id} />
+      <div className="port out" data-port="out" data-node={node.id} />
     </div>
   );
 }
@@ -292,7 +293,7 @@ interface CanvasProps {
   zoom: number;
   setZoom: (z: number) => void;
   pan: { x: number; y: number };
-  setPan: (p: { x: number; y: number }) => void;
+  setPan: (path: { x: number; y: number }) => void;
 }
 
 type DragState =
@@ -361,24 +362,24 @@ export function Canvas({
 
   const fitToView = useCallback(() => {
     if (!wrapRef.current || nodes.length === 0) return;
-    const fit = calculateCanvasFit(nodes, {
+    const canvasFit = calculateCanvasFit(nodes, {
       width: wrapRef.current.clientWidth,
       height: wrapRef.current.clientHeight,
     });
-    if (!fit) return;
-    setZoom(fit.zoom);
-    setPan(fit.pan);
+    if (!canvasFit) return;
+    setZoom(canvasFit.zoom);
+    setPan(canvasFit.pan);
   }, [nodes, setZoom, setPan]);
 
   useEffect(() => {
-    const t = setTimeout(fitToView, 0);
-    return () => clearTimeout(t);
+    const fitTimer = setTimeout(fitToView, 0);
+    return () => clearTimeout(fitTimer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
+    const element = wrapRef.current;
+    if (!element) return;
     const handler = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -388,8 +389,8 @@ export function Canvas({
         setPan({ x: panRef.current.x - e.deltaX, y: panRef.current.y - e.deltaY });
       }
     };
-    el.addEventListener('wheel', handler, { passive: false });
-    return () => el.removeEventListener('wheel', handler);
+    element.addEventListener('wheel', handler, { passive: false });
+    return () => element.removeEventListener('wheel', handler);
   }, [setZoom, setPan]);
 
   // canvas-coord helpers
@@ -405,8 +406,8 @@ export function Canvas({
   // ── port-drag-to-connect ──────────────────────────────────────────────────
 
   const startEdgeDrag = useCallback((fromId: string, branch: string | undefined, clientX: number, clientY: number) => {
-    const pos = clientToCanvas(clientX, clientY);
-    setDragEdge({ fromId, branch, cursorX: pos.x, cursorY: pos.y });
+    const position = clientToCanvas(clientX, clientY);
+    setDragEdge({ fromId, branch, cursorX: position.x, cursorY: position.y });
   }, [clientToCanvas]);
 
   // Global mouse listeners for port-drag and ghost-cursor tracking
@@ -414,26 +415,26 @@ export function Canvas({
     const onMove = (e: MouseEvent) => {
       // 1. Active drag-edge: track cursor
       if (dragEdgeRef.current) {
-        const pos = clientToCanvas(e.clientX, e.clientY);
-        setDragEdge((d) => d ? { ...d, cursorX: pos.x, cursorY: pos.y } : d);
+        const position = clientToCanvas(e.clientX, e.clientY);
+        setDragEdge((dragEdge) => dragEdge ? { ...dragEdge, cursorX: position.x, cursorY: position.y } : dragEdge);
         return;
       }
       // 2. Existing node drag / pan
-      const d = dragRef.current;
-      if (d) {
-        if (d.kind === 'pan') {
-          setPan({ x: d.panX + (e.clientX - d.startX), y: d.panY + (e.clientY - d.startY) });
+      const dragState = dragRef.current;
+      if (dragState) {
+        if (dragState.kind === 'pan') {
+          setPan({ x: dragState.panX + (e.clientX - dragState.startX), y: dragState.panY + (e.clientY - dragState.startY) });
         } else {
-          const dx = (e.clientX - d.startX) / zoomRef.current;
-          const dy = (e.clientY - d.startY) / zoomRef.current;
-          onNodeMove(d.nodeId, d.nx + dx, d.ny + dy);
+          const deltaX = (e.clientX - dragState.startX) / zoomRef.current;
+          const deltaY = (e.clientY - dragState.startY) / zoomRef.current;
+          onNodeMove(dragState.nodeId, dragState.nx + deltaX, dragState.ny + deltaY);
         }
         return;
       }
       // 3. Ghost preview in add-mode
       if (mode !== 'pan') {
-        const pos = clientToCanvas(e.clientX, e.clientY);
-        setGhostPos(pos);
+        const position = clientToCanvas(e.clientX, e.clientY);
+        setGhostPos(position);
       }
     };
 
@@ -447,23 +448,23 @@ export function Canvas({
         if (portIn) {
           const toId = portIn.getAttribute('data-node');
           if (toId && toId !== dragInfo.fromId) {
-            const fromN = nodesRef.current.find((n) => n.id === dragInfo.fromId);
-            const toN   = nodesRef.current.find((n) => n.id === toId);
-            if (fromN && toN && toN.kind !== 'input') {
+            const fromNode = nodesRef.current.find((node) => node.id === dragInfo.fromId);
+            const toNode   = nodesRef.current.find((node) => node.id === toId);
+            if (fromNode && toNode && toNode.kind !== 'input') {
               const edge = {
                 id: edgeKey({ from: dragInfo.fromId, to: toId, branch: dragInfo.branch }),
                 from: dragInfo.fromId,
                 to: toId,
                 branch: dragInfo.branch,
               };
-              const secondGateInput = toN.kind === 'gate'
-                && fromN.kind !== 'input'
+              const secondGateInput = toNode.kind === 'gate'
+                && fromNode.kind !== 'input'
                 && edgesRef.current.some((existing) =>
                   existing.to === toId
                   && nodesRef.current.find((node) => node.id === existing.from)?.kind !== 'input');
               const executionCycle = wouldCreateExecutedCycle(edge, edgesRef.current);
               const controlledLoopback = executionCycle && (
-                (fromN.kind === 'gate' && Boolean(dragInfo.branch))
+                (fromNode.kind === 'gate' && Boolean(dragInfo.branch))
                 || closesGateControlledCycle(edge, edgesRef.current, nodesRef.current)
               );
               if (!secondGateInput && (!executionCycle || controlledLoopback) && !edgesRef.current.some((existing) => existing.id === edge.id)) {
@@ -487,13 +488,13 @@ export function Canvas({
 
   // ── canvas mousedown ──────────────────────────────────────────────────────
 
-  const onCanvasMouseDown = (e: React.MouseEvent) => {
-    const target = e.target as Element;
+  const onCanvasMouseDown = (element: React.MouseEvent) => {
+    const target = element.target as Element;
     if (target.closest('.node, .gate-wrap, .end-node, .input-node, .edge-tag, .canvas-toolbar, .edge-hover-target')) return;
 
     // In add-mode and edit view: place node at click
     if (mode !== 'pan' && isEdit) {
-      const pos = clientToCanvas(e.clientX, e.clientY);
+      const position = clientToCanvas(element.clientX, element.clientY);
       const keyPrefix =
         mode === 'add-step' ? 'step'
         : mode === 'add-gate' ? 'gate'
@@ -505,22 +506,22 @@ export function Canvas({
       let newNode: WorkflowNode;
       if (mode === 'add-step') {
         const alias = String(nodesRef.current.filter((node) => node.kind === 'step').length + 1).padStart(2, '0');
-        newNode = { kind: 'step', id, alias, x: pos.x - 110, y: pos.y - 60, w: 220, title: t('canvas.untitled'), prompt: '', sessionId: firstSession };
+        newNode = { kind: 'step', id, alias, x: position.x - 110, y: position.y - 60, w: 220, title: t('canvas.untitled'), prompt: '', sessionId: firstSession };
       } else if (mode === 'add-gate') {
         const alias = `G${nodesRef.current.filter((node) => node.kind === 'gate').length + 1}`;
-        newNode = { kind: 'gate', id, alias, x: pos.x - 110, y: pos.y - 55, w: 220, title: t('canvas.decision'), decisionCriteria: '', branches: [{ id: 'pass', label: 'pass' }, { id: 'fix', label: 'fix' }] };
+        newNode = { kind: 'gate', id, alias, x: position.x - 110, y: position.y - 55, w: 220, title: t('canvas.decision'), decisionCriteria: '', branches: [{ id: 'pass', label: 'pass' }, { id: 'fix', label: 'fix' }] };
       } else if (mode === 'add-input') {
         const alias = 'IN';
-        newNode = { kind: 'input', id, alias, x: pos.x - 100, y: pos.y - 36, w: 200, title: t('canvas.runInput'), variableName: `specflow_var${nodesRef.current.filter((n) => n.kind === 'input').length + 1}`, sessionId: null };
+        newNode = { kind: 'input', id, alias, x: position.x - 100, y: position.y - 36, w: 200, title: t('canvas.runInput'), variableName: `specflow_var${nodesRef.current.filter((node) => node.kind === 'input').length + 1}`, sessionId: null };
       } else {
         const alias = 'END';
-        newNode = { kind: 'end', id, alias, x: pos.x - 30, y: pos.y - 18, w: 80, title: t('canvas.doneNode'), sessionId: null };
+        newNode = { kind: 'end', id, alias, x: position.x - 30, y: position.y - 18, w: 80, title: t('canvas.doneNode'), sessionId: null };
       }
 
       onAddNode(newNode);
 
       // Shift+click: stay in mode for rapid placement
-      if (!e.shiftKey) {
+      if (!element.shiftKey) {
         setMode('pan');
         setGhostPos(null);
         onSelectNode(id);
@@ -529,23 +530,23 @@ export function Canvas({
     }
 
     // Default: pan
-    dragRef.current = { kind: 'pan', startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+    dragRef.current = { kind: 'pan', startX: element.clientX, startY: element.clientY, panX: pan.x, panY: pan.y };
     onClearSelection();
   };
 
   // ── node mousedown ────────────────────────────────────────────────────────
 
-  const onNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
-    const target = e.target as Element;
+  const onNodeMouseDown = (element: React.MouseEvent, nodeId: string) => {
+    const target = element.target as Element;
 
     // Port drag-out (edit mode only)
     if (isEdit) {
       const outEl = target.closest('[data-port="out"], [data-port="gate-out"]') as HTMLElement | null;
       if (outEl) {
-        e.stopPropagation();
+        element.stopPropagation();
         const fromId = outEl.getAttribute('data-node') ?? nodeId;
         const branch = outEl.getAttribute('data-branch') ?? undefined;
-        startEdgeDrag(fromId, branch, e.clientX, e.clientY);
+        startEdgeDrag(fromId, branch, element.clientX, element.clientY);
         return;
       }
     }
@@ -559,41 +560,41 @@ export function Canvas({
       target.closest('.gate-port-out, .gate-port-add, .gate-port-in')
     ) return;
 
-    e.stopPropagation();
+    element.stopPropagation();
     onSelectNode(nodeId);
 
     // In run view: select-only, no drag
     if (!isEdit) return;
 
-    const n = nodes.find((x) => x.id === nodeId);
-    if (!n) return;
+    const node = nodes.find((node) => node.id === nodeId);
+    if (!node) return;
     // Locked nodes can't be dragged
-    if ((n as WorkflowNode & { locked?: boolean }).locked) return;
-    dragRef.current = { kind: 'node', nodeId, startX: e.clientX, startY: e.clientY, nx: n.x, ny: n.y };
+    if ((node as WorkflowNode & { locked?: boolean }).locked) return;
+    dragRef.current = { kind: 'node', nodeId, startX: element.clientX, startY: element.clientY, nx: node.x, ny: node.y };
   };
 
   const nodeById = useMemo(() => {
-    const m: Record<string, WorkflowNode> = {};
-    for (const n of nodes) m[n.id] = n;
-    return m;
+    const nodeMap: Record<string, WorkflowNode> = {};
+    for (const node of nodes) nodeMap[node.id] = node;
+    return nodeMap;
   }, [nodes]);
 
-  const sessionById = (id: string | null) => sessions.find((s) => s.id === id);
+  const sessionById = (id: string | null) => sessions.find((session) => session.id === id);
 
   // Pending drag-edge origin
   const dragEdgeFrom = dragEdge
     ? (() => {
-        const fromN = nodeById[dragEdge.fromId];
-        return fromN ? nodeAnchorOut(fromN, dragEdge.branch) : null;
+        const fromNode = nodeById[dragEdge.fromId];
+        return fromNode ? nodeAnchorOut(fromNode, dragEdge.branch) : null;
       })()
     : null;
 
   // Toolbar button helper
-  const toolbarModeBtn = (m: CanvasMode, icon: IconName, title: string) => (
+  const toolbarModeBtn = (targetMode: CanvasMode, icon: IconName, title: string) => (
     <button
       title={title}
-      className={mode === m ? 'mode-active' : ''}
-      onClick={(e) => { e.stopPropagation(); setMode(mode === m ? 'pan' : m); setGhostPos(null); setDragEdge(null); }}
+      className={mode === targetMode ? 'mode-active' : ''}
+      onClick={(event) => { event.stopPropagation(); setMode(mode === targetMode ? 'pan' : targetMode); setGhostPos(null); setDragEdge(null); }}
     >
       <Icon name={icon} size={14} />
     </button>
@@ -627,34 +628,34 @@ export function Canvas({
             </marker>
           </defs>
 
-          {edges.map((e) => {
-            const fromN = nodeById[e.from];
-            const toN   = nodeById[e.to];
-            if (!fromN || !toN) return null;
-            const sameSession = isSameSessionContentEdge(e, nodes, edges);
-            const from = nodeAnchorOut(fromN, e.branch);
-            const to   = nodeAnchorIn(toN);
-            const d    = edgePath(from, to, e.loopback);
-            const isSelected = selection?.kind === 'edge' && selection.id === e.id;
-            const fromState  = runState[e.from];
-            const toState    = runState[e.to];
+          {edges.map((edge) => {
+            const fromNode = nodeById[edge.from];
+            const toNode   = nodeById[edge.to];
+            if (!fromNode || !toNode) return null;
+            const sameSession = isSameSessionContentEdge(edge, nodes, edges);
+            const sourceAnchor = nodeAnchorOut(fromNode, edge.branch);
+            const targetAnchor = nodeAnchorIn(toNode);
+            const pathData = edgePath(sourceAnchor, targetAnchor, edge.loopback);
+            const isSelected = selection?.kind === 'edge' && selection.id === edge.id;
+            const fromState  = runState[edge.from];
+            const toState    = runState[edge.to];
             const active = showRun && fromState === 'success' && (toState === 'running' || toState === 'success');
-            const stroke = e.loopback
+            const stroke = edge.loopback
               ? 'var(--ink-3)'
               : active
                 ? 'var(--running)'
                 : sameSession ? 'var(--ink-3)' : 'var(--ink-2)';
-            const dash = e.loopback
+            const dash = edge.loopback
               ? '4 4'
               : active
                 ? '6 4'
                 : sameSession ? '2 4' : '';
-            const markerId = e.loopback ? 'arrow-loopback' : active ? 'arrow-running' : 'arrow';
+            const markerId = edge.loopback ? 'arrow-loopback' : active ? 'arrow-running' : 'arrow';
 
             return (
-              <g key={e.id}>
+              <g key={edge.id}>
                 <path
-                  d={d}
+                  d={pathData}
                   fill="none"
                   stroke={stroke}
                   strokeWidth={isSelected ? 1.6 : 1.1}
@@ -663,11 +664,11 @@ export function Canvas({
                   style={active ? { animation: 'dashflow 1.2s linear infinite' } : undefined}
                 />
                 <path
-                  d={d}
+                  d={pathData}
                   className="edge-hover-target"
-                  onClick={(ev) => { ev.stopPropagation(); onSelectEdge(e.id); }}
-                  onMouseEnter={() => setHoverEdge(e.id)}
-                  onMouseLeave={() => setHoverEdge((h) => h === e.id ? null : h)}
+                  onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+                  onMouseEnter={() => setHoverEdge(edge.id)}
+                  onMouseLeave={() => setHoverEdge((h) => h === edge.id ? null : h)}
                 />
               </g>
             );
@@ -687,34 +688,34 @@ export function Canvas({
         </svg>
 
         {/* edge tag badges */}
-        {edges.map((e) => {
-          const fromN = nodeById[e.from];
-          const toN   = nodeById[e.to];
-          if (!fromN || !toN) return null;
-          const sameSession = isSameSessionContentEdge(e, nodes, edges);
+        {edges.map((edge) => {
+          const fromNode = nodeById[edge.from];
+          const toNode   = nodeById[edge.to];
+          if (!fromNode || !toNode) return null;
+          const sameSession = isSameSessionContentEdge(edge, nodes, edges);
 
-          const from = nodeAnchorOut(fromN, e.branch);
-          const to   = nodeAnchorIn(toN);
-          const m    = edgeMid(from, to, e.loopback);
+          const sourceAnchor = nodeAnchorOut(fromNode, edge.branch);
+          const targetAnchor = nodeAnchorIn(toNode);
+          const midpoint = edgeMid(sourceAnchor, targetAnchor, edge.loopback);
 
           // InputNode→Step edge: show the variable name chip
-          if (fromN.kind === 'input') {
+          if (fromNode.kind === 'input') {
             return (
               <div
-                key={`tag-${e.id}`}
+                key={`tag-${edge.id}`}
                 className="edge-tag edge-tag-var"
-                style={{ left: m.x, top: m.y }}
-                title={t('canvas.injectsVariable', { variable: fromN.variableName })}
-                onClick={(ev) => { ev.stopPropagation(); onSelectEdge(e.id); }}
+                style={{ left: midpoint.x, top: midpoint.y }}
+                title={t('canvas.injectsVariable', { variable: fromNode.variableName })}
+                onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
               >
-                <Icon name="tag" size={9} />&lt;{fromN.variableName}&gt;
+                <Icon name="tag" size={9} />&lt;{fromNode.variableName}&gt;
               </div>
             );
           }
 
-          if (toN.kind === 'gate') {
+          if (toNode.kind === 'gate') {
             return (
-              <div key={`tag-${e.id}`} className="edge-tag" style={{ left: m.x, top: m.y, fontSize: 9.5, opacity: 0.7 }}>
+              <div key={`tag-${edge.id}`} className="edge-tag" style={{ left: midpoint.x, top: midpoint.y, fontSize: 9.5, opacity: 0.7 }}>
                 <Icon name="route" size={9} />{t('canvas.gateInput')}
               </div>
             );
@@ -723,9 +724,9 @@ export function Canvas({
           if (sameSession) {
             return (
               <div
-                key={`tag-${e.id}`}
+                key={`tag-${edge.id}`}
                 className="edge-tag"
-                style={{ left: m.x, top: m.y, fontSize: 9.5, opacity: 0.7, padding: '1px 5px', cursor: 'default' }}
+                style={{ left: midpoint.x, top: midpoint.y, fontSize: 9.5, opacity: 0.7, padding: '1px 5px', cursor: 'default' }}
                 title={t('canvas.sameSessionTitle')}
               >
                 <Icon name="link" size={9} />{t('canvas.sameSession')}
@@ -733,70 +734,70 @@ export function Canvas({
             );
           }
 
-          const isSelected = selection?.kind === 'edge' && selection.id === e.id;
+          const isSelected = selection?.kind === 'edge' && selection.id === edge.id;
           return (
             <div
-              key={`tag-${e.id}`}
-              className={`edge-tag${e.outputTag ? '' : ' empty'}${isSelected ? ' selected' : ''}`}
-              style={{ left: m.x, top: m.y }}
-              onClick={(ev) => { ev.stopPropagation(); onSelectEdge(e.id); }}
+              key={`tag-${edge.id}`}
+              className={`edge-tag${edge.outputTag ? '' : ' empty'}${isSelected ? ' selected' : ''}`}
+              style={{ left: midpoint.x, top: midpoint.y }}
+              onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
             >
-              {e.loopback && <Icon name="rotate" size={10} />}
-              {e.transmit && e.outputTag ? <span className="tag-key">&lt;specflow_{e.outputTag}&gt;</span> : <span>{t('canvas.noTransfer')}</span>}
+              {edge.loopback && <Icon name="rotate" size={10} />}
+              {edge.transmit && edge.outputTag ? <span className="tag-key">&lt;specflow_{edge.outputTag}&gt;</span> : <span>{t('canvas.noTransfer')}</span>}
             </div>
           );
         })}
 
         {/* nodes */}
-        {nodes.map((n) => {
-          const selected = selection?.kind === 'node' && selection.id === n.id;
-          if (n.kind === 'gate') return (
+        {nodes.map((node) => {
+          const selected = selection?.kind === 'node' && selection.id === node.id;
+          if (node.kind === 'gate') return (
             <GateCard
-              key={n.id} n={n} selected={selected}
-              runState={runState[n.id]}
+              key={node.id} node={node} selected={selected}
+              runState={runState[node.id]}
               onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
               onAddBranch={onAddBranch}
             />
           );
-          if (n.kind === 'end') return (
+          if (node.kind === 'end') return (
             <EndCard
-              key={n.id} n={n} selected={selected}
+              key={node.id} node={node} selected={selected}
               onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
             />
           );
-          if (n.kind === 'input') return (
+          if (node.kind === 'input') return (
             <InputCard
-              key={n.id} n={n} selected={selected}
+              key={node.id} node={node} selected={selected}
               onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
             />
           );
           return (
             <StepCard
-              key={n.id} n={n}
-              session={sessionById(n.sessionId)}
+              key={node.id} node={node}
+              session={sessionById(node.sessionId)}
               selected={selected}
-              runState={runState[n.id]}
+              runState={runState[node.id]}
               onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
-              onContinue={runState[n.id] === 'paused' ? () => onContinuePausedNode?.(n.id) : undefined}
+              onContinue={runState[node.id] === 'paused' ? () => onContinuePausedNode?.(node.id) : undefined}
             />
           );
         })}
 
         {/* ghost preview while in add mode */}
-        {mode !== 'pan' && isEdit && ghostPos && <GhostNode mode={mode} pos={ghostPos} />}
+        {mode !== 'pan' && isEdit && ghostPos && <GhostNode mode={mode} position={ghostPos} />}
 
         {/* hover prompt preview */}
         {hoverEdge && (() => {
-          const e = edges.find((x) => x.id === hoverEdge);
-          if (!e || !e.handoffPrompt) return null;
-          const fromN = nodeById[e.from];
-          const toN   = nodeById[e.to];
-          if (!fromN || !toN) return null;
-          const m = edgeMid(nodeAnchorOut(fromN, e.branch), nodeAnchorIn(toN), e.loopback);
+          const edge = edges.find((edge) => edge.id === hoverEdge);
+          if (!edge || !edge.handoffPrompt) return null;
+          const fromNode = nodeById[edge.from];
+          const toNode   = nodeById[edge.to];
+          if (!fromNode || !toNode) return null;
+          const midpoint = edgeMid(nodeAnchorOut(fromNode, edge.branch), nodeAnchorIn(toNode), edge.loopback);
           return (
-            <div className="edge-preview" style={{ left: m.x + 20, top: m.y + 14 }}>
+            <div className="edge-preview" style={{ left: midpoint.x + 20, top: midpoint.y + 14 }}>
               <span className="pp-label">{t('canvas.handoffPrompt')}</span>
-              {e.handoffPrompt}
+              {edge.handoffPrompt}
             </div>
           );
         })()}
@@ -816,7 +817,7 @@ export function Canvas({
 
       {/* toolbar — only in edit view */}
       {isEdit && (
-        <div className="canvas-toolbar" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
           {toolbarModeBtn('add-step', 'plus', t('canvas.addStepTitle'))}
           {toolbarModeBtn('add-gate', 'route', t('canvas.addGateTitle'))}
           {toolbarModeBtn('add-end', 'check', t('canvas.addEndTitle'))}
@@ -835,7 +836,7 @@ export function Canvas({
         </div>
       )}
       {!isEdit && (
-        <div className="canvas-toolbar" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
           <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} title={t('canvas.zoomOut')}>
             <Icon name="zoom-out" size={13} />
           </button>
@@ -854,11 +855,11 @@ export function Canvas({
 
 // ── ghost preview ─────────────────────────────────────────────────────────────
 
-function GhostNode({ mode, pos }: { mode: CanvasMode; pos: { x: number; y: number } }) {
+function GhostNode({ mode, position }: { mode: CanvasMode; position: { x: number; y: number } }) {
   const { t } = useI18n();
   if (mode === 'add-step') {
     return (
-      <div className="ghost-node ghost-step" style={{ left: pos.x - 110, top: pos.y - 60, width: 220 }}>
+      <div className="ghost-node ghost-step" style={{ left: position.x - 110, top: position.y - 60, width: 220 }}>
         <div className="ghost-head">{t('canvas.step')}</div>
         <div className="ghost-title">{t('canvas.untitled')}</div>
       </div>
@@ -866,7 +867,7 @@ function GhostNode({ mode, pos }: { mode: CanvasMode; pos: { x: number; y: numbe
   }
   if (mode === 'add-gate') {
     return (
-      <div className="ghost-node ghost-gate" style={{ left: pos.x - 110, top: pos.y - 55, width: 220, height: 110 }}>
+      <div className="ghost-node ghost-gate" style={{ left: position.x - 110, top: position.y - 55, width: 220, height: 110 }}>
         <div className="ghost-head"><Icon name="route" size={10} /> {t('canvas.gateBranches', { count: 2 })}</div>
         <div className="ghost-title">{t('canvas.decision')}</div>
       </div>
@@ -874,14 +875,14 @@ function GhostNode({ mode, pos }: { mode: CanvasMode; pos: { x: number; y: numbe
   }
   if (mode === 'add-input') {
     return (
-      <div className="ghost-node ghost-input" style={{ left: pos.x - 100, top: pos.y - 36, width: 200 }}>
+      <div className="ghost-node ghost-input" style={{ left: position.x - 100, top: position.y - 36, width: 200 }}>
         <div className="ghost-head"><Icon name="tag" size={10} /> {t('canvas.runInput')}</div>
         <div className="ghost-title">&lt;specflow_var&gt;</div>
       </div>
     );
   }
   return (
-    <div className="ghost-node ghost-end" style={{ left: pos.x - 30, top: pos.y - 18, width: 80 }}>
+    <div className="ghost-node ghost-end" style={{ left: position.x - 30, top: position.y - 18, width: 80 }}>
       <Icon name="check" size={11} />{t('canvas.end')}
     </div>
   );
