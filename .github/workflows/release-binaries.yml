@@ -3,27 +3,33 @@ name: Release binaries
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, for example v0.0.1-beta.3
+        required: true
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  group: release-binaries-${{ github.event.release.tag_name }}
+  group: release-binaries-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build and attach binaries
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.event.release.tag_name, 'v') }}
+    if: ${{ startsWith(github.event.release.tag_name || inputs.tag, 'v') }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate release tag
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'; then
             echo "Release tag must be vX.Y.Z, vX.Y.Z-alpha.N, vX.Y.Z-beta.N, or vX.Y.Z-rc.N" >&2
@@ -38,7 +44,7 @@ jobs:
       - name: Resolve release version
         id: release-version
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           version="$(bun packages/cli/src/version.ts release-version "$TAG")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -85,7 +91,7 @@ jobs:
       - name: Attach binaries to release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           gh release upload "$TAG" \
             dist/release/specflow-darwin-arm64.tar.gz \
@@ -103,7 +109,7 @@ jobs:
     if: ${{ needs.build.result == 'success' }}
     steps:
       - name: Checkout master
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: master
 
@@ -115,12 +121,13 @@ jobs:
       - name: Resolve snapshot bump
         id: snapshot
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           expected="$(bun packages/cli/src/version.ts expected-snapshot "$TAG")"
           current="$(bun packages/cli/src/version.ts package-version package.json)"
           echo "expected=$expected" >> "$GITHUB_OUTPUT"
           echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "Release $TAG expects master package.json version $expected; current master has $current."
           if [ "$current" = "$expected" ]; then
             echo "create_pr=false" >> "$GITHUB_OUTPUT"
             echo "master already uses $expected"
@@ -149,9 +156,18 @@ jobs:
           git add package.json
           git commit -m "chore: bump version to $EXPECTED_VERSION"
           git push --force-with-lease origin "$BRANCH"
+          existing_pr="$(gh pr list --base master --head "$BRANCH" --json url --jq '.[0].url')"
+          if [ -n "$existing_pr" ]; then
+            echo "Snapshot bump PR already exists: $existing_pr"
+            exit 0
+          fi
           gh pr create \
             --base master \
             --head "$BRANCH" \
             --title "chore: bump version to $EXPECTED_VERSION" \
             --body "Release completed. This updates master from $CURRENT_VERSION to $EXPECTED_VERSION." \
-            || gh pr list --head "$BRANCH" --json url --jq '.[0].url'
+            || {
+              echo "::error::Snapshot bump branch was pushed, but GitHub refused to create the PR. Enable Settings > Actions > General > Workflow permissions > 'Allow GitHub Actions to create and approve pull requests'."
+              echo "::notice::Manual PR URL: https://github.com/${{ github.repository }}/pull/new/$BRANCH"
+              exit 1
+            }
