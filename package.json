@@ -1,6 +1,6 @@
 {
   "name": "specflow-code",
-  "version": "0.0.0",
+  "version": "0.0.1-snapshot",
   "private": true,
   "type": "module",
   "workspaces": [
