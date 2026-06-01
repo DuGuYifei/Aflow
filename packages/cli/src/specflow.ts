@@ -12,6 +12,7 @@ import {
   type RunInputVariable,
 } from "@specflow/server";
 import { StdinLineReader } from "./stdin-lines";
+import { formatSpecflowVersion, isVersionCommand } from "./version";
 
 type AgentAuthenticationStatus = Awaited<ReturnType<typeof inspectAgentServerAuthentication>>;
 
@@ -26,7 +27,9 @@ const args = Bun.argv.slice(2);
 let stdinLineReader: StdinLineReader | undefined;
 
 try {
-  if (args[0] === "run") {
+  if (isVersionCommand(args)) {
+    console.log(await formatSpecflowVersion());
+  } else if (args[0] === "run") {
     await runWorkflowCommand(args.slice(1));
   } else {
     await serveCommand();

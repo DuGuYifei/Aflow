@@ -14,7 +14,7 @@
     "dev": "SPECFLOW_SERVER_MODE=development NODE_ENV=development bun run specflow",
     "specflow": "bun packages/cli/src/specflow.ts",
     "build:ui": "bun run --cwd packages/ui build",
-    "build:bin": "bun packages/server/scripts/generate-static-ui-assets.ts && bun build --compile --target=bun --sourcemap=none packages/cli/src/specflow.ts --outfile specflow",
+    "build:bin": "bun packages/server/scripts/generate-static-ui-assets.ts && SPECFLOW_VERSION=$(bun packages/cli/src/version.ts package-version package.json) bun build --compile --target=bun --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile specflow",
     "build": "bun run build:ui && bun run build:bin",
     "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/agent-proxy typecheck && bun run --cwd packages/workflow typecheck && bun run --cwd packages/bridge typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/ui typecheck && bun run --cwd packages/cli typecheck"
   },
