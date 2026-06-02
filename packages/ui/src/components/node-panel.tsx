@@ -65,6 +65,29 @@ export function NodePanel(props: NodePanelProps) {
   return <StepPanelContent {...props} node={props.node} readonly={readonly} tab={tab} setTab={setTab} />;
 }
 
+function NodeLockToggle({ node, readonly, onEditNode }: {
+  node: WorkflowNode;
+  readonly: boolean;
+  onEditNode: (id: string, patch: Record<string, unknown>) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <>
+      <div className="section-title">{t('node.position')}</div>
+      <label className="toggle-row">
+        <input
+          type="checkbox"
+          checked={node.locked === true}
+          disabled={readonly}
+          onChange={(event) => onEditNode(node.id, { locked: event.target.checked || undefined })}
+        />
+        <span><Icon name="lock" size={11} /> {t('node.lockPosition')}</span>
+      </label>
+      <div className="code-hint">{t('node.lockPositionHint')}</div>
+    </>
+  );
+}
+
 function StepPanelContent(props: NodePanelProps & {
   node: StepNode & { runState?: RunState };
   readonly: boolean;
@@ -115,10 +138,11 @@ function StepOverview(props: NodePanelProps & {
   return (
     <>
       {run && <div className="output-card"><span className={`status-dot ${node.runState || 'pending'}`} /> {node.runState || 'pending'}</div>}
+      <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
       <div className="section-title">{t('node.title')}</div>
-      <input className="input" value={node.title} disabled={node.locked || readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
+      <input className="input" value={node.title} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
       <div className="section-title">{t('node.alias')}</div>
-      <input className="input" value={node.alias} disabled={node.locked || readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
+      <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.session')}</div>
       <div className="node-session-control">
         <select
@@ -283,6 +307,7 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: bo
           ? t('node.gateForkClaudeHint')
           : t('node.gateForkRuntimeHint'))}
       </div>
+      <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
       <div className="section-title">{t('node.title')}</div>
       <input className="input" value={node.title} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
       <div className="section-title">{t('node.alias')}</div>
@@ -338,6 +363,7 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode; readonly: 
   const stepNodes = nodes.filter((candidate): candidate is StepNode => candidate.kind === 'step');
   return (
     <RightPanel label={<><Icon name="tag" size={11} />{t('node.runInputLabel', { alias: node.alias })}</>} title={node.title} onClose={props.onClose}>
+      <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
       <div className="section-title">{t('node.title')}</div>
       <input className="input" value={node.title} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
       <div className="section-title">{t('node.alias')}</div>
@@ -396,6 +422,7 @@ function EndPanelContent({ node, readonly, onClose, onEditNode }: { node: Extrac
   return (
     <RightPanel label={<><Icon name="check" size={11} />{t('node.end')}</>} title={t('node.endTitle')} onClose={onClose}>
       <div className="code-hint">{t('node.endHint')}</div>
+      <NodeLockToggle node={node} readonly={readonly} onEditNode={onEditNode} />
       <div className="section-title">{t('node.title')}</div>
       <input className="input" value={node.title} disabled={readonly} onChange={(event) => onEditNode(node.id, { title: event.target.value })} />
       <div className="section-title">{t('node.alias')}</div>
