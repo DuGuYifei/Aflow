@@ -6,6 +6,7 @@ import {
 import type { DirectCommandContext } from "../direct-dispatch";
 import { parseCommonCommandOptions, parseDefineArgs, requiredValue } from "../args";
 import { connectOrStartSpecflowServer } from "../../server/connect-or-start";
+import { getServerCanvasOrExplainLocal } from "../../workflows/workflow-resolver";
 
 export async function specflowRunCommand(args: string[], context: DirectCommandContext): Promise<void> {
   const { serverUrl, rest: commonRest } = parseCommonCommandOptions(args);
@@ -36,7 +37,11 @@ export async function specflowRunCommand(args: string[], context: DirectCommandC
   }
 
   const connection = await connectOrStartSpecflowServer({ cwd: context.cwd, serverUrl });
-  const canvas = await connection.client.getCanvas(workflowId);
+  const canvas = await getServerCanvasOrExplainLocal(
+    workflowId,
+    context.cwd,
+    (target) => connection.client.getCanvas(target),
+  );
   const prepared = prepareCanvasRun(canvas, { initialInput, variableValues: values });
   const agentServers = new Map((await listAgentServers(context.cwd)).map((entry) => [entry.id, entry]));
   assertServerRunnableAgentFlow(prepared.doc, agentServers);

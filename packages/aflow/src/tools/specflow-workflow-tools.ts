@@ -1,10 +1,7 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   assertServerRunnableAgentFlow,
   listAgentServers,
-  loadAgentFlowFile,
   prepareCanvasRun,
   type AgentFlowDoc,
   type RunInputVariable,
@@ -27,6 +24,7 @@ import { buildNativeResumeRecommendation } from "../native/native-agent-adapters
 import { handoffToNativeTerminalFromTui } from "../native/terminal-handoff";
 import { connectOrStartSpecflowServer } from "../server/connect-or-start";
 import type { AgentSessionRecord, PausedNodeSession, RunLogEvent, RunRecordDetail, SpecflowClient } from "../server/specflow-client";
+import { getServerCanvasOrExplainLocal, loadWorkflowDoc } from "../workflows/workflow-resolver";
 
 type NativeHandoffUi = Parameters<typeof handoffToNativeTerminalFromTui>[1];
 type WorkflowUi = AflowCustomUi & NativeHandoffUi;
@@ -91,7 +89,11 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
     parameters: RunWorkflowParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
-      const canvas = await connection.client.getCanvas(params.workflowId);
+      const canvas = await getServerCanvasOrExplainLocal(
+        params.workflowId,
+        ctx.cwd,
+        (workflowId) => connection.client.getCanvas(workflowId),
+      );
       const nodeDisplay = buildNodeDisplayMap(canvas);
       const variableValues = { ...(params.variableValues ?? {}) };
       let prepared = prepareCanvasRun(canvas, {
@@ -497,16 +499,7 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
 }
 
 async function loadWorkflow(target: string, cwd: string, serverUrl: string | undefined): Promise<AgentFlowDoc> {
-  const localPath = resolve(cwd, target);
-  if (looksLikePath(target) || existsSync(localPath)) {
-    return loadAgentFlowFile(localPath);
-  }
-  const connection = await connectOrStartSpecflowServer({ cwd, serverUrl });
-  return connection.client.getCanvas(target);
-}
-
-function looksLikePath(value: string): boolean {
-  return value.endsWith(".yaml") || value.endsWith(".yml") || value.includes("/") || value.includes("\\");
+  return loadWorkflowDoc(target, cwd, serverUrl);
 }
 
 function inputQuestion(variable: RunInputVariable): string {

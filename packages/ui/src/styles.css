@@ -1948,6 +1948,22 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wf-badge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+.wf-badge.local {
+  background: var(--bg);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line-2));
+}
 .workflow-name-input { flex: 1; min-width: 0; height: 24px; }
 .workflow-rename,
 .workflow-delete {

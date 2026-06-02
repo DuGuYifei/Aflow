@@ -83,6 +83,7 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
+  const workflowsRef = useRef<Workflow[]>([]);
 
   const [activeRunId, setActiveRunId] = useState('');
   const activeRun = runs.find((run) => run.id === activeRunId);
@@ -149,6 +150,24 @@ export function App() {
   const displayEdges: Edge[]          = (activeRun?.canvasSnapshot?.edges  as Edge[])         ?? edges;
   const displaySessions: Session[]    = (activeRun?.canvasSnapshot?.sessions as Session[])    ?? sessions;
 
+  const refreshWorkflows = useCallback(async () => {
+    const list = await fetchCanvases();
+    const nextWorkflows = list.map(summaryToWorkflow);
+    const previousIds = new Set(workflowsRef.current.map((workflow) => workflow.id));
+    const newLocalWorkflow = nextWorkflows.find((workflow) => workflow.local && !previousIds.has(workflow.id));
+    workflowsRef.current = nextWorkflows;
+    setWorkflows(nextWorkflows);
+    if (newLocalWorkflow) {
+      setActiveWorkflow(newLocalWorkflow.id);
+      return;
+    }
+    setActiveWorkflow((current) => {
+      if (current && nextWorkflows.some((workflow) => workflow.id === current)) return current;
+      const initial = nextWorkflows.find((workflow) => workflow.id === 'example-code-frontend-flow') ?? nextWorkflows[0];
+      return initial?.id ?? '';
+    });
+  }, []);
+
   // Variables are derived from InputNodes — both in edit and run view.
   const variables = useMemo(
     () => nodes.filter((node): node is InputNode => node.kind === 'input')
@@ -177,6 +196,7 @@ export function App() {
   useEffect(() => { nodesRef.current     = nodes;     }, [nodes]);
   useEffect(() => { edgesRef.current     = edges;     }, [edges]);
   useEffect(() => { sessionsRef.current  = sessions;  }, [sessions]);
+  useEffect(() => { workflowsRef.current = workflows; }, [workflows]);
   useEffect(() => { conversationRef.current = conversation; }, [conversation]);
 
   const terminateConversation = useCallback((active: typeof conversation) => {
@@ -204,14 +224,21 @@ export function App() {
     try { localStorage.setItem('sf-sidebar-layout', JSON.stringify(sidebarLayout)); } catch { /* ignore */ }
   }, [sidebarLayout]);
 
-  // Load canvases list once
+  // Keep the workflow list in sync with files written outside the browser, such as Aflow-generated local drafts.
   useEffect(() => {
-    fetchCanvases().then((list) => {
-      setWorkflows(list.map(summaryToWorkflow));
-      const initial = list.find((workflow) => workflow.id === 'example-code-frontend-flow') ?? list[0];
-      if (initial) setActiveWorkflow(initial.id);
-    }).catch(console.error);
-  }, []);
+    refreshWorkflows().catch(console.error);
+    const onFocus = () => {
+      refreshWorkflows().catch(console.error);
+    };
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshWorkflows().catch(console.error);
+    }, 5000);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refreshWorkflows]);
 
   // Load active canvas + runs whenever workflow changes
   useEffect(() => {

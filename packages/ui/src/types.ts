@@ -27,6 +27,7 @@ export interface Workflow {
   name: string;
   meta: string;
   runs: number;
+  local?: boolean;
   active?: boolean;
 }
 

@@ -214,6 +214,7 @@ export function Sidebar({
                 ) : (
                   <div className="name">{workflow.name}</div>
                 )}
+                {workflow.local && <span className="wf-badge local">local</span>}
                 <button
                   className="btn sm icon workflow-rename"
                   title={t('sidebar.renameWorkflow')}

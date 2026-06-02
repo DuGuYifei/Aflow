@@ -341,6 +341,7 @@ export interface CanvasSummary {
   id: string;
   name: string;
   runs: number;
+  local?: boolean;
 }
 
 export async function fetchCanvases(): Promise<CanvasSummary[]> {
@@ -892,6 +893,7 @@ export function summaryToWorkflow(summary: CanvasSummary): Workflow {
     name: summary.name,
     meta: `${summary.runs} runs`,
     runs: summary.runs,
+    ...(summary.local ? { local: true } : {}),
   };
 }
 

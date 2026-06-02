@@ -1,4 +1,5 @@
 import { main as piMain, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { connectOrStartSpecflowServer } from "../server/connect-or-start";
 import { withAflowSystemPrompt } from "../system-prompt";
 import { createAflowPiExtension } from "./aflow-extension";
 
@@ -11,5 +12,10 @@ export async function runAflowAgent(args: string[], options: RunAflowAgentOption
     createAflowPiExtension(),
     ...(options.extensionFactories ?? []),
   ];
-  await piMain(withAflowSystemPrompt(args), { extensionFactories });
+  const specflow = await connectOrStartSpecflowServer({ cwd: process.cwd() });
+  try {
+    await piMain(withAflowSystemPrompt(args), { extensionFactories });
+  } finally {
+    if (specflow.started) specflow.server?.stop();
+  }
 }

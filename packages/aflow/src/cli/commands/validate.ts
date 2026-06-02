@@ -1,14 +1,11 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   assertServerRunnableAgentFlow,
   listAgentServers,
-  loadAgentFlowFile,
   type AgentFlowDoc,
 } from "@specflow/server";
 import type { DirectCommandContext } from "../direct-dispatch";
 import { parseCommonCommandOptions } from "../args";
-import { connectOrStartSpecflowServer } from "../../server/connect-or-start";
+import { loadWorkflowDoc } from "../../workflows/workflow-resolver";
 
 export async function specflowValidateCommand(args: string[], context: DirectCommandContext): Promise<void> {
   const { serverUrl, rest } = parseCommonCommandOptions(args);
@@ -33,15 +30,5 @@ async function loadWorkflowForValidation(
   cwd: string,
   serverUrl: string | undefined,
 ): Promise<AgentFlowDoc> {
-  const localPath = resolve(cwd, target);
-  if (looksLikePath(target) || existsSync(localPath)) {
-    return loadAgentFlowFile(localPath);
-  }
-
-  const connection = await connectOrStartSpecflowServer({ cwd, serverUrl });
-  return connection.client.getCanvas(target);
-}
-
-function looksLikePath(value: string): boolean {
-  return value.endsWith(".yaml") || value.endsWith(".yml") || value.includes("/") || value.includes("\\");
+  return loadWorkflowDoc(target, cwd, serverUrl);
 }
