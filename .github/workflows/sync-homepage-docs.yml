@@ -1,0 +1,121 @@
+name: Sync homepage docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "docs/public/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-homepage-docs
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Copy public markdown docs to gh-pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: source
+
+      - name: Checkout homepage branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: homepage
+
+      - name: Sync public markdown docs
+        run: |
+          set -euo pipefail
+          rm -rf homepage/docs
+          mkdir -p homepage/docs
+          cp -R source/docs/public/. homepage/docs/
+          node <<'NODE'
+          const { readdirSync, readFileSync, writeFileSync, statSync } = require("node:fs");
+          const { basename, extname, join } = require("node:path");
+
+          const docsRoot = "homepage/docs";
+
+          function titleFromId(id) {
+            return id
+              .split("-")
+              .filter(Boolean)
+              .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(" ");
+          }
+
+          function parseFrontmatter(markdown) {
+            if (!markdown.startsWith("---\n")) return {};
+            const end = markdown.indexOf("\n---", 4);
+            if (end === -1) return {};
+            const frontmatter = markdown.slice(4, end).split(/\r?\n/);
+            const result = {};
+            for (const line of frontmatter) {
+              const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+              if (!match) continue;
+              const value = match[2].trim().replace(/^["']|["']$/g, "");
+              result[match[1]] = value;
+            }
+            return result;
+          }
+
+          const sections = readdirSync(docsRoot)
+            .filter((entry) => statSync(join(docsRoot, entry)).isDirectory())
+            .sort()
+            .map((sectionId) => {
+              const sectionPath = join(docsRoot, sectionId);
+              const items = [];
+              for (const locale of readdirSync(sectionPath).sort()) {
+                const localePath = join(sectionPath, locale);
+                if (!statSync(localePath).isDirectory()) continue;
+                for (const file of readdirSync(localePath).sort()) {
+                  if (extname(file) !== ".md") continue;
+                  const markdown = readFileSync(join(localePath, file), "utf8");
+                  const frontmatter = parseFrontmatter(markdown);
+                  const id = basename(file, ".md");
+                  items.push({
+                    id,
+                    locale,
+                    title: frontmatter.title || titleFromId(id),
+                    description: frontmatter.description || "",
+                    order: Number(frontmatter.order || 999),
+                    updatedAt: frontmatter.updatedAt || "",
+                    path: `docs/${sectionId}/${locale}/${file}`,
+                  });
+                }
+              }
+              return {
+                id: sectionId,
+                title: titleFromId(sectionId),
+                items: items.sort((a, b) => a.locale.localeCompare(b.locale) || a.order - b.order || a.title.localeCompare(b.title)),
+              };
+            });
+
+          writeFileSync(join(docsRoot, "manifest.json"), JSON.stringify({
+            generatedAt: new Date().toISOString(),
+            sections,
+          }, null, 2) + "\n");
+          NODE
+
+      - name: Commit synced docs
+        run: |
+          set -euo pipefail
+          cd homepage
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "No homepage docs changes to commit."
+            exit 0
+          fi
+          git commit -m "docs(homepage): sync public markdown"
+          git push origin gh-pages
