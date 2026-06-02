@@ -39,6 +39,7 @@ jobs:
           rm -rf homepage/docs
           mkdir -p homepage/docs
           cp -R source/docs/public/. homepage/docs/
+          touch homepage/.nojekyll
           node <<'NODE'
           const { readdirSync, readFileSync, writeFileSync, statSync } = require("node:fs");
           const { basename, extname, join } = require("node:path");
@@ -112,7 +113,7 @@ jobs:
           cd homepage
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs
+          git add .nojekyll docs
           if git diff --cached --quiet; then
             echo "No homepage docs changes to commit."
             exit 0
