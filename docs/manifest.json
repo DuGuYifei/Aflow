@@ -1,0 +1,83 @@
+{
+  "generatedAt": "2026-06-02T20:58:17.056Z",
+  "sections": [
+    {
+      "id": "tutorial",
+      "title": "Tutorial",
+      "items": [
+        {
+          "id": "write-workflow-yaml",
+          "locale": "en",
+          "title": "Workflow YAML Authoring Tutorial",
+          "description": "Learn how to write Specflow agentflow YAML and turn agent work into visible, reusable workflows.",
+          "order": 1,
+          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "path": "docs/tutorial/en/write-workflow-yaml.md"
+        },
+        {
+          "id": "specflow-command",
+          "locale": "en",
+          "title": "Specflow Commands",
+          "description": "Learn what specflow, specflow validate, and specflow run do, and how to pass workflow inputs.",
+          "order": 2,
+          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "path": "docs/tutorial/en/specflow-command.md"
+        },
+        {
+          "id": "workspace-files",
+          "locale": "en",
+          "title": "Workspace Files",
+          "description": "Learn how workflows, canvas files, agent servers, run records, logs, caches, and assets are stored in a Specflow workspace.",
+          "order": 3,
+          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "path": "docs/tutorial/en/workspace-files.md"
+        },
+        {
+          "id": "aflow-agent",
+          "locale": "en",
+          "title": "Aflow Agent Tutorial",
+          "description": "Learn how to use Aflow Agent to create, adapt, validate, run, and resume Specflow workflows.",
+          "order": 4,
+          "updatedAt": "2026-06-02 22:16:57 CEST",
+          "path": "docs/tutorial/en/aflow-agent.md"
+        },
+        {
+          "id": "write-workflow-yaml",
+          "locale": "zh",
+          "title": "Workflow YAML 编写教程",
+          "description": "学习如何编写 Specflow agentflow YAML，把 Agent 工作沉淀为可见、可复用的工作流。",
+          "order": 1,
+          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "path": "docs/tutorial/zh/write-workflow-yaml.md"
+        },
+        {
+          "id": "specflow-command",
+          "locale": "zh",
+          "title": "Specflow 命令",
+          "description": "学习 specflow、specflow validate 和 specflow run 的用途与输入规则。",
+          "order": 2,
+          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "path": "docs/tutorial/zh/specflow-command.md"
+        },
+        {
+          "id": "workspace-files",
+          "locale": "zh",
+          "title": "Workspace 文件",
+          "description": "了解 Specflow workspace 中 workflow、canvas、agent server、运行记录、日志、缓存和资源文件的作用。",
+          "order": 3,
+          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "path": "docs/tutorial/zh/workspace-files.md"
+        },
+        {
+          "id": "aflow-agent",
+          "locale": "zh",
+          "title": "Aflow Agent 使用教程",
+          "description": "学习如何用 Aflow Agent 创建、改写、校验、运行和恢复 Specflow workflows。",
+          "order": 4,
+          "updatedAt": "2026-06-02 22:16:57 CEST",
+          "path": "docs/tutorial/zh/aflow-agent.md"
+        }
+      ]
+    }
+  ]
+}

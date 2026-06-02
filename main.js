@@ -6,7 +6,18 @@
   const LOCALES = ["zh-CN", "en-US"];
   const THEMES = ["light", "dark"];
   const RELEASES_URL = "https://github.com/DuGuYifei/Aflow/releases";
+  const DOCS_LOCALE = { "zh-CN": "zh", "en-US": "en" };
   const page = document.body.dataset.page || "home";
+  const docsState = {
+    manifest: null,
+    manifestLoading: false,
+    loadingKey: "",
+    currentKey: "",
+    currentDoc: null,
+    html: "",
+    headings: [],
+    error: "",
+  };
 
   const copy = {
     "zh-CN": {
@@ -15,6 +26,8 @@
         homeDescription: "Aflow Agent 构建在 Specflow 之上，是一个靠工作流生存的 Agent：辅助设计、优化并运行可复用的 Agent 工作流。",
         downloadTitle: "下载 Aflow",
         downloadDescription: "从 GitHub Releases 下载 Aflow 二进制文件，或使用 README 中的安装命令。",
+        docsTitle: "Aflow 文档",
+        docsDescription: "阅读 Aflow 与 Specflow 的教程、命令和 workspace 文档。",
         productsTitle: "Aflow 产品",
         productsDescription: "了解 Aflow Agent 与 Specflow：一个是即将到来的工作流 Agent，一个是支撑它的工作流基础设施。",
         siteName: "Aflow",
@@ -34,6 +47,7 @@
         specflow: "Specflow",
         useCases: "场景",
         technical: "技术",
+        docs: "文档",
         download: "下载",
         github: "GitHub",
         primaryCta: "下载",
@@ -137,14 +151,25 @@
         releasesCta: "打开 GitHub Releases",
         commandCta: "命令行下载",
         commandTitle: "从命令行安装",
-        commandBody: "安装脚本固定在 install-v1 tag；如需指定版本，在命令后追加 release tag。",
+        commandBody: "安装脚本固定在 install-v2 tag；如需指定版本，在命令后追加 release tag。",
         backHome: "返回首页",
         groups: [
-          ["macOS / Linux · 最新稳定版", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash"],
-          ["macOS / Linux · 指定版本", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v0.0.1-beta.2"],
-          ["Windows PowerShell · 最新稳定版", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\")))"],
-          ["Windows PowerShell · 指定版本", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\"))) \"v0.0.1-beta.2\""],
+          ["macOS / Linux · 最新稳定版", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash"],
+          ["macOS / Linux · 指定版本", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash -s -- v0.0.1-beta.2"],
+          ["Windows PowerShell · 最新稳定版", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1\")))"],
+          ["Windows PowerShell · 指定版本", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1\"))) \"v0.0.1-beta.2\""],
         ],
+      },
+      docs: {
+        title: "文档",
+        body: "阅读 Aflow Agent 与 Specflow 的教程。左侧按公开文档目录分组；未来新增的文档目录也会自动出现在这里。",
+        loading: "正在加载文档...",
+        error: "文档加载失败。",
+        noDocs: "当前语言暂无文档。",
+        sections: "文档目录",
+        onThisPage: "本文目录",
+        updatedAt: "更新于",
+        openSource: "查看 Markdown",
       },
       footer: {
         descriptor: "Agentic Workflow Agent built on Specflow.",
@@ -157,6 +182,8 @@
         homeDescription: "Aflow Agent is built on Specflow: a workflow-native agent that helps design, optimize, and run durable agent workflows.",
         downloadTitle: "Download Aflow",
         downloadDescription: "Download Aflow binaries from GitHub Releases or install from the command line.",
+        docsTitle: "Aflow Docs",
+        docsDescription: "Read tutorials and reference docs for Aflow and Specflow.",
         productsTitle: "Aflow Products",
         productsDescription: "Learn how Aflow Agent and Specflow fit together: the agentic workflow agent and the workflow infrastructure beneath it.",
         siteName: "Aflow",
@@ -176,6 +203,7 @@
         specflow: "Specflow",
         useCases: "Use cases",
         technical: "Technical",
+        docs: "Docs",
         download: "Download",
         github: "GitHub",
         primaryCta: "Download",
@@ -279,14 +307,25 @@
         releasesCta: "Open GitHub Releases",
         commandCta: "Command line install",
         commandTitle: "Install from command line",
-        commandBody: "The installer is pinned to the install-v1 tag. Pass a release tag when you want a specific version.",
+        commandBody: "The installer is pinned to the install-v2 tag. Pass a release tag when you want a specific version.",
         backHome: "Back home",
         groups: [
-          ["macOS / Linux · latest stable", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash"],
-          ["macOS / Linux · specific version", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v0.0.1-beta.2"],
-          ["Windows PowerShell · latest stable", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\")))"],
-          ["Windows PowerShell · specific version", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1\"))) \"v0.0.1-beta.2\""],
+          ["macOS / Linux · latest stable", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash"],
+          ["macOS / Linux · specific version", "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash -s -- v0.0.1-beta.2"],
+          ["Windows PowerShell · latest stable", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1\")))"],
+          ["Windows PowerShell · specific version", "& ([scriptblock]::Create((irm \"https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1\"))) \"v0.0.1-beta.2\""],
         ],
+      },
+      docs: {
+        title: "Docs",
+        body: "Read tutorials for Aflow Agent and Specflow. The left sidebar is grouped by public docs directory; future documentation sections will appear here automatically.",
+        loading: "Loading docs...",
+        error: "Could not load this document.",
+        noDocs: "No docs are available for this language yet.",
+        sections: "Documentation",
+        onThisPage: "On this page",
+        updatedAt: "Updated",
+        openSource: "View Markdown",
       },
       footer: {
         descriptor: "Agentic Workflow Agent built on Specflow.",
@@ -328,8 +367,8 @@
   }
 
   function updateMetadata(t) {
-    const title = page === "download" ? t.meta.downloadTitle : page === "products" ? t.meta.productsTitle : t.meta.homeTitle;
-    const description = page === "download" ? t.meta.downloadDescription : page === "products" ? t.meta.productsDescription : t.meta.homeDescription;
+    const title = page === "download" ? t.meta.downloadTitle : page === "products" ? t.meta.productsTitle : page === "docs" ? t.meta.docsTitle : t.meta.homeTitle;
+    const description = page === "download" ? t.meta.downloadDescription : page === "products" ? t.meta.productsDescription : page === "docs" ? t.meta.docsDescription : t.meta.homeDescription;
     document.documentElement.lang = locale;
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
@@ -363,6 +402,199 @@
     return page === "home" ? fragment : `index.html${fragment}`;
   }
 
+  function docsLocale() {
+    return DOCS_LOCALE[locale] || "en";
+  }
+
+  function titleCase(value) {
+    return String(value || "")
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function slugify(value) {
+    const slug = String(value)
+      .trim()
+      .toLowerCase()
+      .replace(/[`*_~[\]()]/g, "")
+      .replace(/[^\p{L}\p{N}]+/gu, "-")
+      .replace(/^-+|-+$/g, "");
+    return slug || "section";
+  }
+
+  function uniqueSlug(base, used) {
+    const count = used.get(base) || 0;
+    used.set(base, count + 1);
+    return count === 0 ? base : `${base}-${count + 1}`;
+  }
+
+  function stripFrontmatter(markdown) {
+    if (!markdown.startsWith("---\n")) return { frontmatter: {}, body: markdown };
+    const end = markdown.indexOf("\n---", 4);
+    if (end === -1) return { frontmatter: {}, body: markdown };
+    const frontmatter = {};
+    markdown.slice(4, end).split(/\r?\n/).forEach((line) => {
+      const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+      if (match) frontmatter[match[1]] = match[2].trim().replace(/^["']|["']$/g, "");
+    });
+    return { frontmatter, body: markdown.slice(end + 4).replace(/^\r?\n/, "") };
+  }
+
+  function inlineMarkdown(value) {
+    const code = [];
+    let text = escapeHtml(value).replace(/`([^`]+)`/g, (_match, inner) => {
+      code.push(`<code>${inner}</code>`);
+      return `\u0000${code.length - 1}\u0000`;
+    });
+    text = text
+      .replace(/\[([^\]]+)]\(([^)]+)\)/g, (_match, label, href) => `<a href="${escapeHtml(href)}">${label}</a>`)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    return text.replace(/\u0000(\d+)\u0000/g, (_match, index) => code[Number(index)] || "");
+  }
+
+  function renderTable(lines) {
+    const rows = lines.map((line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
+    if (rows.length < 2) return "";
+    const head = rows[0].map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join("");
+    const body = rows.slice(2).map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("");
+    return `<div class="markdown-table"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function renderMarkdown(markdown) {
+    const { frontmatter, body } = stripFrontmatter(markdown);
+    const lines = body.replace(/\r\n/g, "\n").split("\n");
+    const chunks = [];
+    const headings = [];
+    const usedSlugs = new Map();
+    let index = 0;
+
+    while (index < lines.length) {
+      const line = lines[index];
+      if (!line.trim()) {
+        index += 1;
+        continue;
+      }
+
+      const fence = line.match(/^```(\w+)?\s*$/);
+      if (fence) {
+        const language = fence[1] || "";
+        const codeLines = [];
+        index += 1;
+        while (index < lines.length && !lines[index].startsWith("```")) {
+          codeLines.push(lines[index]);
+          index += 1;
+        }
+        index += 1;
+        chunks.push(`<pre><code${language ? ` data-language="${escapeHtml(language)}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        continue;
+      }
+
+      const heading = line.match(/^(#{1,4})\s+(.+)$/);
+      if (heading) {
+        const level = heading[1].length;
+        const text = heading[2].trim();
+        const id = uniqueSlug(slugify(text), usedSlugs);
+        headings.push({ level, text, id });
+        chunks.push(`<h${level} id="${id}">${inlineMarkdown(text)}</h${level}>`);
+        index += 1;
+        continue;
+      }
+
+      if (line.includes("|") && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1])) {
+        const tableLines = [line, lines[index + 1]];
+        index += 2;
+        while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+          tableLines.push(lines[index]);
+          index += 1;
+        }
+        chunks.push(renderTable(tableLines));
+        continue;
+      }
+
+      const unordered = line.match(/^\s*-\s+(.+)$/);
+      if (unordered) {
+        const items = [];
+        while (index < lines.length) {
+          const item = lines[index].match(/^\s*-\s+(.+)$/);
+          if (!item) break;
+          items.push(`<li>${inlineMarkdown(item[1])}</li>`);
+          index += 1;
+        }
+        chunks.push(`<ul>${items.join("")}</ul>`);
+        continue;
+      }
+
+      const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+      if (ordered) {
+        const items = [];
+        while (index < lines.length) {
+          const item = lines[index].match(/^\s*\d+\.\s+(.+)$/);
+          if (!item) break;
+          items.push(`<li>${inlineMarkdown(item[1])}</li>`);
+          index += 1;
+        }
+        chunks.push(`<ol>${items.join("")}</ol>`);
+        continue;
+      }
+
+      const paragraph = [line.trim()];
+      index += 1;
+      while (
+        index < lines.length &&
+        lines[index].trim() &&
+        !/^#{1,4}\s+/.test(lines[index]) &&
+        !/^```/.test(lines[index]) &&
+        !/^\s*[-*]\s+/.test(lines[index]) &&
+        !/^\s*\d+\.\s+/.test(lines[index])
+      ) {
+        paragraph.push(lines[index].trim());
+        index += 1;
+      }
+      chunks.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+    }
+
+    return { frontmatter, html: chunks.join("\n"), headings };
+  }
+
+  function docsHashSelection() {
+    const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+    if (parts[0] === "en" || parts[0] === "zh") return { locale: parts[0], section: parts[1], id: parts[2] };
+    return { locale: docsLocale(), section: parts[0], id: parts[1] };
+  }
+
+  function docsForLocale(manifest, docLocale = docsLocale()) {
+    return (manifest?.sections || [])
+      .map((section) => ({
+        ...section,
+        title: section.title || titleCase(section.id),
+        items: (section.items || [])
+          .filter((item) => item.locale === docLocale)
+          .sort((a, b) => Number(a.order || 999) - Number(b.order || 999) || a.title.localeCompare(b.title)),
+      }))
+      .filter((section) => section.items.length > 0);
+  }
+
+  function selectDoc(manifest) {
+    const selection = docsHashSelection();
+    const sections = docsForLocale(manifest, selection.locale || docsLocale());
+    const selected = sections
+      .flatMap((section) => section.items.map((item) => ({ section, item })))
+      .find(({ section, item }) => section.id === selection.section && item.id === selection.id);
+    return selected || sections.flatMap((section) => section.items.map((item) => ({ section, item })))[0] || null;
+  }
+
   function languageSwitcher(t) {
     return `<div class="segmented-switcher language-switcher" role="group" aria-label="${t.accessibility.languageSelector}"><button type="button" data-locale="en-US" aria-pressed="${locale === "en-US"}">EN</button><button type="button" data-locale="zh-CN" aria-pressed="${locale === "zh-CN"}">中文</button></div>`;
   }
@@ -377,7 +609,7 @@
 
   function header(t) {
     const menuLabel = menuOpen ? t.accessibility.mobileMenuClose : t.accessibility.mobileMenuOpen;
-    return `<header class="site-header" data-header><div class="container header-inner"><a class="brand" href="index.html#hero" aria-label="Aflow">${brandMark()}<span>Aflow</span></a><button class="menu-trigger" type="button" data-menu-toggle aria-label="${menuLabel}" aria-expanded="${menuOpen}" aria-controls="primary-menu"><span></span><span></span></button><nav id="primary-menu" class="primary-nav ${menuOpen ? "is-open" : ""}" aria-label="${t.accessibility.primaryNavigation}">${productMenu(t)}<a href="${pageHref("#use-cases")}">${t.navigation.useCases}</a><a href="${pageHref("#technical")}">${t.navigation.technical}</a><a href="download.html">${t.navigation.download}</a><a href="${RELEASES_URL}" target="_blank" rel="noreferrer">${t.navigation.github}</a></nav><div class="header-actions">${themeSwitcher(t)}${languageSwitcher(t)}<a class="button primary header-cta" href="download.html">${icon("arrow")}<span>${t.navigation.primaryCta}</span></a></div></div></header>`;
+    return `<header class="site-header" data-header><div class="container header-inner"><a class="brand" href="index.html#hero" aria-label="Aflow">${brandMark()}<span>Aflow</span></a><button class="menu-trigger" type="button" data-menu-toggle aria-label="${menuLabel}" aria-expanded="${menuOpen}" aria-controls="primary-menu"><span></span><span></span></button><nav id="primary-menu" class="primary-nav ${menuOpen ? "is-open" : ""}" aria-label="${t.accessibility.primaryNavigation}">${productMenu(t)}<a href="${pageHref("#use-cases")}">${t.navigation.useCases}</a><a href="${pageHref("#technical")}">${t.navigation.technical}</a><a href="docs.html">${t.navigation.docs}</a><a href="download.html">${t.navigation.download}</a><a href="${RELEASES_URL}" target="_blank" rel="noreferrer">${t.navigation.github}</a></nav><div class="header-actions">${themeSwitcher(t)}${languageSwitcher(t)}<a class="button primary header-cta" href="download.html">${icon("arrow")}<span>${t.navigation.primaryCta}</span></a></div></div></header>`;
   }
 
   function workflowPreview(t) {
@@ -419,8 +651,90 @@
     return `<main id="main-content" class="download-page" tabindex="-1"><section class="download-hero section"><div class="container download-hero-layout"><div><h1>${t.download.title}</h1><p>${t.download.body}</p><div class="cta-row"><a class="button primary" href="${RELEASES_URL}" target="_blank" rel="noreferrer">${icon("external")}<span>${t.download.releasesCta}</span></a><a class="button secondary" href="#command-line">${icon("terminal")}<span>${t.download.commandCta}</span></a><a class="button secondary" href="index.html#hero">${icon("branch")}<span>${t.download.backHome}</span></a></div></div><aside class="release-card"><span>GitHub Releases</span><h2>${t.download.releasesTitle}</h2><p>${t.download.releasesBody}</p></aside></div></section><section id="command-line" class="download-section section"><div class="container"><div class="section-heading"><h2>${t.download.commandTitle}</h2><p>${t.download.commandBody}</p></div><div class="download-grid">${t.download.groups.map(commandGroup).join("")}</div></div></section></main>`;
   }
 
+  function docsSidebar(t, sections, current) {
+    if (!sections.length) return `<p class="docs-empty">${t.docs.noDocs}</p>`;
+    return sections.map((section) => {
+      const items = section.items.map((item) => {
+        const active = current?.section.id === section.id && current?.item.id === item.id;
+        return `<a class="${active ? "is-active" : ""}" href="docs.html#/${docsLocale()}/${section.id}/${item.id}"><strong>${escapeHtml(item.title)}</strong>${item.description ? `<span>${escapeHtml(item.description)}</span>` : ""}</a>`;
+      }).join("");
+      return `<section class="docs-nav-section"><h2>${escapeHtml(section.title)}</h2>${items}</section>`;
+    }).join("");
+  }
+
+  function docsToc(t) {
+    const headings = docsState.headings.filter((heading) => heading.level > 1 && heading.level < 4);
+    if (!headings.length) return "";
+    return `<aside class="docs-toc" aria-label="${t.docs.onThisPage}"><h2>${t.docs.onThisPage}</h2>${headings.map((heading) => `<a class="level-${heading.level}" href="#${heading.id}">${escapeHtml(heading.text)}</a>`).join("")}</aside>`;
+  }
+
+  function docsArticle(t) {
+    if (docsState.error) return `<article class="docs-article"><p class="docs-error">${t.docs.error}</p><pre><code>${escapeHtml(docsState.error)}</code></pre></article>`;
+    if (docsState.loadingKey || docsState.manifestLoading) return `<article class="docs-article"><p class="docs-loading">${t.docs.loading}</p></article>`;
+    if (!docsState.currentDoc || !docsState.html) return `<article class="docs-article"><p class="docs-empty">${t.docs.noDocs}</p></article>`;
+    const updatedAt = docsState.currentDoc.updatedAt ? `<span>${t.docs.updatedAt} ${escapeHtml(docsState.currentDoc.updatedAt)}</span>` : "";
+    return `<article class="docs-article"><header class="docs-article-header"><p class="section-label">${escapeHtml(docsState.currentDoc.sectionTitle)}</p><h1>${escapeHtml(docsState.currentDoc.title)}</h1>${docsState.currentDoc.description ? `<p>${escapeHtml(docsState.currentDoc.description)}</p>` : ""}<div>${updatedAt}<a href="${escapeHtml(docsState.currentDoc.path)}" target="_blank" rel="noreferrer">${t.docs.openSource}</a></div></header><div class="markdown-body">${docsState.html}</div></article>`;
+  }
+
+  function docsPage(t) {
+    const sections = docsForLocale(docsState.manifest);
+    const current = selectDoc(docsState.manifest);
+    return `<main id="main-content" class="docs-page" tabindex="-1"><section class="docs-hero section"><div class="container"><p class="section-label">Docs</p><h1>${t.docs.title}</h1><p>${t.docs.body}</p></div></section><section class="docs-shell section"><div class="container docs-layout"><aside class="docs-sidebar" aria-label="${t.docs.sections}"><h1>${t.docs.sections}</h1>${docsSidebar(t, sections, current)}</aside><div class="docs-content">${docsArticle(t)}</div>${docsToc(t)}</div></section></main>`;
+  }
+
+  async function loadDocs() {
+    if (page !== "docs") return;
+    if (!docsState.manifest && !docsState.manifestLoading) {
+      docsState.manifestLoading = true;
+      render();
+      try {
+        const response = await fetch("docs/manifest.json");
+        if (!response.ok) throw new Error(`manifest ${response.status}`);
+        docsState.manifest = await response.json();
+        docsState.error = "";
+      } catch (error) {
+        docsState.error = error instanceof Error ? error.message : String(error);
+      } finally {
+        docsState.manifestLoading = false;
+        render();
+      }
+      return;
+    }
+    if (!docsState.manifest) return;
+    const selected = selectDoc(docsState.manifest);
+    if (!selected) return;
+    const key = `${selected.item.locale}/${selected.section.id}/${selected.item.id}`;
+    if (docsState.currentKey === key && docsState.html) return;
+    if (docsState.loadingKey === key) return;
+    docsState.loadingKey = key;
+    docsState.error = "";
+    render();
+    try {
+      const response = await fetch(selected.item.path);
+      if (!response.ok) throw new Error(`${selected.item.path} ${response.status}`);
+      const markdown = await response.text();
+      const rendered = renderMarkdown(markdown);
+      docsState.currentKey = key;
+      docsState.currentDoc = {
+        ...selected.item,
+        sectionTitle: selected.section.title,
+        title: rendered.frontmatter.title || selected.item.title,
+        description: rendered.frontmatter.description || selected.item.description,
+        updatedAt: rendered.frontmatter.updatedAt || selected.item.updatedAt || "",
+      };
+      docsState.html = rendered.html;
+      docsState.headings = rendered.headings;
+      docsState.error = "";
+    } catch (error) {
+      docsState.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      docsState.loadingKey = "";
+      render();
+    }
+  }
+
   function footer(t) {
-    return `<footer class="site-footer"><div class="container footer-layout"><div class="footer-brand"><a class="brand" href="index.html#hero">${brandMark()}<span>Aflow</span></a><p>${t.footer.descriptor}</p></div><nav class="footer-links" aria-label="${t.accessibility.primaryNavigation}"><a href="product.html">${t.navigation.product}</a><a href="download.html">${t.navigation.download}</a><a href="${pageHref("#technical")}">${t.navigation.technical}</a><a href="${RELEASES_URL}" target="_blank" rel="noreferrer">GitHub</a></nav><p class="footer-note">${t.footer.note}</p></div></footer>`;
+    return `<footer class="site-footer"><div class="container footer-layout"><div class="footer-brand"><a class="brand" href="index.html#hero">${brandMark()}<span>Aflow</span></a><p>${t.footer.descriptor}</p></div><nav class="footer-links" aria-label="${t.accessibility.primaryNavigation}"><a href="product.html">${t.navigation.product}</a><a href="docs.html">${t.navigation.docs}</a><a href="download.html">${t.navigation.download}</a><a href="${pageHref("#technical")}">${t.navigation.technical}</a><a href="${RELEASES_URL}" target="_blank" rel="noreferrer">GitHub</a></nav><p class="footer-note">${t.footer.note}</p></div></footer>`;
   }
 
   function render() {
@@ -430,10 +744,13 @@
       ? downloadPage(t)
       : page === "products"
         ? productsPage(t)
-        : `<main id="main-content" tabindex="-1">${hero(t)}${values(t)}${useCases(t)}${technical(t)}${closing(t)}</main>`;
+        : page === "docs"
+          ? docsPage(t)
+          : `<main id="main-content" tabindex="-1">${hero(t)}${values(t)}${useCases(t)}${technical(t)}${closing(t)}</main>`;
     app.innerHTML = `<a class="skip-link" href="#main-content">${t.accessibility.skipToContent}</a>${header(t)}${main}${footer(t)}`;
     bindControls();
     app.querySelector("[data-header]")?.classList.toggle("has-scroll", window.scrollY > 8);
+    if (page === "docs") loadDocs();
   }
 
   function bindControls() {
@@ -442,9 +759,15 @@
         const nextLocale = button.dataset.locale;
         if (!LOCALES.includes(nextLocale) || nextLocale === locale) return;
         const scrollPosition = window.scrollY;
+        const previousDoc = page === "docs" ? selectDoc(docsState.manifest) : null;
         locale = nextLocale;
         menuOpen = false;
         persist(STORAGE_KEY, locale);
+        if (previousDoc) {
+          window.history.replaceState(null, "", `#/${docsLocale()}/${previousDoc.section.id}/${previousDoc.item.id}`);
+          docsState.html = "";
+          docsState.currentKey = "";
+        }
         render();
         window.scrollTo(0, scrollPosition);
       });
@@ -479,6 +802,13 @@
   window.addEventListener("scroll", () => {
     app.querySelector("[data-header]")?.classList.toggle("has-scroll", window.scrollY > 8);
   }, { passive: true });
+
+  window.addEventListener("hashchange", () => {
+    if (page !== "docs") return;
+    docsState.html = "";
+    docsState.currentKey = "";
+    render();
+  });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && menuOpen) {
