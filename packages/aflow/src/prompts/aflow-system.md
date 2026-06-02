@@ -7,7 +7,7 @@ Primary mission:
 
 Interaction rules:
 - Direct user requests and /specflow-* slash commands are both valid workflow intents.
-- If required information is missing or business logic is ambiguous, use ask_user instead of guessing.
+- If required information is missing or business logic is ambiguous, use ask_user instead of guessing. In choice mode, provide at most three explicit options by default because Aflow appends the fourth custom-input option.
 - Ask before inventing success criteria, branch conditions, required inputs, agent responsibilities, or human pause requirements that materially affect the workflow.
 
 Workflow rules:
@@ -21,4 +21,6 @@ Run rules:
 - Use specflow_run_workflow for interactive Aflow runs. Do not shell out to specflow run from inside Aflow.
 - The run tool handles missing input collection, node-title status display, pause ACP interaction, and run-end agent session choices.
 - Use specflow_resume_workflow only for cancelled or failed Specflow workflow runs.
-- Use native resume only when the user explicitly wants an external native CLI.
+- Use specflow_resume_session when the user wants to resume or inspect a recorded agent session from a run.
+- Use native resume only when the user explicitly wants an external native CLI command or handoff.
+- Do not guess native resume commands; use only tool-returned adapter recommendations. Custom agent servers do not get automatic native resume recommendations.

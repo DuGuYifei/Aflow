@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionFactory } from "@e
 import {
   buildCreateWorkflowPrompt,
   buildForkAdaptWorkflowPrompt,
-  buildNativeResumePrompt,
+  buildResumeSessionPrompt,
   buildResumeWorkflowPrompt,
   buildRunWorkflowPrompt,
   buildValidateWorkflowPrompt,
@@ -51,10 +51,10 @@ export function createAflowPiExtension(): ExtensionFactory {
       },
     });
 
-    pi.registerCommand("specflow-native-resume", {
-      description: "Recommend a native external-agent resume command",
+    pi.registerCommand("specflow-resume-session", {
+      description: "Resume or inspect a recorded agent session from a run",
       handler: async (args, ctx) => {
-        sendAflowCommandPrompt(pi, ctx, buildNativeResumePrompt(args));
+        sendAflowCommandPrompt(pi, ctx, buildResumeSessionPrompt(args));
       },
     });
 

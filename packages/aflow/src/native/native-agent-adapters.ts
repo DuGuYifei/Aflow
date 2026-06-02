@@ -1,6 +1,6 @@
 import type { AgentServerEntry } from "@specflow/agent-proxy";
 
-export type NativeResumeStatus = "resume" | "continue" | "selector" | "acp-only" | "unknown" | "unsupported";
+export type NativeResumeStatus = "resume" | "continue" | "selector" | "acp-only" | "custom-unverified" | "unknown" | "unsupported";
 
 export interface NativeAgentAdapter {
   id: string;
@@ -117,12 +117,28 @@ export function getNativeAgentAdapter(value: string | undefined): NativeAgentAda
 }
 
 export function buildNativeResumeRecommendation(input: NativeResumeInput): NativeResumeRecommendation | undefined {
+  if (input.agentServer?.settings.type === "custom") {
+    return {
+      adapter: {
+        id: input.agentServer.id,
+        displayName: input.agentServer.id,
+        aliases: [input.agentServer.id],
+        status: "custom-unverified",
+        caveat: "This is a custom agent server. Aflow cannot verify its native resume semantics from the command name alone.",
+      },
+      status: "custom-unverified",
+      command: "",
+      args: [],
+      displayCommand: "",
+      caveat: "This is a custom agent server. Use ACP Resume/Inspect, or run your own native command with the recorded session ids.",
+    };
+  }
+
   const registryId = input.registryId ?? registryIdForAgentServer(input.agentServer);
   const adapter =
     getNativeAgentAdapter(registryId) ??
     getNativeAgentAdapter(input.agentServerId) ??
-    getNativeAgentAdapter(input.agentServer?.id) ??
-    getNativeAgentAdapter(commandForAgentServer(input.agentServer));
+    getNativeAgentAdapter(input.agentServer?.id);
 
   if (!adapter) return undefined;
   if (!adapter.command || adapter.status === "acp-only" || adapter.status === "unknown" || adapter.status === "unsupported") {
@@ -187,11 +203,6 @@ function renderArgs(args: string[], sessionId: string | undefined): string[] {
 function registryIdForAgentServer(agentServer: AgentServerEntry | undefined): string | undefined {
   if (!agentServer || agentServer.settings.type !== "registry") return undefined;
   return agentServer.settings.registryId;
-}
-
-function commandForAgentServer(agentServer: AgentServerEntry | undefined): string | undefined {
-  if (!agentServer || agentServer.settings.type !== "custom") return undefined;
-  return agentServer.settings.command.split(/\s+/)[0];
 }
 
 function normalizeAlias(value: string): string {

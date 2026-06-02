@@ -7,24 +7,24 @@ import {
   type RunInputVariable,
 } from "@specflow/server";
 import { Type } from "typebox";
-import { openAcpSessionView, openPausedNodeAcpView, type AflowCustomUi } from "../acp/acp-session-view";
+import { openPausedNodeAcpView, type AflowCustomUi } from "../acp/acp-session-view";
 import {
   buildNodeDisplayMap,
   extractRecentConversationSnippets,
-  formatAgentSessionList,
-  formatAgentSessionOption,
   formatNodeRef,
   formatRunSummary,
   latestInvocation,
   sessionsForRun,
   type NodeDisplayInfo,
 } from "../acp/session-summary";
-import { commandExists } from "../native/command-detection";
-import { buildNativeResumeRecommendation } from "../native/native-agent-adapters";
 import { handoffToNativeTerminalFromTui } from "../native/terminal-handoff";
 import { connectOrStartSpecflowServer } from "../server/connect-or-start";
 import type { AgentSessionRecord, PausedNodeSession, RunLogEvent, RunRecordDetail, SpecflowClient } from "../server/specflow-client";
 import { getServerCanvasOrExplainLocal, loadWorkflowDoc } from "../workflows/workflow-resolver";
+import {
+  offerRunSessionResume,
+  resumeAgentSessionForRun,
+} from "../resume/session-resume";
 
 type NativeHandoffUi = Parameters<typeof handoffToNativeTerminalFromTui>[1];
 type WorkflowUi = AflowCustomUi & NativeHandoffUi;
@@ -44,13 +44,6 @@ const RunWorkflowParams = Type.Object({
 
 const RunIdParams = Type.Object({
   runId: Type.String({ description: "Specflow run id." }),
-  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
-});
-
-const NativeResumeParams = Type.Object({
-  runId: Type.String({ description: "Specflow run id." }),
-  nativeSessionId: Type.Optional(Type.String({ description: "Known native CLI session/thread/checkpoint id, if different from ACP session id." })),
-  executeNative: Type.Optional(Type.Boolean({ description: "When true, hand off the current Aflow TUI to the native terminal CLI." })),
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
 
@@ -144,14 +137,14 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         ui: ctx.ui,
         nodeDisplay,
       });
-      const continuation = await offerSessionContinuation({
+      const sessionResume = await offerRunSessionResume({
         client: connection.client,
         run: finalRun,
         nodeDisplay,
         hasUI: ctx.hasUI,
-        ui: ctx.ui,
+        ui: ctx.hasUI ? ctx.ui : undefined,
       });
-      return textResult([formatRunSummary(finalRun, nodeDisplay), continuation.text].filter(Boolean).join("\n\n"), {
+      return textResult([formatRunSummary(finalRun, nodeDisplay), sessionResume.text].filter(Boolean).join("\n\n"), {
         runId: run.id,
         workflowId: finalRun.workflowId,
         status: finalRun.status,
@@ -159,8 +152,35 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         pausedNodeId: finalRun.pausedNodeId,
         errorMsg: finalRun.errorMsg,
         serverUrl: connection.url,
-        agentSessions: continuation.sessions,
-        continuation: continuation.details,
+        agentSessions: sessionResume.sessions,
+        sessionResume: sessionResume.details,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_resume_session",
+    label: "Resume Agent Session",
+    description: "Open the Aflow session resume picker for a completed Specflow run.",
+    promptSnippet: "Resume or inspect a recorded agent session from a Specflow run.",
+    promptGuidelines: [
+      "Use for explicit agent session resume after a run.",
+      "This tool offers ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, and Skip when TUI is available.",
+      "Do not guess native commands; use the tool result.",
+    ],
+    parameters: RunIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const sessionResume = await resumeAgentSessionForRun({
+        client: connection.client,
+        runId: params.runId,
+        hasUI: ctx.hasUI,
+        ui: ctx.hasUI ? ctx.ui : undefined,
+      });
+      return textResult(sessionResume.text, {
+        runId: params.runId,
+        agentSessions: sessionResume.sessions,
+        sessionResume: sessionResume.details,
       });
     },
   });
@@ -183,68 +203,6 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerTool({
-    name: "specflow_native_resume_recommendation",
-    label: "Native Resume Recommendation",
-    description: "Recommend an external agent native CLI resume command for a Specflow run.",
-    promptSnippet: "Recommend a native external-agent resume command when the user wants to continue outside ACP.",
-    promptGuidelines: [
-      "Use only for native continuation, not live pause interaction.",
-      "Warn that ACP session ids may not equal native CLI session ids.",
-    ],
-    parameters: NativeResumeParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
-      const resumable = await connection.client.getResumableSession(params.runId);
-      const agentServers = await connection.client.listAgentServers();
-      const agentServer = agentServers.find((entry) => entry.id === resumable.agentServerId);
-      const recommendation = buildNativeResumeRecommendation({
-        agentServer,
-        agentServerId: resumable.agentServerId,
-        acpSessionId: resumable.acpSessionId,
-        nativeSessionId: params.nativeSessionId,
-      });
-      if (!recommendation?.displayCommand) {
-        return textResult("No native resume command can be recommended for this agent.", {
-          agentServerId: resumable.agentServerId,
-          status: recommendation?.status ?? "unknown",
-        });
-      }
-      if (params.executeNative) {
-        if (!ctx.hasUI) {
-          return textResult("Native handoff requires the interactive Aflow TUI.", {
-            agentServerId: resumable.agentServerId,
-            command: recommendation.command,
-            args: recommendation.args,
-            status: "unavailable",
-          });
-        }
-        if (!await commandExists(recommendation.command)) {
-          return textResult(`Native CLI command not found: ${recommendation.command}`, {
-            agentServerId: resumable.agentServerId,
-            command: recommendation.command,
-            args: recommendation.args,
-            status: "command-not-found",
-          });
-        }
-        const exitCode = await handoffToNativeTerminalFromTui(recommendation, ctx.ui);
-        return textResult(`Native CLI exited with code ${exitCode}.`, {
-          agentServerId: resumable.agentServerId,
-          command: recommendation.command,
-          args: recommendation.args,
-          status: recommendation.status,
-          exitCode,
-        });
-      }
-      return textResult(recommendation.displayCommand, {
-        agentServerId: resumable.agentServerId,
-        command: recommendation.command,
-        args: recommendation.args,
-        status: recommendation.status,
-        caveat: recommendation.caveat,
-      });
-    },
-  });
 }
 
 async function monitorRun(
@@ -332,134 +290,6 @@ async function findPausedAgentSession(
     const latest = latestInvocation(session);
     return latest?.nodeId === paused.nodeId || session.invocations.some((invocation) => invocation.nodeId === paused.nodeId);
   });
-}
-
-async function offerSessionContinuation(input: {
-  client: SpecflowClient;
-  run: RunRecordDetail;
-  nodeDisplay: Map<string, NodeDisplayInfo>;
-  hasUI: boolean;
-  ui: WorkflowUi;
-}): Promise<{
-  text: string;
-  sessions: AgentSessionRecord[];
-  details?: Record<string, unknown>;
-}> {
-  const allSessions = await input.client.listAgentSessions({ workflowId: input.run.workflowId }).catch(() => []);
-  const sessions = sessionsForRun(allSessions, input.run.id);
-  const agentServers = await input.client.listAgentServers().catch(() => []);
-  const listText = formatAgentSessionList(sessions, input.nodeDisplay, agentServers);
-
-  if (sessions.length === 0) {
-    return { text: listText, sessions };
-  }
-
-  if (!input.hasUI) {
-    return { text: listText, sessions };
-  }
-
-  const sessionOptions = [
-    "Skip",
-    ...sessions.map((session) => `${formatAgentSessionOption(session, input.nodeDisplay, agentServers)} · ${session.id.slice(0, 8)}`),
-  ];
-  const selectedSessionLabel = await input.ui.select("Continue an agent session from this run", sessionOptions);
-  if (!selectedSessionLabel || selectedSessionLabel === "Skip") {
-    return { text: listText, sessions, details: { selected: false } };
-  }
-
-  const session = sessions[sessionOptions.indexOf(selectedSessionLabel) - 1];
-  if (!session) {
-    return { text: listText, sessions, details: { selected: false } };
-  }
-
-  const mode = await input.ui.select([
-    "Open selected session",
-    formatSelectedSession(session, input.nodeDisplay, agentServers),
-  ].join("\n"), ["ACP Continue", "ACP Inspect", "Native CLI", "Skip"]);
-  if (!mode || mode === "Skip") {
-    return { text: listText, sessions, details: { selectedSessionId: session.id, selected: false } };
-  }
-
-  if (mode === "Native CLI") {
-    const native = await openNativeContinuation(input.ui, session, agentServers);
-    return {
-      text: [listText, native.text].filter(Boolean).join("\n\n"),
-      sessions,
-      details: { selectedSessionId: session.id, mode, ...native.details },
-    };
-  }
-
-  const runLogs = normalizeRunLogs(await input.client.getRunLogs(input.run.id, { tail: 500 }).catch(() => []));
-  const snippets = extractRecentConversationSnippets(runLogs, session, 2);
-  const latest = latestInvocation(session);
-  await openAcpSessionView({
-    client: input.client,
-    ui: input.ui,
-    session,
-    mode: mode === "ACP Inspect" ? "inspect" : "continue",
-    node: latest?.nodeId ? input.nodeDisplay.get(latest.nodeId) : undefined,
-    snippets,
-  });
-
-  return {
-    text: [
-      listText,
-      `Opened ${mode} for ${formatSelectedSession(session, input.nodeDisplay, agentServers)}.`,
-    ].join("\n\n"),
-    sessions,
-    details: { selectedSessionId: session.id, mode },
-  };
-}
-
-async function openNativeContinuation(
-  ui: WorkflowUi,
-  session: AgentSessionRecord,
-  agentServers: Awaited<ReturnType<SpecflowClient["listAgentServers"]>>,
-): Promise<{ text: string; details?: Record<string, unknown> }> {
-  const agentServer = agentServers.find((entry) => entry.id === session.agentServerId);
-  const recommendation = buildNativeResumeRecommendation({
-    agentServer,
-    agentServerId: session.agentServerId,
-    acpSessionId: session.acpSessionId,
-  });
-
-  if (!recommendation?.displayCommand) {
-    const text = `No native resume command can be recommended for agent ${session.agentServerId}.`;
-    ui.notify(text, "warning");
-    return { text, details: { nativeStatus: recommendation?.status ?? "unknown" } };
-  }
-
-  if (!(await commandExists(recommendation.command))) {
-    const text = `Native CLI command not found: ${recommendation.command}\nRecommended command: ${recommendation.displayCommand}`;
-    ui.notify(`Native CLI command not found: ${recommendation.command}`, "warning");
-    return {
-      text,
-      details: {
-        nativeStatus: "command-not-found",
-        command: recommendation.command,
-        args: recommendation.args,
-      },
-    };
-  }
-
-  const exitCode = await handoffToNativeTerminalFromTui(recommendation, ui);
-  return {
-    text: `Native CLI exited with code ${exitCode}.\nCommand: ${recommendation.displayCommand}`,
-    details: {
-      nativeStatus: recommendation.status,
-      command: recommendation.command,
-      args: recommendation.args,
-      exitCode,
-    },
-  };
-}
-
-function formatSelectedSession(
-  session: AgentSessionRecord,
-  nodeDisplay: Map<string, NodeDisplayInfo>,
-  agentServers: Awaited<ReturnType<SpecflowClient["listAgentServers"]>>,
-): string {
-  return `${formatAgentSessionOption(session, nodeDisplay, agentServers)} · ACP ${session.acpSessionId}`;
 }
 
 function normalizeRunLogs(result: RunLogEvent[] | { events: RunLogEvent[] }): RunLogEvent[] {

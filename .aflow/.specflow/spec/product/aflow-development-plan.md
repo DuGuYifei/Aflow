@@ -27,14 +27,15 @@ The first code slice now exists in `packages/aflow`:
 
 - `packages/aflow/src/pi/pi-sdk-host.ts` calls Pi's exported `main(args, { extensionFactories })`.
 - `packages/aflow/src/pi/aflow-extension.ts` registers `/specflow-*` commands as LLM prompt triggers and sets compact Aflow status/widget identity.
-- `packages/aflow/src/tools/ask-user-tool.ts` registers `ask_user` for text, choice, and confirm questions in the TUI.
-- `packages/aflow/src/tools/specflow-workflow-tools.ts` registers LLM-callable workflow tools for validate, run, resume, and native resume recommendations.
+- `packages/aflow/src/tools/ask-user-tool.ts` registers `ask_user` for text, choice, and confirm questions in the TUI. Choice mode shows at most four options; by default the first three are explicit options and the final option opens custom text input. Fixed four-option questions can set `allowCustom: false`.
+- `packages/aflow/src/tools/specflow-workflow-tools.ts` registers LLM-callable workflow tools for validate, run, workflow resume, agent-session resume, and native resume recommendations.
+- `packages/aflow/src/resume/session-resume.ts` owns the shared resume picker used after a run and by explicit `/specflow-resume-session`.
 - `packages/aflow/src/prompt-content.ts` embeds the default Aflow system prompt and the workflow YAML authoring guide so the `aflow` binary can run in arbitrary project roots without this repository's docs directory.
 - `packages/aflow/src/prompts/create-workflow.md` and `fork-adapt-workflow.md` are source references only; runtime prompt content is embedded in TypeScript. Fork/adapt must copy the source YAML to `.aflow/.specflow/agentflows-local/<new-workflow-id>.yaml` before editing.
 - `packages/aflow/src/server/specflow-client.ts` is the typed client for the current Specflow API.
 - `packages/aflow/src/server/connect-or-start.ts` connects to an existing same-workspace server or starts one if needed.
-- `packages/aflow/src/native/native-agent-adapters.ts` stores the native resume table.
-- `packages/aflow/src/native/terminal-handoff.ts` implements the inherited-stdio handoff skeleton. Execution is currently enabled only from direct Aflow CLI paths; Pi-backed TUI commands recommend the native command but do not execute it until Aflow owns the terminal lifecycle or Pi exposes a safe renderer suspend hook.
+- `packages/aflow/src/native/native-agent-adapters.ts` stores the native resume table. This code table is the only source for native resume command templates; Aflow prompts should not contain the full table or ask the LLM to infer templates.
+- `packages/aflow/src/native/terminal-handoff.ts` implements inherited-stdio handoff. Direct CLI uses normal child process stdio inheritance; Pi-backed TUI uses `ui.custom()` to stop the renderer, run the native CLI in the real terminal, then restart the Aflow renderer.
 
 The root CLI exposes `aflow`, and `packages/server/src/http.ts` adds health fields needed by Aflow: `workspaceRoot`, `serverId`, and `apiVersion`. Build scripts now produce both `specflow` and `aflow` binaries.
 
@@ -162,7 +163,7 @@ aflow CLI/TUI package
   |     `-- connect-first server lifecycle guard
   |
   |-- NativeHandoffController
-  |     `-- stdio: inherit native CLI continuation
+  |     `-- stdio: inherit native CLI resume
   |
   v
 Specflow server
@@ -200,7 +201,6 @@ packages/aflow/
       specflow-validate.ts
       specflow-run.ts
       specflow-resume.ts
-      specflow-native-resume.ts
       index.ts
       args.ts
       io.ts
@@ -424,13 +424,13 @@ The Aflow system prompt should replace the generic coding-agent identity with:
 - Its first job is to understand the user's business goal and workflow constraints.
 - It can create, fork/adapt, validate, run, resume, and inspect workflows.
 - It must prefer Specflow server tools over ad hoc shell access for workflow operations.
-- It must distinguish ACP runtime interaction from native CLI continuation.
+- It must distinguish ACP runtime interaction from native CLI resume.
 - It must not promise native capture unless the adapter supports it.
 - It must ask for missing workflow run inputs and agent choices when required.
 - It must validate before run when creating or modifying workflows.
 - It must preserve coding-agent competence: read code, inspect files, edit code, run commands, and use Pi-compatible session behavior when the user asks for ordinary coding help.
 - It must treat workflow YAML/canvas edits as structured data work, not ad hoc string concatenation.
-- It must explicitly separate three resume concepts: Aflow coding-agent session resume, Specflow workflow resume, and native external-agent continuation.
+- It must explicitly separate three resume concepts: Aflow/Pi coding-agent session resume, Specflow workflow resume, and external agent-session resume.
 
 Product docs from `.aflow/.specflow/spec/product` should be included as context, but Aflow should not blindly stuff all files into the system prompt forever. Use a bounded context loader:
 
@@ -542,7 +542,7 @@ Flow:
 6. Subscribe to `GET /api/runs/:id/events`.
 7. Render node states, active node, terminal/log chunks, interactions, and pause panels.
 8. On completion, fetch run record and agent sessions.
-9. Show session summary and native continuation options.
+9. Show session summary and native resume options.
 
 Impact:
 
@@ -739,9 +739,9 @@ Adapter statuses should be modeled explicitly:
 - `resume`: native CLI supports a direct resume command such as `--resume` or `resume`.
 - `continue`: native CLI supports continuation but under another name such as `--continue`, `--session`, `--id`, `threads continue`, or checkpoint resume.
 - `selector`: native CLI has a history/resume selector but no reliable session-id template.
-- `acp-only`: ACP load/resume exists but no known native CLI continuation command.
-- `unknown`: no known public native continuation path.
-- `unsupported`: known not to support native continuation.
+- `acp-only`: ACP load/resume exists but no known native CLI resume command.
+- `unknown`: no known public native resume path.
+- `unsupported`: known not to support native resume.
 
 The registry resume research appended to this document should seed the first adapter file. The initial adapter implementation should not pretend every command template is fully reliable; each entry should expose confidence and a human-readable caveat.
 
@@ -959,7 +959,7 @@ Mitigation:
 - Remove guard in finally.
 - Prefer async spawn with inherited stdio.
 
-### Risk: Native Resume Recommendation Is Wrong
+### Risk: Native Resume Command Is Wrong
 
 Cause:
 
@@ -1035,6 +1035,7 @@ Deliverables:
   - `/specflow-validate`
   - `/specflow-run`
   - `/specflow-resume`
+  - `/specflow-resume-session`
 - Basic model/session/tool behavior inherited from coding-agent.
 - Preservation of common Pi commands that operate on the coding-agent session.
 

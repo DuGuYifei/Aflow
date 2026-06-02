@@ -38,8 +38,8 @@ export function buildRunWorkflowPrompt(args: string): string {
     "",
     "Infer the workflow id and initial input from the conversation and command arguments. If the workflow id is missing, ask the user which workflow to run. Once the workflow is identified, call `specflow_run_workflow`; it will ask required workflow input variables one by one in the TUI.",
     "If the workflow id is missing or ambiguous, use `specflow_list_workflows` when helpful and then `ask_user` to choose one. Pass any already-known specflow_* variables to `specflow_run_workflow` instead of asking for them again.",
-    "`specflow_run_workflow` is responsible for the full TUI run flow: display node status with node titles, handle pauseAfterRun ACP interaction, and after completion list recorded agent sessions so the user can choose ACP Continue, ACP Inspect, Native CLI, or Skip.",
-    "Do not call `specflow_native_resume_recommendation` after a normal run just to repeat run-end choices.",
+    "`specflow_run_workflow` is responsible for the full TUI run flow: display node status with node titles, handle pauseAfterRun ACP interaction, and after completion list recorded agent sessions so the user can choose ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, or Skip.",
+    "Do not ask for a separate native command after a normal run just to repeat run-end choices; the run tool already offers native resume through the session picker.",
     "Do not execute shell `specflow run`. That is the standalone CLI path, rejects pauseAfterRun workflows, and does not provide Aflow's ACP pause interaction.",
     "",
     "User command arguments:",
@@ -51,7 +51,7 @@ export function buildResumeWorkflowPrompt(args: string): string {
   return [
     "Resume a cancelled or failed Specflow workflow run.",
     "",
-    "`specflow_resume_workflow` resumes an interrupted workflow run. It is not the same as entering an individual agent session; ACP Continue/Inspect is offered by the run-end session picker.",
+    "`specflow_resume_workflow` resumes an interrupted workflow run. It is not the same as resuming an individual agent session; ACP Resume/Inspect is offered by the run-end session picker.",
     "Infer the run id from context only when it is clear. If it is missing or ambiguous, use `ask_user` instead of guessing.",
     commandGuidance("specflow_resume_workflow"),
     "",
@@ -60,15 +60,17 @@ export function buildResumeWorkflowPrompt(args: string): string {
   ].join("\n");
 }
 
-export function buildNativeResumePrompt(args: string): string {
+export function buildResumeSessionPrompt(args: string): string {
   return [
-    "Recommend a native external-agent resume command for a Specflow run.",
+    "Resume or inspect a recorded agent session from a Specflow run.",
     "",
-    "Use this only when the user explicitly asks for an external native CLI continuation. Do not use it as a normal follow-up to /specflow-run, because the run tool already offers Native CLI in the TUI session picker.",
-    "Infer the run id from context and call `specflow_native_resume_recommendation`. If the run id or native session id is missing and cannot be inferred, ask the user. Do not claim native execution happened unless the direct CLI actually performed it.",
+    "Infer the run id from context only when it is clear. If it is missing or ambiguous, use `ask_user` instead of guessing.",
+    "`specflow_resume_session` opens the full session resume picker when the TUI is available: ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, or Skip.",
+    "Do not guess native resume commands. Native commands are generated only by Aflow's built-in adapter table and returned by tools.",
+    commandGuidance("specflow_resume_session"),
     "",
     "User command arguments:",
-    args.trim() || "(No explicit run id supplied. Infer it from context or ask the user.)",
+    args.trim() || "(No explicit run id supplied. Infer the intended run from context, or ask the user which run to resume.)",
   ].join("\n");
 }
 

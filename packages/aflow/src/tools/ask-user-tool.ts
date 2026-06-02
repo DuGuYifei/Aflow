@@ -9,7 +9,9 @@ const AskUserParams = Type.Object({
     Type.Literal("confirm"),
   ], { description: "Question style. Defaults to text unless options are provided." })),
   placeholder: Type.Optional(Type.String({ description: "Placeholder for text input." })),
-  options: Type.Optional(Type.Array(Type.String(), { description: "Choice labels for choice mode." })),
+  options: Type.Optional(Type.Array(Type.String(), { description: "Choice labels for choice mode. Use at most three labels when allowCustom is true, otherwise at most four." })),
+  allowCustom: Type.Optional(Type.Boolean({ description: "Allow a final custom text input option in choice mode. Defaults to true, making the fourth displayed option custom input." })),
+  customLabel: Type.Optional(Type.String({ description: "Label for the custom input option. Defaults to Custom..." })),
 });
 
 export function registerAskUserTool(pi: ExtensionAPI): void {
@@ -21,6 +23,7 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use ask_user when a /specflow-* command lacks required information.",
       "Use choice mode with options when the user needs to pick one known value.",
+      "By default, provide at most three explicit choice options; Aflow appends the fourth custom-input option.",
       "Do not guess workflow ids, run ids, or business inputs when they are absent.",
     ],
     parameters: AskUserParams,
@@ -37,13 +40,30 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
 
       if (mode === "choice") {
         const options = params.options?.filter((option) => option.trim()) ?? [];
+        const allowCustom = params.allowCustom ?? true;
+        const maxExplicitOptions = allowCustom ? 3 : 4;
         if (options.length === 0) {
           return textResult("Choice mode requires at least one option.", { cancelled: true });
         }
-        const answer = await ctx.ui.select(params.question, options);
+        if (options.length > maxExplicitOptions) {
+          return textResult(
+            allowCustom
+              ? "Choice mode supports at most three explicit options when custom input is enabled."
+              : "Choice mode supports at most four options.",
+            { cancelled: true, optionCount: options.length, allowCustom },
+          );
+        }
+        const customLabel = uniqueCustomLabel(params.customLabel?.trim() || "Custom...", options);
+        const answer = await ctx.ui.select(params.question, allowCustom ? [...options, customLabel] : options);
+        if (answer === customLabel && allowCustom) {
+          const customAnswer = await ctx.ui.input(params.question, params.placeholder);
+          return customAnswer === undefined
+            ? textResult("User cancelled.", { cancelled: true })
+            : textResult(customAnswer, { answer: customAnswer, source: "custom" });
+        }
         return answer === undefined
           ? textResult("User cancelled.", { cancelled: true })
-          : textResult(answer, { answer });
+          : textResult(answer, { answer, source: "option" });
       }
 
       const answer = await ctx.ui.input(params.question, params.placeholder);
@@ -52,6 +72,13 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
         : textResult(answer, { answer });
     },
   });
+}
+
+function uniqueCustomLabel(preferred: string, options: string[]): string {
+  if (!options.includes(preferred)) return preferred;
+  let suffix = 2;
+  while (options.includes(`${preferred} ${suffix}`)) suffix += 1;
+  return `${preferred} ${suffix}`;
 }
 
 function textResult(text: string, details: Record<string, unknown>) {

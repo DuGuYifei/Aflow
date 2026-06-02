@@ -20,7 +20,7 @@ Usage:
   aflow /specflow-validate <workflow-id|path> [--server URL]
   aflow /specflow-run <workflow-id> [--input TEXT] [-Dname=value] [--server URL]
   aflow /specflow-resume <run-id> [--server URL]
-  aflow /specflow-native-resume <run-id> [--native-session ID] [--execute] [--server URL]
+  aflow /specflow-resume-session <run-id> [--server URL]
 
 Slash commands inside the TUI:
   /specflow-create            Create a workflow from a business goal
@@ -28,7 +28,7 @@ Slash commands inside the TUI:
   /specflow-validate          Validate a workflow after inferring or asking for the target
   /specflow-run               Run a workflow and ask missing inputs one by one
   /specflow-resume            Resume a cancelled or failed Specflow run
-  /specflow-native-resume     Recommend or hand off to a native agent resume command
+  /specflow-resume-session    Choose ACP/native resume for a recorded agent session
 
 Pi-compatible options:
   --model <pattern>           Select model, supports provider/model and :thinking

@@ -1,8 +1,8 @@
 import type { CommandIO } from "./io";
 import { runAflowAgent } from "../pi/pi-sdk-host";
 import { buildCreateWorkflowPrompt, buildForkAdaptWorkflowPrompt } from "../pi/slash-prompts";
-import { specflowNativeResumeCommand } from "./commands/native-resume";
 import { specflowResumeCommand } from "./commands/resume";
+import { specflowResumeSessionCommand } from "./commands/resume-session";
 import { specflowRunCommand } from "./commands/run";
 import { specflowValidateCommand } from "./commands/validate";
 
@@ -18,7 +18,7 @@ const DIRECT_COMMANDS = new Set([
   "specflow-validate",
   "specflow-run",
   "specflow-resume",
-  "specflow-native-resume",
+  "specflow-resume-session",
 ]);
 
 export function isDirectAflowCommand(value: string | undefined): boolean {
@@ -52,8 +52,8 @@ async function dispatchParsedCommand(command: string, args: string[], context: D
     await specflowResumeCommand(args, context);
     return;
   }
-  if (command === "specflow-native-resume") {
-    await specflowNativeResumeCommand(args, context);
+  if (command === "specflow-resume-session") {
+    await specflowResumeSessionCommand(args, context);
     return;
   }
   throw new Error(`Unknown Aflow command: ${command}`);
