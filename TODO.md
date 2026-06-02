@@ -57,7 +57,7 @@
 - [x] 改进执行中才触发 auth 请求时的重试与 UI 流程。
 - [x] Skill系统接入
 - [x] MCP系统接入
-- [ ] 无头模式
+- [x] 无头模式
 - [x] Gate 循环的上限
 - [x] 从某一个节点继续它的session运行
 - [ ] token计数
@@ -69,14 +69,13 @@
 - [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
 - [ ] app
 - [ ] UI更新为和homepage一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
-- [ ] specflow --version 显示版本号
+- [x] specflow --version 显示版本号
 - [ ] SKILL模式
-- [ ] plugin模式
 - [ ] agent模式
 
 ## Bug
 
-- [ ] fork不实时显示session
+- [ ] fork不实时显示session，gate节点fork出来的session，不会显示到log panel。
 - [ ] variable页签不显示正在运行的已经填过的变量。
 - [x] session似乎在显示时候共享了session
 - [x] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）

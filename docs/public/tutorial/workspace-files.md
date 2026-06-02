@@ -51,9 +51,67 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 .aflow/.specflow/agent-servers.json
 ```
 
-这个文件保存团队共享的 agent server 配置，例如 agent 类型、启动命令、参数和工作目录。
+这个文件保存团队共享的 agent server 配置。workflow YAML 里的 `session.agentServerId` 引用的是这里的 agent server key，而不是一定等于 registry id。
 
-自定义 ACP agent 示例：
+Specflow 支持三类 agent server：
+
+- `registry`：从 ACP registry 选择并解析的 ACP agent，适合 Codex、Claude、Gemini 等 registry agent。
+- `custom`：你自己提供启动命令的 ACP agent，要求通过 stdio 实现 ACP。
+- `headless`：不走 ACP session 的命令式 agent，适合简单的非交互批处理流程。
+
+配置文件支持 `agent_servers`，也兼容旧的 `agentServers`。字段优先使用 camelCase，例如 `registryId`、`installedVersion`、`argsTemplate`；读取时也兼容部分 snake_case 字段，例如 `registry_id`、`installed_version`、`args_template`。
+
+### Registry ACP agent
+
+Registry agent 由 ACP registry 提供元数据和 distribution。Specflow 会保存、安装并尝试运行 registry 返回的 agent；当前支持的 distribution 类型包括 `binary`、`npx` 和 `uvx`。Registry 中存在某个 agent 不代表它一定能在当前机器运行，distribution、认证、协议和运行时错误仍可能由对应 agent 路径报告。
+
+```json
+{
+  "agent_servers": {
+    "codex-acp": {
+      "type": "registry",
+      "registryId": "codex-acp"
+    },
+    "claude-acp": {
+      "type": "registry",
+      "registryId": "claude-acp"
+    }
+  }
+}
+```
+
+UI 保存 registry agent 时通常会记录 `installedVersion`。这个字段表示当前保存的 registry 版本，主要用于更新提示和 capability cache 失效判断：
+
+```json
+{
+  "agent_servers": {
+    "codex-acp": {
+      "type": "registry",
+      "registryId": "codex-acp",
+      "installedVersion": "0.14.0"
+    }
+  }
+}
+```
+
+registry agent 也可以配置通用字段，例如 `cwd`、`env` 和 `additionalDirectories`：
+
+```json
+{
+  "agent_servers": {
+    "codex-acp": {
+      "type": "registry",
+      "registryId": "codex-acp",
+      "cwd": ".",
+      "additionalDirectories": ["../shared-workspace"]
+    }
+  }
+}
+```
+
+### Custom ACP agent
+
+Custom agent 适合接入你自己实现的 ACP server。它需要通过 stdio 读写 ACP 消息。
 
 ```json
 {
@@ -72,9 +130,40 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 }
 ```
 
-Agent server 条目只保存进程启动需要的设置，例如 `type`、`command`、`args`、`cwd`、`env` 和 `additionalDirectories`。
+Custom agent 常用字段：
 
-自定义 ACP agent 需要通过 stdio 实现 ACP。认证、terminal capability 和 permission prompt 由 ACP 在运行时驱动。Mode、model、reasoning 和 config override 应该配置在 workflow 或节点级别，而不是 agent server 配置里。
+- `command`：启动命令。
+- `args`：命令参数。
+- `cwd`：agent 进程工作目录。
+- `env`：传给 agent 进程的环境变量。
+- `additionalDirectories`：允许 agent 访问的额外工作目录。
+
+### Headless agent
+
+Headless agent 是命令式 agent，不创建 ACP session。它适合简单的自动化或批处理，但不支持 ACP session、terminal auth、permission prompt 等交互能力。使用 headless agent 的节点也不能依赖需要 ACP session 的人工暂停交互。
+
+```json
+{
+  "agent_servers": {
+    "echo-headless": {
+      "type": "headless",
+      "command": "node",
+      "argsTemplate": ["./agents/echo.js", "{{prompt}}"],
+      "cwd": ".",
+      "timeoutMs": 30000
+    }
+  }
+}
+```
+
+Headless agent 常用字段：
+
+- `command`：启动命令。
+- `argsTemplate`：命令参数模板。
+- `timeoutMs`：可选超时时间。
+- `cwd`、`env`、`additionalDirectories`：与其他 agent server 类型相同的通用字段。
+
+Agent server 条目只保存进程启动和解析需要的设置。认证、terminal capability 和 permission prompt 由 ACP 在运行时驱动。Mode、model、reasoning 和 config override 应该配置在 workflow 或节点级别，而不是 agent server 配置里。
 
 ## 本地覆盖
 
@@ -82,7 +171,39 @@ Agent server 条目只保存进程启动需要的设置，例如 `type`、`comma
 .aflow/.specflow/agent-servers.local.json
 ```
 
-这个文件保存本地密钥和机器相关设置。它会按 agent id 与 `.aflow/.specflow/agent-servers.json` 深度合并。
+这个文件保存本地密钥和机器相关设置。它会按 agent id 与 `.aflow/.specflow/agent-servers.json` 深度合并；嵌套对象也会合并，因此常见做法是把共享配置提交到 `agent-servers.json`，把 API key、代理、个人路径等放到 `agent-servers.local.json`。
+
+共享配置：
+
+```json
+{
+  "agent_servers": {
+    "codex-acp": {
+      "type": "registry",
+      "registryId": "codex-acp",
+      "env": {
+        "SPECFLOW_SHARED": "1"
+      }
+    }
+  }
+}
+```
+
+本地覆盖：
+
+```json
+{
+  "agent_servers": {
+    "codex-acp": {
+      "env": {
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+最终运行时，`codex-acp.env` 会同时包含 `SPECFLOW_SHARED` 和 `OPENAI_API_KEY`。
 
 本地密钥示例：
 
@@ -186,4 +307,4 @@ UI 的 run log、事件回放和部分恢复诊断会读取这里的内容。
 
 也可以通过 `SPECFLOW_AGENT_CACHE_DIR` 把 agent cache 放到其他目录。
 
-缓存文件可以删除；删除后 Specflow 会在需要时重新 probe 或下载。
+缓存文件可以删除；删除后 Specflow 会在需要时重新 probe 或下载。Registry agent 的 `installedVersion` 变化时，旧的 capability cache 会被视为过期。
