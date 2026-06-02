@@ -3,6 +3,7 @@
 import { resolve } from "node:path";
 import {
   executeAgentFlowDoc,
+  assertRunnableAgentFlow,
   inspectAgentServerAuthentication,
   listAgentServers,
   loadAgentFlowFile,
@@ -19,24 +20,30 @@ type AgentAuthenticationStatus = Awaited<ReturnType<typeof inspectAgentServerAut
 interface RunCliOptions {
   file: string;
   yes: boolean;
-  initialInput: string;
   values: Record<string, string>;
 }
 
-const args = Bun.argv.slice(2);
 let stdinLineReader: StdinLineReader | undefined;
 
-try {
+export async function main(args = Bun.argv.slice(2)): Promise<void> {
   if (isVersionCommand(args)) {
     console.log(await formatSpecflowVersion());
   } else if (args[0] === "run") {
     await runWorkflowCommand(args.slice(1));
+  } else if (args[0] === "validate") {
+    await validateWorkflowCommand(args.slice(1));
   } else {
     await serveCommand();
   }
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+}
+
+if (import.meta.main) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
 async function serveCommand(): Promise<void> {
@@ -69,7 +76,6 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
   const canvasDocument = await loadAgentFlowFile(filePath);
   const normalizedValues = normalizeVariableValues(canvasDocument, options.values);
   const prepared = prepareCanvasRun(canvasDocument, {
-    initialInput: options.initialInput,
     variableValues: normalizedValues,
   });
 
@@ -78,9 +84,9 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
   if (prepared.missingVariables.length > 0) {
     console.log("\nMissing required variables:");
     for (const variable of prepared.missingVariables) {
-      console.log(`  - ${variable.name}${variable.description ? ` (${variable.description})` : ""}`);
+      console.log(`  - ${displayInputName(variable.name)}${variable.description ? ` (${variable.description})` : ""}`);
     }
-    console.log("\nPass them with -Dname=value, for example: -Dvalue=1 or -Dspecflow_value=1");
+    console.log("\nPass them with -Dname=value, for example: -Dvalue=1");
     process.exitCode = 2;
     return;
   }
@@ -110,7 +116,7 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
 
   const run = await executeAgentFlowDoc({
     doc: prepared.doc,
-    initialInput: prepared.initialInput,
+    initialInput: "",
     cwd: process.cwd(),
     onRunStatus(event) {
       if (event.status === "failed" && event.error) {
@@ -140,24 +146,23 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
   if (run.status !== "done") process.exitCode = 1;
 }
 
-function parseRunArgs(args: string[]): RunCliOptions {
+async function validateWorkflowCommand(args: string[]): Promise<void> {
+  const file = parseValidateArgs(args);
+  const filePath = resolve(process.cwd(), file);
+  const canvasDocument = await loadAgentFlowFile(filePath);
+  assertRunnableAgentFlow(canvasDocument);
+  console.log(`OK ${filePath}`);
+}
+
+export function parseRunArgs(args: string[]): RunCliOptions {
   let file = "";
   let assumeYes = false;
-  let initialInput = "";
   const values: Record<string, string> = {};
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "-y" || argument === "--yes") {
       assumeYes = true;
-      continue;
-    }
-    if (argument === "--input") {
-      initialInput = args[++index] ?? "";
-      continue;
-    }
-    if (argument.startsWith("--input=")) {
-      initialInput = argument.slice("--input=".length);
       continue;
     }
     if (argument === "-D") {
@@ -167,6 +172,9 @@ function parseRunArgs(args: string[]): RunCliOptions {
     if (argument.startsWith("-D")) {
       assignDefine(values, argument.slice(2));
       continue;
+    }
+    if (argument.startsWith("-")) {
+      throw new Error(`Unexpected argument: ${argument}`);
     }
     if (!file) {
       file = argument;
@@ -180,7 +188,26 @@ function parseRunArgs(args: string[]): RunCliOptions {
     process.exit(2);
   }
 
-  return { file, yes: assumeYes, initialInput, values };
+  return { file, yes: assumeYes, values };
+}
+
+export function parseValidateArgs(args: string[]): string {
+  let file = "";
+  for (const argument of args) {
+    if (argument.startsWith("-")) {
+      throw new Error(`Unexpected argument: ${argument}`);
+    }
+    if (!file) {
+      file = argument;
+      continue;
+    }
+    throw new Error(`Unexpected argument: ${argument}`);
+  }
+  if (!file) {
+    printValidateUsage();
+    process.exit(2);
+  }
+  return file;
 }
 
 function assignDefine(target: Record<string, string>, rawValue: string): void {
@@ -189,14 +216,25 @@ function assignDefine(target: Record<string, string>, rawValue: string): void {
   target[rawValue.slice(0, equalsIndex)] = rawValue.slice(equalsIndex + 1);
 }
 
-function normalizeVariableValues(canvasDocument: AgentFlowDoc, values: Record<string, string>): Record<string, string> {
+export function normalizeVariableValues(canvasDocument: AgentFlowDoc, values: Record<string, string>): Record<string, string> {
   const names = new Set(canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.variableName));
   const normalized: Record<string, string> = {};
   for (const [key, value] of Object.entries(values)) {
     const fullKey = key.startsWith("specflow_") ? key : `specflow_${key}`;
-    normalized[names.has(fullKey) ? fullKey : key] = value;
+    if (!names.has(fullKey)) {
+      const available = [...names].map((name) => `  - ${displayInputName(name)}`).join("\n");
+      throw new Error([
+        `Unknown input: ${displayInputName(key)}`,
+        available ? `Available inputs:\n${available}` : "Available inputs: none",
+      ].join("\n"));
+    }
+    normalized[fullKey] = value;
   }
   return normalized;
+}
+
+function displayInputName(name: string): string {
+  return name.startsWith("specflow_") ? name.slice("specflow_".length) : name;
 }
 
 function printRunPlan(filePath: string, canvasDocument: AgentFlowDoc, variables: RunInputVariable[]): void {
@@ -216,7 +254,7 @@ function printRunPlan(filePath: string, canvasDocument: AgentFlowDoc, variables:
     console.log("Variables:");
     for (const variable of variables) {
       const shown = variable.value === "" ? "<empty>" : variable.value;
-      console.log(`  - ${variable.name} = ${shown} (${variable.source})`);
+      console.log(`  - ${displayInputName(variable.name)} = ${shown} (${variable.source})`);
     }
   } else {
     console.log("Variables: none");
@@ -239,7 +277,11 @@ function indentBlock(label: string, value: string): string {
 }
 
 function printRunUsage(): void {
-  console.error("Usage: specflow run <agentflow.yaml> [-Dname=value ...] [--input text] [--yes]");
+  console.error("Usage: specflow run <agentflow.yaml> [-Dname=value ...] [--yes]");
+}
+
+function printValidateUsage(): void {
+  console.error("Usage: specflow validate <agentflow.yaml>");
 }
 
 async function inspectWorkflowAuthentication(canvasDocument: AgentFlowDoc): Promise<AgentAuthenticationStatus[]> {

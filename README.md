@@ -34,54 +34,29 @@ Specflow is not limited to coding. It can connect to arbitrary custom agents for
 - Generate spec documents for development workflows when SDD-style clarity is useful.
 - Use agents for business workflows, research workflows, coding workflows, or any task that benefits from explicit process and review.
 
+## Usage
+
+```sh
+specflow
+specflow validate .aflow/.specflow/agentflows/example.yaml
+specflow run .aflow/.specflow/agentflows/example.yaml -Dtask="Review this change"
+```
+
+See [Specflow Commands](docs/public/tutorial/specflow-command.md).
+
 ## Workspace Files
 
 Workflow-as-code files live in `.aflow/.specflow/agentflows/*.yaml`.
 
-Browser canvas layout is generated into `.aflow/.specflow/canvas/*.json` and is ignored by default, so workflows can be authored and reviewed without hand-writing UI coordinates.
+Browser canvas layout is generated into `.aflow/.specflow/canvas/*.json`.
 
-Agent servers are configured under `.aflow/.specflow/agent-servers.json`. Local secrets and machine-specific overrides should go in `.aflow/.specflow/agent-servers.local.json`, which deep-merges with the shared file by agent id.
+Agent servers are configured under `.aflow/.specflow/agent-servers.json`. Local secrets and machine-specific overrides go in `.aflow/.specflow/agent-servers.local.json`.
 
-Example local secret override:
+Run records, run logs, caches, and workflow assets are also stored under `.aflow/.specflow/`.
 
-```json
-{
-  "agent_servers": {
-    "codex-acp": {
-      "env": {
-        "OPENAI_API_KEY": "sk-...",
-        "http_proxy": "http://127.0.0.1:7890",
-        "https_proxy": "http://127.0.0.1:7890"
-      }
-    }
-  }
-}
-```
+VPN or proxy users should add `http_proxy` and `https_proxy` under the agent server `env` keys.
 
-Example custom ACP agent:
-
-```json
-{
-  "agent_servers": {
-    "my-acp-agent": {
-      "type": "custom",
-      "command": "node",
-      "args": ["./agents/my-agent.js", "--acp"],
-      "cwd": ".",
-      "env": {
-        "MY_AGENT_API_KEY": "..."
-      },
-      "additionalDirectories": ["../shared-workspace"]
-    }
-  }
-}
-```
-
-Specflow-specific agent server keys:
-
-- `env`: environment variables passed to the agent process. ACP `env_var` auth methods read their required variables from here.
-
-Agent server entries keep process launch settings such as `type`, `command`, `args`, `cwd`, `env`, and `additionalDirectories`. Custom ACP agents must speak ACP over stdio. Authentication, terminal capability handling, and permission prompts are driven by ACP at run time. Mode, model, reasoning, and config overrides belong at the workflow or node level rather than in agent server config.
+See [Workspace Files](docs/public/tutorial/workspace-files.md).
 
 ## Installation
 
