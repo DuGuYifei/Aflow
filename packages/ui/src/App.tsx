@@ -35,6 +35,12 @@ import { AgentConversationWindow } from './components/agent-conversation-window'
 import { Icon } from './components/icon';
 import { normalizeTransferConfiguration, resolveTransferSource } from './edge-semantics';
 import { useI18n } from './i18n';
+import {
+  createCanvasNodeCopy,
+  createPastedNodes,
+  type CanvasNodeCopy,
+  type CanvasPastePosition,
+} from './canvas-clipboard';
 
 function runStatusFromEvent(status: string): RunStatus {
   if (status === 'success') return 'success';
@@ -75,6 +81,7 @@ function loadSidebarLayout(): SidebarLayout {
 export function App() {
   const { t } = useI18n();
   const [activeWorkflow, setActiveWorkflow] = useState('');
+  const [loadedWorkflowId, setLoadedWorkflowId] = useState('');
   const [activeCanvasName, setActiveCanvasName] = useState('');
   const [sidebarLayout, setSidebarLayout] = useState<SidebarLayout>(() => loadSidebarLayout());
 
@@ -119,6 +126,7 @@ export function App() {
   const [pausedPromptBusy, setPausedPromptBusy] = useState(false);
 
   const [selection, setSelection]             = useState<Selection | null>(null);
+  const [nodeCopyBuffer, setNodeCopyBuffer]   = useState<CanvasNodeCopy | null>(null);
   const [zoom, setZoom]                       = useState(1);
   const [pan, setPan]                         = useState({ x: 0, y: 0 });
   const [barExpanded, setBarExpanded]         = useState(false);
@@ -193,6 +201,7 @@ export function App() {
   const subscribedRunIdRef = useRef<string | undefined>(undefined);
   const restoreRequestTokenRef = useRef(0);
   const conversationRef = useRef(conversation);
+  const pasteCountRef = useRef(0);
   useEffect(() => { nodesRef.current     = nodes;     }, [nodes]);
   useEffect(() => { edgesRef.current     = edges;     }, [edges]);
   useEffect(() => { sessionsRef.current  = sessions;  }, [sessions]);
@@ -242,6 +251,7 @@ export function App() {
 
   // Load active canvas + runs whenever workflow changes
   useEffect(() => {
+    setLoadedWorkflowId('');
     if (!activeWorkflow) return;
     fetchCanvas(activeWorkflow).then((canvasDocument) => {
       setNodes(canvasDocument.nodes as WorkflowNode[]);
@@ -250,6 +260,7 @@ export function App() {
       setActiveCanvasName(canvasDocument.name);
       setActiveSessionId(canvasDocument.sessions[0]?.id ?? '');
       setSelection(null);
+      setLoadedWorkflowId(canvasDocument.id);
     }).catch(console.error);
 
     fetchRuns(activeWorkflow).then((records) => {
@@ -293,6 +304,20 @@ export function App() {
   const onNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => node.id === id ? { ...node, x, y } : node);
+      nodesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+  }, [scheduleSave]);
+
+  const onNodesMove = useCallback((moves: Array<{ id: string; x: number; y: number }>) => {
+    if (moves.length === 0) return;
+    const moveMap = new Map(moves.map((move) => [move.id, move]));
+    setNodes((previousNodes) => {
+      const updated = previousNodes.map((node) => {
+        const move = moveMap.get(node.id);
+        return move ? { ...node, x: move.x, y: move.y } : node;
+      });
       nodesRef.current = updated;
       scheduleSave();
       return updated;
@@ -504,6 +529,23 @@ export function App() {
     scheduleSave();
   }, [scheduleSave, t]);
 
+  const onDeleteNodes = useCallback((ids: string[]) => {
+    const selectedIdSet = new Set(ids);
+    const deletableNodes = nodesRef.current.filter((node) =>
+      selectedIdSet.has(node.id) && !(node as WorkflowNode & { locked?: boolean }).locked);
+    if (deletableNodes.length === 0) return;
+    if (!window.confirm(t('node.deleteManyConfirm', { count: deletableNodes.length }))) return;
+    const deleteIdSet = new Set(deletableNodes.map((node) => node.id));
+    const updatedNodes = nodesRef.current.filter((node) => !deleteIdSet.has(node.id));
+    const updatedEdges = edgesRef.current.filter((edge) => !deleteIdSet.has(edge.from) && !deleteIdSet.has(edge.to));
+    nodesRef.current = updatedNodes;
+    edgesRef.current = updatedEdges;
+    setNodes(updatedNodes);
+    setEdges(updatedEdges);
+    setSelection(null);
+    scheduleSave();
+  }, [scheduleSave, t]);
+
   // ── session management ────────────────────────────────────────────────────
 
   const onAddSession = useCallback((name: string, agentServerId: Session['agentServerId']) => {
@@ -586,7 +628,61 @@ export function App() {
 
   const onSelectNode     = (id: string) => { setRunConfigOpen(false); setSelection({ kind: 'node', id }); };
   const onSelectEdge     = (id: string) => { setRunConfigOpen(false); setSelection({ kind: 'edge', id }); };
+  const onSelectNodes    = (ids: string[]) => {
+    setRunConfigOpen(false);
+    setSelection(ids.length === 1 ? { kind: 'node', id: ids[0]! } : ids.length > 1 ? { kind: 'nodes', ids } : null);
+  };
   const onClearSelection = ()            => setSelection(null);
+
+  const onCopyNode = useCallback(() => {
+    if (view !== 'edit' || loadedWorkflowId !== activeWorkflow) return;
+    const selectedIds = selection?.kind === 'node'
+      ? [selection.id]
+      : selection?.kind === 'nodes'
+        ? selection.ids
+        : [];
+    if (selectedIds.length === 0) return;
+    const selectedIdSet = new Set(selectedIds);
+    const selectedNodes = nodesRef.current.filter((node) => selectedIdSet.has(node.id));
+    if (selectedNodes.length === 0) return;
+    setNodeCopyBuffer(createCanvasNodeCopy({
+      sourceWorkflowId: activeWorkflow,
+      nodes: selectedNodes,
+      edges: edgesRef.current,
+    }));
+    pasteCountRef.current = 0;
+  }, [activeWorkflow, loadedWorkflowId, selection, view]);
+
+  const onPasteNode = useCallback((position: CanvasPastePosition) => {
+    if (view !== 'edit' || !nodeCopyBuffer || !activeWorkflow || loadedWorkflowId !== activeWorkflow) return;
+    const pasteIndex = pasteCountRef.current;
+    const pasted = createPastedNodes({
+      copiedNodes: nodeCopyBuffer.nodes,
+      copiedEdges: nodeCopyBuffer.edges,
+      existingNodes: nodesRef.current,
+      existingEdges: edgesRef.current,
+      sessions: sessionsRef.current,
+      position,
+      pasteIndex,
+    });
+    if (pasted.nodes.length === 0) return;
+    const updatedNodes = [...nodesRef.current, ...pasted.nodes];
+    const updatedEdges = [...edgesRef.current, ...pasted.edges];
+    nodesRef.current = updatedNodes;
+    edgesRef.current = updatedEdges;
+    setNodes(updatedNodes);
+    setEdges(updatedEdges);
+    setSelection(pasted.nodes.length === 1 ? { kind: 'node', id: pasted.nodes[0]!.id } : { kind: 'nodes', ids: pasted.nodes.map((node) => node.id) });
+    pasteCountRef.current = pasteIndex + 1;
+    scheduleSave();
+  }, [activeWorkflow, loadedWorkflowId, nodeCopyBuffer, scheduleSave, view]);
+
+  const onDeleteSelection = useCallback(() => {
+    if (view !== 'edit' || loadedWorkflowId !== activeWorkflow || !selection) return;
+    if (selection.kind === 'node') onDeleteNode(selection.id);
+    if (selection.kind === 'nodes') onDeleteNodes(selection.ids);
+    if (selection.kind === 'edge') onDeleteEdge(selection.id);
+  }, [activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, selection, view]);
 
   const onAddSessionRequest = useCallback(() => {
     setBarExpanded(true);
@@ -599,15 +695,20 @@ export function App() {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const active = document.activeElement;
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      if (active instanceof HTMLElement && (
+        active.tagName === 'INPUT'
+        || active.tagName === 'TEXTAREA'
+        || active.tagName === 'SELECT'
+        || active.isContentEditable
+        || Boolean(active.closest('[contenteditable="true"]'))
+      )) return;
       if (!selection) return;
       e.preventDefault();
-      if (selection.kind === 'node') onDeleteNode(selection.id);
-      if (selection.kind === 'edge') onDeleteEdge(selection.id);
+      onDeleteSelection();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selection, onDeleteNode, onDeleteEdge]);
+  }, [selection, onDeleteSelection]);
 
   // ── run management ────────────────────────────────────────────────────────
 
@@ -1256,12 +1357,25 @@ export function App() {
   const selectedFromNode = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.from) : undefined;
   const selectedToNode   = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.to)   : undefined;
   const selectedTransferSourceNode = selectedEdge ? resolveTransferSource(selectedEdge, displayNodes, displayEdges) : undefined;
+  const selectedNodeIds = selection?.kind === 'node' ? [selection.id] : selection?.kind === 'nodes' ? selection.ids : [];
+  const canCopyNode = view === 'edit' && loadedWorkflowId === activeWorkflow && selectedNodeIds.some((id) => nodes.some((node) => node.id === id));
+  const canPasteNode = view === 'edit' && loadedWorkflowId === activeWorkflow && Boolean(nodeCopyBuffer);
+  const canDeleteSelection = view === 'edit'
+    && loadedWorkflowId === activeWorkflow
+    && (
+      selection?.kind === 'edge'
+        ? edges.some((edge) => edge.id === selection.id)
+        : selectedNodeIds.some((id) => {
+            const node = nodes.find((candidate) => candidate.id === id);
+            return node && !(node as WorkflowNode & { locked?: boolean }).locked;
+          })
+    );
 
   const selectedNodeWithState = selectedNode
     ? { ...selectedNode, runState: runState[selectedNode.id] }
     : null;
 
-  const hasRightPanel = !!selection;
+  const hasRightPanel = selection?.kind === 'node' || selection?.kind === 'edge';
   const barH     = barExpanded ? barHeight : 32;
   const rootClass = ['app', 'two-col-left', 'has-bottom-bar', hasRightPanel ? '' : 'no-right'].filter(Boolean).join(' ');
   const leftWidth = sidebarTotalWidth(sidebarLayout);
@@ -1323,15 +1437,23 @@ export function App() {
           sessions={displaySessions}
           selection={selection}
           onSelectNode={onSelectNode}
+          onSelectNodes={onSelectNodes}
           onSelectEdge={onSelectEdge}
           onClearSelection={onClearSelection}
           runState={runState}
           showRun={!!activeRun}
           onNodeMove={onNodeMove}
+          onNodesMove={onNodesMove}
           onAddNode={onAddNode}
           onAddEdge={onAddEdge}
           onDeleteNode={onDeleteNode}
           onAddBranch={onAddBranch}
+          canCopyNode={canCopyNode}
+          canPasteNode={canPasteNode}
+          canDeleteSelection={canDeleteSelection}
+          onCopyNode={onCopyNode}
+          onPasteNode={onPasteNode}
+          onDeleteSelection={onDeleteSelection}
           onContinuePausedNode={(nodeId) => {
             if (pausedNode?.nodeId === nodeId) void onContinuePausedNode();
           }}

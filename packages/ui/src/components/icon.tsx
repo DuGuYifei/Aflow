@@ -1,5 +1,5 @@
 export type IconName =
-  | 'plus' | 'play' | 'play-line' | 'pause' | 'edit' | 'trash' | 'x'
+  | 'plus' | 'input' | 'step-node' | 'cursor' | 'copy' | 'paste' | 'play' | 'play-line' | 'pause' | 'edit' | 'trash' | 'x'
   | 'search' | 'chevron-right' | 'chevron-down' | 'chevron-up'
   | 'lock' | 'image' | 'folder' | 'file' | 'paperclip'
   | 'flow' | 'workflow' | 'play-circle' | 'history' | 'settings'
@@ -30,6 +30,11 @@ export function Icon({ name, size = 14, className = '', style }: IconProps) {
   };
   switch (name) {
     case 'plus':          return <svg {...props}><path d="M12 5v14M5 12h14"/></svg>;
+    case 'input':         return <svg {...props}><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M8 9v6M10 9H6M10 15H6"/><path d="M14 12h4"/></svg>;
+    case 'step-node':     return <svg {...props}><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 10h8M8 14h5"/></svg>;
+    case 'cursor':        return <svg {...props}><path d="M5 3l11 10-5 1.2L8.5 20z"/></svg>;
+    case 'copy':          return <svg {...props}><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>;
+    case 'paste':         return <svg {...props}><path d="M8 4h8l1 3H7z"/><path d="M8 4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2"/><rect x="5" y="7" width="14" height="15" rx="2"/><path d="M9 13h6M9 17h4"/></svg>;
     case 'play':          return <svg {...props}><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></svg>;
     case 'play-line':     return <svg {...props}><path d="M7 4v16l13-8z"/></svg>;
     case 'pause':         return <svg {...props}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>;

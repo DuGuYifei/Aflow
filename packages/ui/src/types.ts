@@ -143,6 +143,7 @@ export interface GateNode {
   title: string;
   decisionCriteria: string;
   branches: Branch[];
+  locked?: boolean;
   configOptions?: Record<string, string | boolean>;
 }
 
@@ -155,6 +156,7 @@ export interface EndNode {
   w: number;
   title: string;
   sessionId: null;
+  locked?: boolean;
 }
 
 export interface InputNode {
@@ -170,6 +172,7 @@ export interface InputNode {
   defaultValue?: string;
   description?: string;
   sessionId: null;
+  locked?: boolean;
 }
 
 export type WorkflowNode = StepNode | GateNode | EndNode | InputNode;
@@ -186,7 +189,7 @@ export interface Edge {
   maxTraversals?: number;
 }
 
-export interface Selection {
-  kind: 'node' | 'edge';
-  id: string;
-}
+export type Selection =
+  | { kind: 'node'; id: string }
+  | { kind: 'edge'; id: string }
+  | { kind: 'nodes'; ids: string[] };

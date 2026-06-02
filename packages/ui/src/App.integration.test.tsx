@@ -8,6 +8,7 @@ declare function beforeEach(callback: () => void): void;
 declare function afterEach(callback: () => void): void;
 declare function test(name: string, callback: () => Promise<void> | void): void;
 declare const expect: (value: unknown) => {
+  toBe(expected: unknown): void;
   toContain(expected: unknown): void;
   not: { toContain(expected: unknown): void };
 };
@@ -303,6 +304,182 @@ describe("App run integration", () => {
 
     setSelectValue(select, "reviewer");
     await waitFor(() => select.value === "reviewer");
+  });
+
+  test("copies and pastes the selected node with keyboard shortcuts", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    selectFirstCanvasNode();
+    await waitForText("Definition");
+
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "v", metaKey: true, bubbles: true }));
+
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const nodes = (canvas as { nodes?: unknown[] }).nodes ?? [];
+      return nodes.length === 2 && (nodes[1] as { id?: string }).id === "node-1-copy";
+    }));
+    const saved = savedCanvases.at(-1) as { nodes: Array<{ id: string; alias: string; sessionId?: string }> };
+    expect(saved.nodes.length).toBe(2);
+    expect(saved.nodes[1].id).toBe("node-1-copy");
+    expect(saved.nodes[1].alias).toBe("02");
+    expect(saved.nodes[1].sessionId).toBe("main");
+  });
+
+  test("toggles node position lock from the settings panel", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    selectFirstCanvasNode();
+    await waitForText("Lock node position");
+
+    const lock = checkboxForLabel("Lock node position");
+    setCheckboxValue(lock, true);
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const node = (canvas as { nodes?: Array<{ locked?: boolean }> }).nodes?.[0];
+      return node?.locked === true;
+    }));
+
+    const saveCount = savedCanvases.length;
+    setCheckboxValue(lock, false);
+    await waitFor(() => savedCanvases.length > saveCount && savedCanvases.some((canvas) => {
+      const node = (canvas as { nodes?: Array<{ locked?: boolean }> }).nodes?.[0];
+      return node && node.locked !== true;
+    }));
+  });
+
+  test("does not intercept copy and paste shortcuts while editing a textarea", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    selectFirstCanvasNode();
+    await waitForText("Definition");
+    const textarea = document.querySelector(".panel-body textarea");
+    if (!(textarea instanceof window.HTMLTextAreaElement)) throw new Error("Node prompt textarea not found");
+    textarea.focus();
+
+    textarea.dispatchEvent(new window.KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+    textarea.dispatchEvent(new window.KeyboardEvent("keydown", { key: "v", metaKey: true, bubbles: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(savedCanvases.length).toBe(0);
+  });
+
+  test("deletes the selected node from the toolbar", async () => {
+    window.confirm = () => true;
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    selectFirstCanvasNode();
+    const deleteButton = document.querySelector('button[aria-label="Delete selection"]');
+    if (!(deleteButton instanceof window.HTMLButtonElement)) throw new Error("Delete selection button not found");
+    await waitFor(() => !deleteButton.disabled);
+    deleteButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const saved = canvas as { nodes?: unknown[]; edges?: unknown[] };
+      return (saved.nodes?.length ?? -1) === 0 && (saved.edges?.length ?? -1) === 0;
+    }));
+  });
+
+  test("marquee-selects multiple nodes and copies their internal edges", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
+        return json(sampleTwoNodeCanvas());
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    const canvas = document.querySelector(".canvas-wrap");
+    if (!(canvas instanceof window.HTMLElement)) throw new Error("Canvas not found");
+    canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 80, clientY: 80 }));
+    window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 760, clientY: 320 }));
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 760, clientY: 320 }));
+
+    await waitFor(() => {
+      const copy = document.querySelector('button[aria-label="Copy node"]');
+      return copy instanceof window.HTMLButtonElement && !copy.disabled;
+    });
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "c", metaKey: true, bubbles: true }));
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "v", metaKey: true, bubbles: true }));
+
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const saved = canvas as { nodes?: unknown[]; edges?: unknown[] };
+      return (saved.nodes?.length ?? 0) === 4 && (saved.edges?.length ?? 0) === 2;
+    }));
+    const saved = savedCanvases.at(-1) as { edges: Array<{ id: string; outputTag?: string }> };
+    expect(saved.edges[1].id).toBe("edge:node-1-copy:->node-2-copy");
+    expect(saved.edges[1].outputTag).toBe("handoff");
+  });
+
+  test("drags marquee-selected nodes together", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
+        return json(sampleTwoNodeCanvas());
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    marqueeSelectAllNodes();
+    await waitForCopyEnabled();
+
+    const firstNode = document.querySelector(".node");
+    if (!(firstNode instanceof window.HTMLElement)) throw new Error("Step node not found");
+    firstNode.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 140, clientY: 140 }));
+    window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 200, clientY: 170 }));
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 200, clientY: 170 }));
+
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const saved = canvas as { nodes?: Array<{ id: string; x: number; y: number }> };
+      const first = saved.nodes?.find((node) => node.id === "node-1");
+      const second = saved.nodes?.find((node) => node.id === "node-2");
+      return first?.x === 180 && first.y === 150 && second?.x === 480 && second.y === 150;
+    }));
+  });
+
+  test("deletes marquee-selected nodes and their connected edges together", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
+        return json(sampleTwoNodeCanvas());
+      }
+      return defaultFetch(input, initialValue);
+    };
+    window.confirm = () => true;
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    marqueeSelectAllNodes();
+    await waitForCopyEnabled();
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const saved = canvas as { nodes?: unknown[]; edges?: unknown[] };
+      return (saved.nodes?.length ?? -1) === 0 && (saved.edges?.length ?? -1) === 0;
+    }));
   });
 
   test("organizes ACP session history under the selected agent", async () => {
@@ -700,6 +877,24 @@ function sampleCanvas() {
   };
 }
 
+function sampleTwoNodeCanvas() {
+  const canvas = sampleCanvas();
+  return {
+    ...canvas,
+    nodes: [
+      canvas.nodes[0],
+      {
+        ...canvas.nodes[0],
+        id: "node-2",
+        alias: "2",
+        x: 420,
+        title: "Second",
+      },
+    ],
+    edges: [{ id: "edge:node-1:->node-2", from: "node-1", to: "node-2", transmit: true, outputTag: "handoff" }],
+  };
+}
+
 function sampleRun(status: string) {
   return {
     id: "run1",
@@ -764,6 +959,29 @@ function clickButtonContaining(text: string, pick: "first" | "last" = "first"): 
   button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
+function selectFirstCanvasNode(): void {
+  const step = document.querySelector(".node");
+  if (!(step instanceof window.HTMLElement)) throw new Error("Step node not found");
+  step.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  step.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  step.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+}
+
+function marqueeSelectAllNodes(): void {
+  const canvas = document.querySelector(".canvas-wrap");
+  if (!(canvas instanceof window.HTMLElement)) throw new Error("Canvas not found");
+  canvas.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: 80, clientY: 80 }));
+  window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 760, clientY: 320 }));
+  window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 760, clientY: 320 }));
+}
+
+async function waitForCopyEnabled(): Promise<void> {
+  await waitFor(() => {
+    const copy = document.querySelector('button[aria-label="Copy node"]');
+    return copy instanceof window.HTMLButtonElement && !copy.disabled;
+  });
+}
+
 function setSelectValue(select: HTMLSelectElement, value: string): void {
   select.value = value;
   select.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -782,6 +1000,20 @@ function setInputValue(input: HTMLInputElement, value: string): void {
   const InputEventCtor = window.InputEvent ?? window.Event;
   input.dispatchEvent(new InputEventCtor("input", { bubbles: true }));
   input.dispatchEvent(new window.Event("change", { bubbles: true }));
+}
+
+function setCheckboxValue(input: HTMLInputElement, checked: boolean): void {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "checked")?.set;
+  setter?.call(input, checked);
+  input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  input.dispatchEvent(new window.Event("change", { bubbles: true }));
+}
+
+function checkboxForLabel(text: string): HTMLInputElement {
+  const label = [...document.getElementsByTagName("label")].find((candidate) => candidate.textContent?.includes(text));
+  const input = label?.querySelector('input[type="checkbox"]');
+  if (!(input instanceof window.HTMLInputElement)) throw new Error(`Checkbox not found: ${text}`);
+  return input;
 }
 
 function setTextAreaValue(input: HTMLTextAreaElement, value: string): void {

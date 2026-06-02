@@ -275,12 +275,56 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .canvas-toolbar .divider { width: 1px; background: var(--line); margin: 4px 2px; }
 .canvas-toolbar button {
+  position: relative;
   background: transparent; border: none; color: var(--ink-2);
   height: 26px; padding: 0 8px; border-radius: 5px;
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12px;
 }
 .canvas-toolbar button:hover { background: var(--line-2); color: var(--ink); }
+.canvas-toolbar button:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.canvas-toolbar button:disabled:hover { background: transparent; color: var(--ink-4); }
+.canvas-toolbar button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0; top: calc(100% + 8px);
+  transform: translateY(-2px);
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 20;
+}
+.canvas-toolbar button[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  left: 9px; top: calc(100% + 3px);
+  transform: translateY(-2px);
+  border: 5px solid transparent;
+  border-bottom-color: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 20;
+}
+.canvas-toolbar button[data-tooltip]:hover::after,
+.canvas-toolbar button[data-tooltip]:focus-visible::after,
+.canvas-toolbar button[data-tooltip]:hover::before,
+.canvas-toolbar button[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  transform: translateY(0);
+}
 .canvas-toolbar button.mode-active {
   background: var(--ink);
   color: var(--bg);
@@ -290,6 +334,16 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   font-family: var(--font-mono); font-size: 11px;
   color: var(--ink-2);
   display: inline-flex; align-items: center; padding: 0 8px;
+}
+.canvas-wrap.hand-mode,
+.canvas-wrap.hand-mode .canvas-stage,
+.canvas-wrap.hand-mode .node,
+.canvas-wrap.hand-mode .gate-wrap,
+.canvas-wrap.hand-mode .end-node,
+.canvas-wrap.hand-mode .input-node,
+.canvas-wrap.hand-mode .edge-hover-target,
+.canvas-wrap.hand-mode .edge-tag {
+  cursor: grab;
 }
 
 /* Empty-state hint */
@@ -328,6 +382,14 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 /* Ghost-preview placement */
 .canvas-wrap.placing-node { cursor: none; }
 .canvas-wrap.placing-node .canvas-stage { cursor: none; }
+.canvas-marquee {
+  position: absolute;
+  border: 1px solid var(--ink);
+  background: color-mix(in oklch, var(--ink) 10%, transparent);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 4;
+}
 .ghost-node {
   position: absolute;
   opacity: 0.6;
@@ -576,13 +638,20 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   100% { transform: scale(1.4); opacity: 0; }
 }
 
-.node.locked .lock-badge {
+.lock-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   font-family: var(--font-mono);
   font-size: 9.5px;
   color: var(--ink-3);
+  flex: 0 0 auto;
+}
+.node.locked,
+.gate-wrap.locked .gate-card,
+.end-node.locked,
+.input-node.locked {
+  cursor: default;
 }
 
 /* === GATE NODE (diamond/hex shape) === */
@@ -1364,6 +1433,11 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   margin-bottom: 5px;
 }
 .toggle-row input { margin-top: 2px; }
+.node-lock-toggle span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .node-session-control {
   display: flex;
   align-items: center;

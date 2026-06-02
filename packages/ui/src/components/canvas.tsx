@@ -160,6 +160,7 @@ function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch
   if (runState === 'running') classNames.push('running');
   if (runState === 'success') classNames.push('success');
   if (runState === 'error')   classNames.push('error');
+  if (node.locked)            classNames.push('locked');
 
   const width = node.w;
   const height = 110;
@@ -175,6 +176,7 @@ function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch
       <div className="gate-card">
         <div className="gate-head">
           <span className="node-id">{node.alias}</span>
+          {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
           <span className="gate-sub"><Icon name="route" size={10} /> {t('canvas.gateBranches', { count: branches.length })}</span>
         </div>
         <h3 className="gate-title">{node.title}</h3>
@@ -218,6 +220,7 @@ function EndCard({ node, selected, onMouseDown, onSelect }: EndCardProps) {
   const { t } = useI18n();
   const classNames = ['end-node'];
   if (selected) classNames.push('selected');
+  if (node.locked) classNames.push('locked');
 
   return (
     <div
@@ -228,6 +231,7 @@ function EndCard({ node, selected, onMouseDown, onSelect }: EndCardProps) {
       data-port="in" data-node={node.id}
     >
       <Icon name="check" size={11} />{node.title || t('canvas.end')}
+      {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
     </div>
   );
 }
@@ -242,6 +246,7 @@ interface InputCardProps {
 function InputCard({ node, selected, onMouseDown, onSelect }: InputCardProps) {
   const classNames = ['input-node'];
   if (selected) classNames.push('selected');
+  if (node.locked) classNames.push('locked');
 
   return (
     <div
@@ -253,6 +258,7 @@ function InputCard({ node, selected, onMouseDown, onSelect }: InputCardProps) {
       <div className="input-node-head">
         <Icon name="tag" size={10} />
         <span className="node-id">{node.alias}</span>
+        {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
         <span style={{ flex: 1 }}>{node.title}</span>
       </div>
       <div className="input-node-var">
@@ -271,7 +277,7 @@ function InputCard({ node, selected, onMouseDown, onSelect }: InputCardProps) {
 
 // ── canvas ────────────────────────────────────────────────────────────────────
 
-export type CanvasMode = 'pan' | 'add-step' | 'add-gate' | 'add-end' | 'add-input';
+export type CanvasMode = 'select' | 'hand' | 'add-step' | 'add-gate' | 'add-end' | 'add-input';
 
 interface CanvasProps {
   nodes: WorkflowNode[];
@@ -279,15 +285,23 @@ interface CanvasProps {
   sessions: Session[];
   selection: Selection | null;
   onSelectNode: (id: string) => void;
+  onSelectNodes: (ids: string[]) => void;
   onSelectEdge: (id: string) => void;
   onClearSelection: () => void;
   runState: RunStateMap;
   showRun: boolean;
   onNodeMove: (id: string, x: number, y: number) => void;
+  onNodesMove: (moves: Array<{ id: string; x: number; y: number }>) => void;
   onAddNode: (node: WorkflowNode) => void;
   onAddEdge: (edge: Edge) => void;
   onDeleteNode: (id: string) => void;
   onAddBranch: (gateId: string) => void;
+  canCopyNode: boolean;
+  canPasteNode: boolean;
+  canDeleteSelection: boolean;
+  onCopyNode: () => void;
+  onPasteNode: (position: { x: number; y: number }) => void;
+  onDeleteSelection: () => void;
   onContinuePausedNode?: (nodeId: string) => void;
   viewMode: 'edit' | 'run';
   zoom: number;
@@ -298,7 +312,45 @@ interface CanvasProps {
 
 type DragState =
   | { kind: 'pan'; startX: number; startY: number; panX: number; panY: number }
-  | { kind: 'node'; nodeId: string; startX: number; startY: number; nx: number; ny: number };
+  | { kind: 'node'; nodeId: string; startX: number; startY: number; nx: number; ny: number }
+  | { kind: 'nodes'; startX: number; startY: number; nodes: Array<{ nodeId: string; x: number; y: number }> }
+  | { kind: 'marquee'; startX: number; startY: number; currentX: number; currentY: number };
+
+interface MarqueeRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+function isAddMode(mode: CanvasMode): boolean {
+  return mode === 'add-step' || mode === 'add-gate' || mode === 'add-end' || mode === 'add-input';
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.tagName === 'INPUT'
+    || target.tagName === 'TEXTAREA'
+    || target.tagName === 'SELECT'
+    || target.isContentEditable
+    || Boolean(target.closest('[contenteditable="true"]'));
+}
+
+function normalizedRect(startX: number, startY: number, currentX: number, currentY: number): MarqueeRect {
+  const left = Math.min(startX, currentX);
+  const top = Math.min(startY, currentY);
+  const width = Math.abs(currentX - startX);
+  const height = Math.abs(currentY - startY);
+  return { left, top, width, height };
+}
+
+function rectIntersectsNode(rect: MarqueeRect, node: WorkflowNode): boolean {
+  const right = rect.left + rect.width;
+  const bottom = rect.top + rect.height;
+  const nodeRight = node.x + node.w;
+  const nodeBottom = node.y + NODE_H[node.kind];
+  return rect.left <= nodeRight && right >= node.x && rect.top <= nodeBottom && bottom >= node.y;
+}
 
 interface DragEdge {
   fromId: string;
@@ -309,18 +361,20 @@ interface DragEdge {
 
 export function Canvas({
   nodes, edges, sessions,
-  selection, onSelectNode, onSelectEdge, onClearSelection,
-  runState, showRun, onNodeMove,
-  onAddNode, onAddEdge, onDeleteNode, onAddBranch, onContinuePausedNode,
+  selection, onSelectNode, onSelectNodes, onSelectEdge, onClearSelection,
+  runState, showRun, onNodeMove, onNodesMove,
+  onAddNode, onAddEdge, onDeleteNode, onAddBranch,
+  canCopyNode, canPasteNode, canDeleteSelection, onCopyNode, onPasteNode, onDeleteSelection, onContinuePausedNode,
   viewMode,
   zoom, setZoom, pan, setPan,
 }: CanvasProps) {
   const { t } = useI18n();
   void onDeleteNode;  // handled by App-level keyboard listener
 
-  const [mode, setMode] = useState<CanvasMode>('pan');
+  const [mode, setMode] = useState<CanvasMode>('select');
   const [dragEdge, setDragEdge] = useState<DragEdge | null>(null);
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
 
   const dragRef = useRef<DragState | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -329,6 +383,7 @@ export function Canvas({
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const dragEdgeRef = useRef<DragEdge | null>(null);
+  const suppressClickRef = useRef(false);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
 
   zoomRef.current   = zoom;
@@ -343,7 +398,9 @@ export function Canvas({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (mode !== 'pan') { setMode('pan'); setGhostPos(null); }
+        if (isAddMode(mode)) { setMode('select'); setGhostPos(null); }
+        if (dragRef.current?.kind === 'marquee') dragRef.current = null;
+        setMarqueeRect(null);
         if (dragEdgeRef.current) setDragEdge(null);
       }
     };
@@ -351,10 +408,10 @@ export function Canvas({
     return () => window.removeEventListener('keydown', handler);
   }, [mode]);
 
-  // Auto-reset to pan if view becomes readonly while in add mode
+  // Auto-reset to select if view becomes readonly while in add mode
   useEffect(() => {
-    if (!isEdit && mode !== 'pan') {
-      setMode('pan');
+    if (!isEdit && isAddMode(mode)) {
+      setMode('select');
       setGhostPos(null);
       setDragEdge(null);
     }
@@ -403,6 +460,29 @@ export function Canvas({
     };
   }, []);
 
+  const viewportCenterToCanvas = useCallback(() => {
+    if (!wrapRef.current) return { x: 0, y: 0 };
+    const rect = wrapRef.current.getBoundingClientRect();
+    return clientToCanvas(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }, [clientToCanvas]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (isEditableTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'c' && isEdit && canCopyNode) {
+        event.preventDefault();
+        onCopyNode();
+      } else if (key === 'v' && isEdit && canPasteNode) {
+        event.preventDefault();
+        onPasteNode(viewportCenterToCanvas());
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [canCopyNode, canPasteNode, isEdit, onCopyNode, onPasteNode, viewportCenterToCanvas]);
+
   // ── port-drag-to-connect ──────────────────────────────────────────────────
 
   const startEdgeDrag = useCallback((fromId: string, branch: string | undefined, clientX: number, clientY: number) => {
@@ -422,17 +502,32 @@ export function Canvas({
       // 2. Existing node drag / pan
       const dragState = dragRef.current;
       if (dragState) {
+        const movedEnough = Math.abs(e.clientX - dragState.startX) >= 3 || Math.abs(e.clientY - dragState.startY) >= 3;
         if (dragState.kind === 'pan') {
           setPan({ x: dragState.panX + (e.clientX - dragState.startX), y: dragState.panY + (e.clientY - dragState.startY) });
+        } else if (dragState.kind === 'marquee') {
+          const position = clientToCanvas(e.clientX, e.clientY);
+          dragRef.current = { ...dragState, currentX: position.x, currentY: position.y };
+          setMarqueeRect(normalizedRect(dragState.startX, dragState.startY, position.x, position.y));
+        } else if (dragState.kind === 'node') {
+          const deltaX = (e.clientX - dragState.startX) / zoomRef.current;
+          const deltaY = (e.clientY - dragState.startY) / zoomRef.current;
+          if (movedEnough) suppressClickRef.current = true;
+          onNodeMove(dragState.nodeId, dragState.nx + deltaX, dragState.ny + deltaY);
         } else {
           const deltaX = (e.clientX - dragState.startX) / zoomRef.current;
           const deltaY = (e.clientY - dragState.startY) / zoomRef.current;
-          onNodeMove(dragState.nodeId, dragState.nx + deltaX, dragState.ny + deltaY);
+          suppressClickRef.current = true;
+          onNodesMove(dragState.nodes.map((node) => ({
+            id: node.nodeId,
+            x: node.x + deltaX,
+            y: node.y + deltaY,
+          })));
         }
         return;
       }
       // 3. Ghost preview in add-mode
-      if (mode !== 'pan') {
+      if (isAddMode(mode)) {
         const position = clientToCanvas(e.clientX, e.clientY);
         setGhostPos(position);
       }
@@ -475,7 +570,22 @@ export function Canvas({
         }
         return;
       }
+      const dragState = dragRef.current;
+      if (dragState?.kind === 'marquee') {
+        const rect = normalizedRect(dragState.startX, dragState.startY, dragState.currentX, dragState.currentY);
+        const hasDragArea = rect.width >= 4 || rect.height >= 4;
+        const selectedIds = hasDragArea
+          ? nodesRef.current.filter((node) => rectIntersectsNode(rect, node)).map((node) => node.id)
+          : [];
+        onSelectNodes(selectedIds);
+        setMarqueeRect(null);
+        dragRef.current = null;
+        return;
+      }
       dragRef.current = null;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
     };
 
     window.addEventListener('mousemove', onMove);
@@ -484,16 +594,27 @@ export function Canvas({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [mode, clientToCanvas, onAddEdge, setPan, onNodeMove]);
+  }, [mode, clientToCanvas, onAddEdge, onSelectNodes, setPan, onNodeMove, onNodesMove]);
 
   // ── canvas mousedown ──────────────────────────────────────────────────────
 
+  const startPanDrag = (element: React.MouseEvent) => {
+    element.preventDefault();
+    dragRef.current = { kind: 'pan', startX: element.clientX, startY: element.clientY, panX: pan.x, panY: pan.y };
+  };
+
   const onCanvasMouseDown = (element: React.MouseEvent) => {
     const target = element.target as Element;
-    if (target.closest('.node, .gate-wrap, .end-node, .input-node, .edge-tag, .canvas-toolbar, .edge-hover-target')) return;
+    if (target.closest('.canvas-toolbar')) return;
+    if (element.button === 1) {
+      startPanDrag(element);
+      return;
+    }
+    if (element.button !== 0) return;
+    if (mode !== 'hand' && target.closest('.node, .gate-wrap, .end-node, .input-node, .edge-tag, .edge-hover-target')) return;
 
     // In add-mode and edit view: place node at click
-    if (mode !== 'pan' && isEdit) {
+    if (isAddMode(mode) && isEdit) {
       const position = clientToCanvas(element.clientX, element.clientY);
       const keyPrefix =
         mode === 'add-step' ? 'step'
@@ -522,22 +643,46 @@ export function Canvas({
 
       // Shift+click: stay in mode for rapid placement
       if (!element.shiftKey) {
-        setMode('pan');
+        setMode('select');
         setGhostPos(null);
         onSelectNode(id);
       }
       return;
     }
 
-    // Default: pan
-    dragRef.current = { kind: 'pan', startX: element.clientX, startY: element.clientY, panX: pan.x, panY: pan.y };
-    onClearSelection();
+    if (mode === 'hand') {
+      startPanDrag(element);
+      return;
+    }
+
+    const position = clientToCanvas(element.clientX, element.clientY);
+    dragRef.current = {
+      kind: 'marquee',
+      startX: position.x,
+      startY: position.y,
+      currentX: position.x,
+      currentY: position.y,
+    };
+    setMarqueeRect(normalizedRect(position.x, position.y, position.x, position.y));
   };
 
   // ── node mousedown ────────────────────────────────────────────────────────
 
   const onNodeMouseDown = (element: React.MouseEvent, nodeId: string) => {
     const target = element.target as Element;
+
+    if (element.button === 1) {
+      element.stopPropagation();
+      startPanDrag(element);
+      return;
+    }
+    if (element.button !== 0) return;
+
+    if (mode === 'hand') {
+      element.stopPropagation();
+      startPanDrag(element);
+      return;
+    }
 
     // Port drag-out (edit mode only)
     if (isEdit) {
@@ -561,10 +706,28 @@ export function Canvas({
     ) return;
 
     element.stopPropagation();
-    onSelectNode(nodeId);
+    if (isAddMode(mode)) return;
 
     // In run view: select-only, no drag
-    if (!isEdit) return;
+    if (!isEdit) {
+      onSelectNode(nodeId);
+      return;
+    }
+
+    if (selectedNodeIds.has(nodeId) && selectedNodeIds.size > 1) {
+      const selectedNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
+      if (selectedNodes.some((node) => (node as WorkflowNode & { locked?: boolean }).locked)) return;
+      suppressClickRef.current = true;
+      dragRef.current = {
+        kind: 'nodes',
+        startX: element.clientX,
+        startY: element.clientY,
+        nodes: selectedNodes.map((node) => ({ nodeId: node.id, x: node.x, y: node.y })),
+      };
+      return;
+    }
+
+    onSelectNode(nodeId);
 
     const node = nodes.find((node) => node.id === nodeId);
     if (!node) return;
@@ -581,6 +744,20 @@ export function Canvas({
 
   const sessionById = (id: string | null) => sessions.find((session) => session.id === id);
 
+  const selectNode = useCallback((nodeId: string) => {
+    if (mode !== 'select') return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    onSelectNode(nodeId);
+  }, [mode, onSelectNode]);
+
+  const selectEdge = useCallback((edgeId: string) => {
+    if (mode !== 'select') return;
+    onSelectEdge(edgeId);
+  }, [mode, onSelectEdge]);
+
   // Pending drag-edge origin
   const dragEdgeFrom = dragEdge
     ? (() => {
@@ -589,12 +766,33 @@ export function Canvas({
       })()
     : null;
 
+  const selectedNodeIds = new Set(
+    selection?.kind === 'node'
+      ? [selection.id]
+      : selection?.kind === 'nodes'
+        ? selection.ids
+        : [],
+  );
+
   // Toolbar button helper
-  const toolbarModeBtn = (targetMode: CanvasMode, icon: IconName, title: string) => (
+  const toolbarModeBtn = (targetMode: CanvasMode, icon: IconName, label: string, tooltip = label) => (
     <button
-      title={title}
+      aria-label={label}
+      aria-pressed={mode === targetMode}
+      data-tooltip={tooltip}
       className={mode === targetMode ? 'mode-active' : ''}
-      onClick={(event) => { event.stopPropagation(); setMode(mode === targetMode ? 'pan' : targetMode); setGhostPos(null); setDragEdge(null); }}
+      onClick={(event) => { event.stopPropagation(); setMode(mode === targetMode && isAddMode(targetMode) ? 'select' : targetMode); setGhostPos(null); setDragEdge(null); }}
+    >
+      <Icon name={icon} size={14} />
+    </button>
+  );
+
+  const toolbarActionBtn = (icon: IconName, label: string, onClick: () => void, disabled = false) => (
+    <button
+      aria-label={label}
+      data-tooltip={label}
+      disabled={disabled}
+      onClick={(event) => { event.stopPropagation(); onClick(); }}
     >
       <Icon name={icon} size={14} />
     </button>
@@ -602,7 +800,8 @@ export function Canvas({
 
   const wrapClasses = ['canvas-wrap'];
   if (dragEdge) wrapClasses.push('dragging-edge');
-  if (mode !== 'pan' && ghostPos) wrapClasses.push('placing-node');
+  if (mode === 'hand') wrapClasses.push('hand-mode');
+  if (isAddMode(mode) && ghostPos) wrapClasses.push('placing-node');
 
   return (
     <div
@@ -666,7 +865,7 @@ export function Canvas({
                 <path
                   d={pathData}
                   className="edge-hover-target"
-                  onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+                  onClick={(event) => { event.stopPropagation(); selectEdge(edge.id); }}
                   onMouseEnter={() => setHoverEdge(edge.id)}
                   onMouseLeave={() => setHoverEdge((h) => h === edge.id ? null : h)}
                 />
@@ -706,7 +905,7 @@ export function Canvas({
                 className="edge-tag edge-tag-var"
                 style={{ left: midpoint.x, top: midpoint.y }}
                 title={t('canvas.injectsVariable', { variable: fromNode.variableName })}
-                onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+                onClick={(event) => { event.stopPropagation(); selectEdge(edge.id); }}
               >
                 <Icon name="tag" size={9} />&lt;{fromNode.variableName}&gt;
               </div>
@@ -740,7 +939,7 @@ export function Canvas({
               key={`tag-${edge.id}`}
               className={`edge-tag${edge.outputTag ? '' : ' empty'}${isSelected ? ' selected' : ''}`}
               style={{ left: midpoint.x, top: midpoint.y }}
-              onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+              onClick={(event) => { event.stopPropagation(); selectEdge(edge.id); }}
             >
               {edge.loopback && <Icon name="rotate" size={10} />}
               {edge.transmit && edge.outputTag ? <span className="tag-key">&lt;specflow_{edge.outputTag}&gt;</span> : <span>{t('canvas.noTransfer')}</span>}
@@ -750,25 +949,25 @@ export function Canvas({
 
         {/* nodes */}
         {nodes.map((node) => {
-          const selected = selection?.kind === 'node' && selection.id === node.id;
+          const selected = selectedNodeIds.has(node.id);
           if (node.kind === 'gate') return (
             <GateCard
               key={node.id} node={node} selected={selected}
               runState={runState[node.id]}
-              onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
+              onMouseDown={onNodeMouseDown} onSelect={selectNode}
               onAddBranch={onAddBranch}
             />
           );
           if (node.kind === 'end') return (
             <EndCard
               key={node.id} node={node} selected={selected}
-              onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
+              onMouseDown={onNodeMouseDown} onSelect={selectNode}
             />
           );
           if (node.kind === 'input') return (
             <InputCard
               key={node.id} node={node} selected={selected}
-              onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
+              onMouseDown={onNodeMouseDown} onSelect={selectNode}
             />
           );
           return (
@@ -777,14 +976,26 @@ export function Canvas({
               session={sessionById(node.sessionId)}
               selected={selected}
               runState={runState[node.id]}
-              onMouseDown={onNodeMouseDown} onSelect={onSelectNode}
+              onMouseDown={onNodeMouseDown} onSelect={selectNode}
               onContinue={runState[node.id] === 'paused' ? () => onContinuePausedNode?.(node.id) : undefined}
             />
           );
         })}
 
+        {marqueeRect && (
+          <div
+            className="canvas-marquee"
+            style={{
+              left: marqueeRect.left,
+              top: marqueeRect.top,
+              width: marqueeRect.width,
+              height: marqueeRect.height,
+            }}
+          />
+        )}
+
         {/* ghost preview while in add mode */}
-        {mode !== 'pan' && isEdit && ghostPos && <GhostNode mode={mode} position={ghostPos} />}
+        {isAddMode(mode) && isEdit && ghostPos && <GhostNode mode={mode} position={ghostPos} />}
 
         {/* hover prompt preview */}
         {hoverEdge && (() => {
@@ -818,33 +1029,47 @@ export function Canvas({
       {/* toolbar — only in edit view */}
       {isEdit && (
         <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
-          {toolbarModeBtn('add-step', 'plus', t('canvas.addStepTitle'))}
+          {toolbarModeBtn('add-input', 'input', t('canvas.addRunInputTitle'))}
+          {toolbarModeBtn('add-step', 'step-node', t('canvas.addStepTitle'), t('canvas.addStepTooltip'))}
           {toolbarModeBtn('add-gate', 'route', t('canvas.addGateTitle'))}
           {toolbarModeBtn('add-end', 'check', t('canvas.addEndTitle'))}
-          {toolbarModeBtn('add-input', 'tag', t('canvas.addRunInputTitle'))}
           <div className="divider" />
-          <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} title={t('canvas.zoomOut')}>
+          {toolbarModeBtn('select', 'cursor', t('canvas.selectTool'))}
+          {toolbarModeBtn('hand', 'hand', t('canvas.handTool'))}
+          <div className="divider" />
+          {toolbarActionBtn('copy', t('canvas.copyNode'), onCopyNode, !canCopyNode)}
+          {toolbarActionBtn('paste', t('canvas.pasteNode'), () => onPasteNode(viewportCenterToCanvas()), !canPasteNode)}
+          {toolbarActionBtn('trash', t('canvas.deleteSelection'), onDeleteSelection, !canDeleteSelection)}
+          <div className="divider" />
+          <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')} data-tooltip={t('canvas.zoomOut')}>
             <Icon name="zoom-out" size={13} />
           </button>
           <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} title={t('canvas.zoomIn')}>
+          <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} aria-label={t('canvas.zoomIn')} data-tooltip={t('canvas.zoomIn')}>
             <Icon name="zoom-in" size={13} />
           </button>
-          <button title={t('canvas.fitToView')} onClick={fitToView}>
+          <button aria-label={t('canvas.fitToView')} data-tooltip={t('canvas.fitToView')} onClick={fitToView}>
             <Icon name="fit" size={13} />
           </button>
         </div>
       )}
       {!isEdit && (
         <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
-          <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} title={t('canvas.zoomOut')}>
+          {toolbarModeBtn('select', 'cursor', t('canvas.selectTool'))}
+          {toolbarModeBtn('hand', 'hand', t('canvas.handTool'))}
+          <div className="divider" />
+          {toolbarActionBtn('copy', t('canvas.copyNode'), onCopyNode, true)}
+          {toolbarActionBtn('paste', t('canvas.pasteNode'), () => onPasteNode(viewportCenterToCanvas()), true)}
+          {toolbarActionBtn('trash', t('canvas.deleteSelection'), onDeleteSelection, true)}
+          <div className="divider" />
+          <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')} data-tooltip={t('canvas.zoomOut')}>
             <Icon name="zoom-out" size={13} />
           </button>
           <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} title={t('canvas.zoomIn')}>
+          <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} aria-label={t('canvas.zoomIn')} data-tooltip={t('canvas.zoomIn')}>
             <Icon name="zoom-in" size={13} />
           </button>
-          <button title={t('canvas.fitToView')} onClick={fitToView}>
+          <button aria-label={t('canvas.fitToView')} data-tooltip={t('canvas.fitToView')} onClick={fitToView}>
             <Icon name="fit" size={13} />
           </button>
         </div>
@@ -876,7 +1101,7 @@ function GhostNode({ mode, position }: { mode: CanvasMode; position: { x: number
   if (mode === 'add-input') {
     return (
       <div className="ghost-node ghost-input" style={{ left: position.x - 100, top: position.y - 36, width: 200 }}>
-        <div className="ghost-head"><Icon name="tag" size={10} /> {t('canvas.runInput')}</div>
+        <div className="ghost-head"><Icon name="input" size={10} /> {t('canvas.runInput')}</div>
         <div className="ghost-title">&lt;specflow_var&gt;</div>
       </div>
     );
