@@ -70,6 +70,9 @@
 - [ ] app
 - [ ] UI更新为和homepage一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
 - [ ] specflow --version 显示版本号
+- [ ] SKILL模式
+- [ ] plugin模式
+- [ ] agent模式
 
 ## Bug
 
