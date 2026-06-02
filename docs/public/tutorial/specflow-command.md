@@ -27,7 +27,7 @@ specflow validate .aflow/.specflow/agentflows/code-review-flow.yaml
 
 `validate` 只解析 YAML 并检查 workflow 是否满足可运行规则，不会启动 agent。
 
-它会检查 session、node、edge、gate、loopback、input 变量名和 `agentServerId` 字段等结构规则。
+它会检查 session、node、edge、gate、loopback、input 变量名和 `agentServerId` 字段等结构规则。它也会读取 workspace 的 agent server 配置；如果 `pauseAfterRun: true` 节点使用的是 headless agent，校验会失败，因为 headless agent 没有可交互 session。
 
 如果 workflow 有 required input node，`validate` 也不需要传 `-D`。input 的具体值属于某次 run，而不是 workflow 结构本身。
 

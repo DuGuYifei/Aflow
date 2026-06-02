@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { assertCliRunSupportsWorkflow, normalizeVariableValues, parseRunArgs, parseValidateArgs } from "./specflow";
-import type { AgentFlowDoc } from "@specflow/server";
+import { normalizeVariableValues, parseRunArgs, parseValidateArgs } from "./specflow";
+import { assertCliRunnableAgentFlow, type AgentFlowDoc } from "@specflow/server";
 
 const canvasDocument: AgentFlowDoc = {
   id: "flow",
@@ -84,7 +84,7 @@ describe("specflow run input values", () => {
 
 describe("specflow run workflow support", () => {
   test("accepts workflows without paused step nodes", () => {
-    expect(() => assertCliRunSupportsWorkflow(canvasDocument)).not.toThrow();
+    expect(() => assertCliRunnableAgentFlow(canvasDocument)).not.toThrow();
   });
 
   test("rejects workflows with paused step nodes", () => {
@@ -104,7 +104,7 @@ describe("specflow run workflow support", () => {
       ],
     };
 
-    expect(() => assertCliRunSupportsWorkflow(doc)).toThrow(
+    expect(() => assertCliRunnableAgentFlow(doc)).toThrow(
       "specflow run does not support pauseAfterRun nodes.\n"
       + "Start the UI with `specflow`, then run this workflow from the browser to use pause/continue.\n"
       + "Paused nodes:\n"

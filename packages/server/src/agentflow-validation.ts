@@ -5,6 +5,12 @@ const SYMBOL_KEY = /^[a-z][a-z0-9-]*$/;
 const XML_SAFE_TAG = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 const INPUT_VARIABLE_NAME = /^specflow_[A-Za-z0-9_]+$/;
 
+export interface AgentFlowValidationAgentServer {
+  settings: {
+    type: string;
+  };
+}
+
 export function assertSymbolKey(value: string, label: string): void {
   if (!SYMBOL_KEY.test(value)) {
     throw new Error(`${label} "${value}" must match ${SYMBOL_KEY.source}.`);
@@ -201,6 +207,46 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
   }
   assertControlledLoopbacks(canvasDocument);
   assertAcyclicExecutedEdges(canvasDocument);
+}
+
+export function assertInteractivePauseSupported(
+  input: AgentFlowDoc,
+  agentServers: Map<string, AgentFlowValidationAgentServer>,
+): void {
+  const canvasDocument = normalizeAgentFlowDraft(input);
+  const sessionsById = new Map(canvasDocument.sessions.map((session) => [session.id, session]));
+  for (const node of canvasDocument.nodes) {
+    if (node.kind !== "step" || !node.pauseAfterRun) continue;
+    const serverId = sessionsById.get(node.sessionId ?? "")?.agentServerId;
+    if (serverId && agentServers.get(serverId)?.settings.type === "headless") {
+      throw new Error(`Node "${node.id}" cannot pause for interaction because headless agent "${serverId}" has no ACP session.`);
+    }
+  }
+}
+
+export function assertNoPauseNodes(input: AgentFlowDoc): void {
+  const canvasDocument = normalizeAgentFlowDraft(input);
+  const pausedNodes = canvasDocument.nodes.filter((node) => node.kind === "step" && node.pauseAfterRun);
+  if (pausedNodes.length === 0) return;
+  throw new Error([
+    "specflow run does not support pauseAfterRun nodes.",
+    "Start the UI with `specflow`, then run this workflow from the browser to use pause/continue.",
+    "Paused nodes:",
+    ...pausedNodes.map((node) => `  - ${node.alias} ${node.title} (${node.id})`),
+  ].join("\n"));
+}
+
+export function assertServerRunnableAgentFlow(
+  input: AgentFlowDoc,
+  agentServers: Map<string, AgentFlowValidationAgentServer>,
+): void {
+  assertRunnableAgentFlow(input);
+  assertInteractivePauseSupported(input, agentServers);
+}
+
+export function assertCliRunnableAgentFlow(input: AgentFlowDoc): void {
+  assertNoPauseNodes(input);
+  assertRunnableAgentFlow(input);
 }
 
 function areExclusiveGateBranches(first: CanvasEdge, second: CanvasEdge, canvasDocument: AgentFlowDoc): boolean {

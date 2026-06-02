@@ -24,7 +24,7 @@ import {
 import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./run-log-store";
 import { prepareCanvasRun } from "./run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
-import { assertRunnableAgentFlow } from "./agentflow-validation";
+import { assertServerRunnableAgentFlow } from "./agentflow-validation";
 import { assertSymbolKey, keyFromLabel } from "./agentflow-source";
 import {
   loadLocalAgentServerConfig,
@@ -751,8 +751,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     let authStatuses: AgentAuthenticationStatus[];
     try {
-      assertRunnableAgentFlow(agentflow);
-      await assertInteractivePauseSupported(agentflow);
+      assertServerRunnableAgentFlow(agentflow, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
       authStatuses = await inspectWorkflowAuthentication(agentflow);
     } catch (error) {
       return Response.json({ error: errorMessage(error) }, { status: 409 });
@@ -1066,18 +1065,6 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     return Promise.all(agentServerIds
       .filter((id) => servers.get(id)?.settings.type !== "headless")
       .map((id) => bridge.inspectAgentAuthentication(root, id)));
-  }
-
-  async function assertInteractivePauseSupported(agentflow: AgentFlowDoc): Promise<void> {
-    const servers = new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry]));
-    const sessionsById = new Map(agentflow.sessions.map((session) => [session.id, session]));
-    for (const node of agentflow.nodes) {
-      if (node.kind !== "step" || !node.pauseAfterRun) continue;
-      const serverId = sessionsById.get(node.sessionId ?? "")?.agentServerId;
-      if (serverId && servers.get(serverId)?.settings.type === "headless") {
-        throw new Error(`Node "${node.id}" cannot pause for interaction because headless agent "${serverId}" has no ACP session.`);
-      }
-    }
   }
 
   async function handleRestore(agentSessionId: string, mode: AgentRestoreMode): Promise<Response> {

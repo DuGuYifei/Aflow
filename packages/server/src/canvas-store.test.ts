@@ -10,7 +10,7 @@ import {
   saveCanvas,
 } from "./canvas-store";
 import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
-import { assertRunnableAgentFlow } from "./agentflow-validation";
+import { assertCliRunnableAgentFlow, assertRunnableAgentFlow, assertServerRunnableAgentFlow } from "./agentflow-validation";
 import type { CanvasDoc } from "./canvas-doc";
 
 describe("agentflow/canvas storage", () => {
@@ -232,6 +232,53 @@ edges:
     to: first
     loopback: true
 `, "controlled-review-cycle"))).not.toThrow();
+  });
+
+  it("rejects interactive pause checkpoints backed by headless agent servers", () => {
+    const agentflow = parseAgentFlowSource(`version: 1
+name: Headless pause
+sessions:
+  main:
+    agentServerId: echo-headless
+nodes:
+  review:
+    kind: step
+    title: Review
+    session: main
+    prompt: Review the change.
+    pauseAfterRun: true
+edges: []
+`, "headless-pause");
+
+    expect(() => assertRunnableAgentFlow(agentflow)).not.toThrow();
+    expect(() => assertServerRunnableAgentFlow(agentflow, new Map([
+      ["echo-headless", { settings: { type: "headless" } }],
+    ]))).toThrow('Node "review" cannot pause for interaction because headless agent "echo-headless" has no ACP session.');
+  });
+
+  it("rejects all pause checkpoints for direct CLI runs", () => {
+    const agentflow = parseAgentFlowSource(`version: 1
+name: CLI pause
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  review:
+    kind: step
+    alias: "01"
+    title: Review
+    session: main
+    prompt: Review the change.
+    pauseAfterRun: true
+edges: []
+`, "cli-pause");
+
+    expect(() => assertCliRunnableAgentFlow(agentflow)).toThrow(
+      "specflow run does not support pauseAfterRun nodes.\n"
+      + "Start the UI with `specflow`, then run this workflow from the browser to use pause/continue.\n"
+      + "Paused nodes:\n"
+      + "  - 01 Review (review)",
+    );
   });
 
   it("defers ambiguous output tags and empty gates until runnable validation", () => {
