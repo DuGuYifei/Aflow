@@ -265,10 +265,4 @@ specflow validate .aflow/.specflow/agentflows/code-review-flow.yaml
 
 `validate` 只解析 YAML 并校验 workflow 图，不会启动 agent。
 
-运行 workflow：
-
-```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml
-```
-
-Specflow 会在启动前解析 YAML、校验工作流图、检查必填输入值，并检查 Agent 认证状态。更多命令说明见 [Specflow 命令](specflow-command.md)。
+更多specflow命令说明见 [Specflow 命令](specflow-command.md)。
