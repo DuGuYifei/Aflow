@@ -118,6 +118,43 @@ describe("App run integration", () => {
     expect(document.body.textContent).toContain("Back to design");
   });
 
+  test("opens historical run logs without replaying them through SSE", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url.startsWith("/api/runs?")) {
+        return json([sampleRun("success")]);
+      }
+      if (method === "GET" && url === "/api/runs/run1/logs?tail=500") {
+        return json({
+          events: [{
+            type: "session_update",
+            runId: "run1",
+            nodeId: "node-1",
+            agentInvocationId: "invocation-1",
+            sessionId: "session-1",
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "historic answer" } },
+            at: "2026-05-19T10:00:00.000Z",
+          }],
+          total: 1,
+          startIndex: 0,
+        });
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Run #1");
+    const runCard = document.querySelector(".run-card");
+    if (!(runCard instanceof window.HTMLElement)) throw new Error("Run card not found");
+    runCard.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events?replay=false"));
+  });
+
   test("renders streamed ACP message chunks as one growing timeline message", async () => {
     root = createRoot(container);
     renderApp(root);

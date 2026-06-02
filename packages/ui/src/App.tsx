@@ -704,7 +704,7 @@ export function App() {
           }
         }
       }
-    });
+    }, options);
     return cleanup;
   }, [activeWorkflow, onRunInteractionEvent, refreshAgentSessions]);
 
