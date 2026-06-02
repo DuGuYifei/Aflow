@@ -3,17 +3,33 @@ import { dirname, join } from "node:path";
 import type { AgentServerSettings } from "@specflow/bridge";
 import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 
+export interface AgentServerSharedConfig {
+  agent_servers: Record<string, AgentServerSettings>;
+}
+
 export interface AgentServerLocalConfig {
   agent_servers: Record<string, AgentServerSettings>;
+}
+
+export function agentServersPath(root: string): string {
+  return join(root, SPECFLOW_WORKSPACE_PATH, "agent-servers.json");
 }
 
 export function agentServersLocalPath(root: string): string {
   return join(root, SPECFLOW_WORKSPACE_PATH, "agent-servers.local.json");
 }
 
+export async function loadSharedAgentServerConfig(root: string): Promise<AgentServerSharedConfig> {
+  return loadAgentServerConfig(agentServersPath(root));
+}
+
 export async function loadLocalAgentServerConfig(root: string): Promise<AgentServerLocalConfig> {
+  return loadAgentServerConfig(agentServersLocalPath(root));
+}
+
+async function loadAgentServerConfig(path: string): Promise<AgentServerSharedConfig> {
   try {
-    const rawValue = JSON.parse(await readFile(agentServersLocalPath(root), "utf8")) as Partial<AgentServerLocalConfig> & {
+    const rawValue = JSON.parse(await readFile(path, "utf8")) as Partial<AgentServerSharedConfig> & {
       agentServers?: Record<string, AgentServerSettings>;
     };
     return { agent_servers: rawValue.agent_servers ?? rawValue.agentServers ?? {} };

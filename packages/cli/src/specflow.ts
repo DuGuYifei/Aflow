@@ -8,6 +8,7 @@ import {
   inspectAgentServerAuthentication,
   listAgentServers,
   loadAgentFlowFile,
+  prepareSpecflowWorkspace,
   prepareCanvasRun,
   startSpecflowServer,
   type AgentFlowDoc,
@@ -29,7 +30,16 @@ let stdinLineReader: StdinLineReader | undefined;
 export async function main(args = Bun.argv.slice(2)): Promise<void> {
   if (isVersionCommand(args)) {
     console.log(await formatSpecflowVersion());
-  } else if (args[0] === "run") {
+    return;
+  }
+
+  await prepareSpecflowWorkspace(process.cwd(), {
+    createIfMissing: true,
+    prewarmAgentServers: true,
+    warn: (message) => console.warn(`Warning: ${message}`),
+  });
+
+  if (args[0] === "run") {
     await runWorkflowCommand(args.slice(1));
   } else if (args[0] === "validate") {
     await validateWorkflowCommand(args.slice(1));

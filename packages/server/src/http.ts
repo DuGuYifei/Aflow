@@ -4,7 +4,6 @@ import { APP_NAME, DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
 import { serveStaticUi } from "./static-ui";
 import { SkillStore, resolveSlashCommands } from "./skills";
 import { createDevUiProxy } from "./ui-dev";
-import { initWorkspace } from "./workspace";
 import { createApiHandler } from "./api";
 
 export interface SpecflowServerOptions {
@@ -22,7 +21,6 @@ export async function startSpecflowServer(
   options: SpecflowServerOptions = {},
 ): Promise<RunningSpecflowServer> {
   const workingDirectory = process.cwd();
-  await initWorkspace(workingDirectory, { createIfMissing: true });
 
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;

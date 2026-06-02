@@ -8,12 +8,20 @@ import {
   splitCanvasDoc,
 } from "./canvas-store";
 import type { CanvasDoc } from "./canvas-doc";
+import { loadSharedAgentServerConfig } from "./agent-server-config";
+import { ensureAgentServerInstalled } from "./agent-server-runtime";
 
 const GITIGNORE_ENTRIES = ["runs/", "canvas/"];
 
 export interface InitWorkspaceOptions {
   createIfMissing?: boolean;
   seedAgentServerId?: string;
+}
+
+export interface PrepareSpecflowWorkspaceOptions extends InitWorkspaceOptions {
+  prewarmAgentServers?: boolean;
+  warn?: (message: string) => void;
+  ensureAgentServerInstalled?: (root: string, agentServerId: string) => Promise<void>;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -85,6 +93,43 @@ export async function initWorkspace(
       }),
     );
   }
+}
+
+export async function prepareSpecflowWorkspace(
+  workingDirectory: string = process.cwd(),
+  options: PrepareSpecflowWorkspaceOptions = {},
+): Promise<void> {
+  await initWorkspace(workingDirectory, options);
+  if (options.prewarmAgentServers) {
+    await prewarmSharedRegistryAgentServers(workingDirectory, options);
+  }
+}
+
+async function prewarmSharedRegistryAgentServers(
+  workingDirectory: string,
+  options: PrepareSpecflowWorkspaceOptions,
+): Promise<void> {
+  const config = await loadSharedAgentServerConfig(workingDirectory);
+  const install = options.ensureAgentServerInstalled ?? ensureAgentServerInstalled;
+  for (const [id, settings] of Object.entries(config.agent_servers)) {
+    if (settings.type !== "registry") continue;
+    if (hasLocalAuditVersion(settings)) {
+      options.warn?.(
+        `.aflow/.specflow/agent-servers.json entry "${id}" includes an installed version field. `
+        + "This field is a local audit stamp from the first user who installed the agent; "
+        + "it does not pin or control shared installs.",
+      );
+    }
+    await install(workingDirectory, id);
+  }
+}
+
+function hasLocalAuditVersion(settings: unknown): boolean {
+  if (!settings || typeof settings !== "object") return false;
+  const record = settings as Record<string, unknown>;
+  return typeof record.installedVersion === "string"
+    || typeof record.installed_version === "string"
+    || typeof record.version === "string";
 }
 
 function withSeedAgentServer<T extends CanvasDoc>(canvasDocument: T, agentServerId: string | undefined): T {
