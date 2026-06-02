@@ -74,7 +74,7 @@ function NodeLockToggle({ node, readonly, onEditNode }: {
   return (
     <>
       <div className="section-title">{t('node.position')}</div>
-      <label className="toggle-row">
+      <label className="toggle-row node-lock-toggle">
         <input
           type="checkbox"
           checked={node.locked === true}
