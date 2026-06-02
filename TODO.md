@@ -52,18 +52,17 @@
 - [ ] specflow generate-spec 命令
 - [ ] specflow update-spec 命令
 - [x] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。(不再遇到)
-- [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界。
-- [ ] 清理 .specflow 下的文件 / 文件夹
+- [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界，清理 .specflow 下的文件 / 文件夹
 - [x] 改进执行中才触发 auth 请求时的重试与 UI 流程。
 - [x] Skill系统接入
-- [x] MCP系统接入
+- [ ] MCP系统接入
 - [x] 无头模式
 - [x] Gate 循环的上限
 - [x] 从某一个节点继续它的session运行
 - [ ] token计数
 - [ ] 辅助build workflow的agent
 - [ ] 优化workflow的agent或server中台，整体链路（还得发送workflow快照和日志快照）
-- [ ] 合并inspect和resume的界面到logs
+- [ ] 合并inspect和resume的界面到logs （还需要思考）
 - [x] ACP skill怎么实现 (好像是自己去读 ~/.agents/skills和 project/.agents/skills)
 - [ ] 日志大小上限，文件数量上限
 - [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。

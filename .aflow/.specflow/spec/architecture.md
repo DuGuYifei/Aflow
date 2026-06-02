@@ -70,7 +70,7 @@ Detailed rationale for key decisions is in [`docs/decisions/`](../../docs/decisi
 
 ## Runtime Notes
 
-- ACP agent runtime architecture and remaining implementation plan: [`agent-proxy-acp/runtime.md`](./agent-proxy-acp/runtime.md).
-- ACP protocol coverage, capability cache, per-node overrides, MCP: [`agent-proxy-acp/protocol-coverage.md`](./agent-proxy-acp/protocol-coverage.md).
-- Skills + slash command injection: [`agent-proxy-acp/skills-and-slash.md`](./agent-proxy-acp/skills-and-slash.md).
+- ACP agent runtime architecture and remaining implementation plan: [`agent-proxy-acp/runtime.md`](./product/agent-proxy-acp/runtime.md).
+- ACP protocol coverage, capability cache, per-node overrides, MCP: [`agent-proxy-acp/protocol-coverage.md`](./product/agent-proxy-acp/protocol-coverage.md).
+- Skills + slash command injection: [`agent-proxy-acp/skills-and-slash.md`](./product/agent-proxy-acp/skills-and-slash.md).
 - Bridge to agent-proxy call chain: [`agent-proxy-bridge-chain.md`](./agent-proxy-bridge-chain.md).

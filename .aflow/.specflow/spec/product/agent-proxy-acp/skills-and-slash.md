@@ -6,7 +6,7 @@ against locally-authored skills before the prompt is sent; anything it doesn't
 recognize is passed through verbatim so the agent can handle its own
 `available_commands`.
 
-Code lives in [packages/server/src/skills/](../../packages/server/src/skills/).
+Code lives in [packages/server/src/skills/](../../../packages/server/src/skills).
 
 > **MCP JSON note**: the ACP SDK's `McpServer` is a flat discriminated union —
 > stdio is the default variant with no wrapper key:
@@ -36,7 +36,7 @@ You are tasked with planning a complex change. Break it into phases:
 - `name` defaults to the directory name when omitted; `description` is optional.
 - The body (everything after the frontmatter) is what gets injected.
 - **Precedence**: `projectLocal` > `global` for same-name collisions
-  ([skill-store.ts](../../packages/server/src/skills/skill-store.ts)
+  ([skill-store.ts](../../../packages/server/src/skills/skill-store.ts)
   `pickSkillPrecedence`).
 - `SkillStore.list()` returns **both** scopes without deduping (so scope
   qualifiers can target a specific scope); the `/api/skills` endpoint dedupes
@@ -44,7 +44,7 @@ You are tasked with planning a complex change. Break it into phases:
 
 ## Slash command grammar
 
-Parsed by [slash-parser.ts](../../packages/server/src/skills/slash-parser.ts).
+Parsed by [slash-parser.ts](../../../packages/server/src/skills/slash-parser.ts).
 Slash commands are only recognized at the **start of a line** (after optional
 leading whitespace) — mid-line `/` is treated as a file path / fraction and
 ignored.
@@ -60,7 +60,7 @@ Args = the rest of the line after the command token.
 
 ## Three-branch dispatch
 
-[slash-resolver.ts](../../packages/server/src/skills/slash-resolver.ts)
+[slash-resolver.ts](../../../packages/server/src/skills/slash-resolver.ts)
 `resolveSlashCommands` mirrors Zed's `NativeAgentConnection::prompt`:
 
 1. **Scope qualifier** → match skill by name + scope, inject body.
@@ -76,7 +76,7 @@ agent can interpret them.
 ## Injection: when & how
 
 - **When**: at runtime, in the executor just before the ACP `session/prompt`
-  call ([executor.ts](../../packages/bridge/src/execution/executor.ts)
+  call ([executor.ts](../../../packages/bridge/src/execution/executor.ts)
   `#invokeAgent` → `promptTransformer`). The YAML keeps the raw `/skill` so it
   stays readable and portable; the skill body never bloats the stored workflow.
 - **How**: the matched skill body is wrapped in XML so the model can tell it
@@ -95,14 +95,14 @@ agent can interpret them.
   same machinery (injection happens, then the surrounding prompt is what the
   template renderer produced).
 
-The transformer is wired in [http.ts](../../packages/server/src/http.ts) via
+The transformer is wired in [http.ts](../../../packages/server/src/http.ts) via
 `createSpecflowBridge({ promptTransformer })`, pulling skills from `SkillStore`
 and `availableCommands` from the agent capability cache.
 
 ## UI validation (write-time, non-blocking)
 
 In the node prompt editor
-([node-panel.tsx](../../packages/ui/src/components/node-panel.tsx)
+([node-panel.tsx](../../../packages/ui/src/components/node-panel.tsx)
 `SlashCommandWarnings`), each line-leading `/token` is checked against the
 loaded skills and the agent's advertised `available_commands`. Unmatched tokens
 get a **red warning below the prompt box** — but they are NOT blocked. The user
