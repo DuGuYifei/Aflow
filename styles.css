@@ -35,7 +35,7 @@
   --font-sans: "Inter", "Sohne", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-display: "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", "Roboto Mono", Consolas, monospace;
-  --container-max: 1240px;
+  --container-max: 1520px;
   --container-padding: clamp(20px, 4vw, 40px);
   --space-1: 4px;
   --space-2: 8px;
@@ -3243,8 +3243,8 @@ body::before {
 .docs-layout {
   align-items: start;
   display: grid;
-  gap: 24px;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(180px, 230px);
+  gap: 28px;
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr) minmax(180px, 240px);
 }
 
 .docs-sidebar,
@@ -3342,7 +3342,7 @@ body::before {
   border-radius: 18px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 30px 90px rgba(0, 0, 0, 0.34);
   min-height: 420px;
-  padding: 34px;
+  padding: 40px;
 }
 
 [data-theme="light"] .docs-article {
