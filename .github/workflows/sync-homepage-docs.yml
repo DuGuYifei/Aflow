@@ -22,13 +22,13 @@ jobs:
 
     steps:
       - name: Checkout source branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: master
           path: source
 
       - name: Checkout homepage branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: gh-pages
           path: homepage
