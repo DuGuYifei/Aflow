@@ -1,7 +1,7 @@
 import { AgentServerStore, probeAcpAgentCapabilities } from "@specflow/agent-proxy";
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
-import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
+import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
 import { SPECFLOW_WORKSPACE_PATH, uuidv7 } from "@specflow/shared";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
@@ -174,7 +174,29 @@ function redactAgentServerEntries(entries: AgentServerEntry[]): AgentServerEntry
 }
 
 async function listAgentServerEntries(bridge: SpecflowBridge, root: string): Promise<AgentServerEntry[]> {
-  return bridge.listAgentServers(root);
+  const entries = await bridge.listAgentServers(root);
+  let registry: RegistryIndex | undefined;
+  try {
+    registry = await bridge.listAgentRegistry(root);
+  } catch {
+    registry = undefined;
+  }
+
+  const registryAgents = new Map((registry?.agents ?? []).map((agent) => [agent.id, agent]));
+  return entries.map((entry) => {
+    if (entry.settings.type !== "registry") return entry;
+    const latestVersion = registryAgents.get(entry.settings.registryId)?.version;
+    const installedVersion = entry.settings.installedVersion;
+    return {
+      ...entry,
+      registry: {
+        registryId: entry.settings.registryId,
+        installedVersion,
+        latestVersion,
+        updateAvailable: Boolean(latestVersion && installedVersion && installedVersion !== latestVersion),
+      },
+    };
+  });
 }
 
 function redactAgentServerSettings(settings: AgentServerSettings): AgentServerSettings {

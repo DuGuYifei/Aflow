@@ -9,10 +9,23 @@ import {
 import { resolveBinaryTarget } from "./registry-download";
 import { expandHome, normalizeEnv } from "../util";
 
+export interface ResolvedRegistryAcpCommand {
+  command: AgentServerCommand;
+  registryId: string;
+  version: string;
+}
+
 export async function resolveRegistryAcpCommand(input: {
   settings: RegistryAcpAgentServerSettings;
   cacheDir: string;
 }): Promise<AgentServerCommand> {
+  return (await resolveRegistryAcp(input)).command;
+}
+
+export async function resolveRegistryAcp(input: {
+  settings: RegistryAcpAgentServerSettings;
+  cacheDir: string;
+}): Promise<ResolvedRegistryAcpCommand> {
   const cacheDir = await ensureCacheDir(input.cacheDir);
   const index = await loadRegistryIndex(cacheDir);
   const agent = index.agents.find((candidate) => candidate.id === input.settings.registryId);
@@ -21,8 +34,12 @@ export async function resolveRegistryAcpCommand(input: {
   }
   const command = await resolveRegistryDistribution(agent, cacheDir, normalizeEnv(input.settings.env));
   return {
-    ...command,
-    cwd: input.settings.cwd ? expandHome(input.settings.cwd) : command.cwd,
+    command: {
+      ...command,
+      cwd: input.settings.cwd ? expandHome(input.settings.cwd) : command.cwd,
+    },
+    registryId: agent.id,
+    version: agent.version,
   };
 }
 

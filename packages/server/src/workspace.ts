@@ -1,6 +1,7 @@
 import { mkdir, writeFile, access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { AgentServerStore, type ResolvedAgentServer } from "@specflow/agent-proxy";
 import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 import { SEED_CANVAS_DOCS } from "./seed";
 import {
@@ -8,8 +9,7 @@ import {
   splitCanvasDoc,
 } from "./canvas-store";
 import type { CanvasDoc } from "./canvas-doc";
-import { loadSharedAgentServerConfig } from "./agent-server-config";
-import { ensureAgentServerInstalled } from "./agent-server-runtime";
+import { loadSharedAgentServerConfig, patchLocalAgentServer } from "./agent-server-config";
 
 const GITIGNORE_ENTRIES = ["runs/", "canvas/"];
 
@@ -21,7 +21,7 @@ export interface InitWorkspaceOptions {
 export interface PrepareSpecflowWorkspaceOptions extends InitWorkspaceOptions {
   prewarmAgentServers?: boolean;
   warn?: (message: string) => void;
-  ensureAgentServerInstalled?: (root: string, agentServerId: string) => Promise<void>;
+  resolveAgentServer?: (root: string, agentServerId: string) => Promise<ResolvedAgentServer>;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -110,7 +110,7 @@ async function prewarmSharedRegistryAgentServers(
   options: PrepareSpecflowWorkspaceOptions,
 ): Promise<void> {
   const config = await loadSharedAgentServerConfig(workingDirectory);
-  const install = options.ensureAgentServerInstalled ?? ensureAgentServerInstalled;
+  const resolve = options.resolveAgentServer ?? resolveAgentServer;
   for (const [id, settings] of Object.entries(config.agent_servers)) {
     if (settings.type !== "registry") continue;
     if (hasLocalAuditVersion(settings)) {
@@ -120,8 +120,17 @@ async function prewarmSharedRegistryAgentServers(
         + "it does not pin or control shared installs.",
       );
     }
-    await install(workingDirectory, id);
+    const resolved = await resolve(workingDirectory, id);
+    if (resolved.registry?.version) {
+      await patchLocalAgentServer(workingDirectory, id, {
+        installedVersion: resolved.registry.version,
+      });
+    }
   }
+}
+
+async function resolveAgentServer(root: string, agentServerId: string): Promise<ResolvedAgentServer> {
+  return new AgentServerStore({ root }).resolve(agentServerId);
 }
 
 function hasLocalAuditVersion(settings: unknown): boolean {

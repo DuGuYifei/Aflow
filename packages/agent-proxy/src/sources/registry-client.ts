@@ -1,10 +1,9 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentServerCommand } from "../types";
 import { ensureParent } from "../util";
 
 export const REGISTRY_URL = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
-const REFRESH_MS = 60 * 60 * 1000;
 
 export interface RegistryIndex {
   version: string;
@@ -44,13 +43,16 @@ export interface RegistryPackageTarget {
 
 export async function loadRegistryIndex(cacheDir: string): Promise<RegistryIndex> {
   const cachePath = join(cacheDir, "registry.json");
-  const cached = await readCachedRegistry(cachePath);
-  if (cached) return cached;
-
-  const { parsed, text } = await fetchRegistryIndexText();
-  await ensureParent(cachePath);
-  await writeFile(cachePath, text, "utf8");
-  return parsed;
+  try {
+    const { parsed, text } = await fetchRegistryIndexText();
+    await ensureParent(cachePath);
+    await writeFile(cachePath, text, "utf8");
+    return parsed;
+  } catch (error) {
+    const cached = await readCachedRegistry(cachePath);
+    if (cached) return cached;
+    throw error;
+  }
 }
 
 export async function fetchRegistryIndex(): Promise<RegistryIndex> {
@@ -69,8 +71,6 @@ async function fetchRegistryIndexText(): Promise<{ parsed: RegistryIndex; text: 
 
 async function readCachedRegistry(cachePath: string): Promise<RegistryIndex | undefined> {
   try {
-    const info = await stat(cachePath);
-    if (Date.now() - info.mtimeMs > REFRESH_MS) return undefined;
     return JSON.parse(await readFile(cachePath, "utf8")) as RegistryIndex;
   } catch {
     return undefined;

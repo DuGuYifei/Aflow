@@ -65,7 +65,7 @@ Specflow 支持三类 agent server：
 
 Registry agent 由 ACP registry 提供元数据和 distribution。Specflow 会保存、安装并尝试运行 registry 返回的 agent；当前支持的 distribution 类型包括 `binary`、`npx` 和 `uvx`。Registry 中存在某个 agent 不代表它一定能在当前机器运行，distribution、认证、协议和运行时错误仍可能由对应 agent 路径报告。
 
-CLI 启动时会先准备 workspace，并预热 `.aflow/.specflow/agent-servers.json` 中声明的 registry agent。对于 binary distribution，这会按需下载并解包到 agent cache；对于 `npx` 或 `uvx` distribution，Specflow 会解析出对应命令，具体包获取仍由 `npx` 或 `uvx` 在运行时处理。
+CLI 启动时会先准备 workspace，并预热 `.aflow/.specflow/agent-servers.json` 中声明的 registry agent。对于 binary distribution，这会按需下载并解包到 agent cache；对于 `npx` 或 `uvx` distribution，Specflow 会解析出对应命令，具体包获取仍由 `npx` 或 `uvx` 在运行时处理。预热成功后，Specflow 会在本机的 `agent-servers.local.json` 中记录这次实际解析到的 registry version。
 
 ```json
 {
@@ -161,7 +161,7 @@ Agent server 条目只保存进程启动和解析需要的设置。认证、term
 
 这个文件保存本地密钥和机器相关设置。它会按 agent id 与 `.aflow/.specflow/agent-servers.json` 深度合并；嵌套对象也会合并，因此常见做法是把共享配置提交到 `agent-servers.json`，把 API key、代理、个人路径等放到 `agent-servers.local.json`。
 
-UI 保存 registry agent 时可能会在本地配置里记录 `installedVersion`。这个字段只是第一个本地用户安装时留下的 audit stamp，主要用于 UI 更新提示和 capability cache 失效判断；它不是版本锁，也不会控制团队共享安装。不要把 `installedVersion`、`installed_version` 或 `version` 写进共享的 `agent-servers.json`。如果共享文件里出现这类字段，Specflow 在启动预热下载时会打印 warning。
+Specflow 预热或 UI 保存 registry agent 时可能会在本地配置里记录 `installedVersion`。这个字段只是本地安装/解析时留下的 audit stamp，主要用于 UI 更新提示和 capability cache 失效判断；它不是版本锁，也不会控制团队共享安装。不要把 `installedVersion`、`installed_version` 或 `version` 写进共享的 `agent-servers.json`。如果共享文件里出现这类字段，Specflow 在启动预热下载时会打印 warning。
 
 共享配置：
 
@@ -292,7 +292,7 @@ UI 的 run log、事件回放和部分恢复诊断会读取这里的内容。
 这里保存 agent server 相关缓存，例如：
 
 - `capabilities.json`：agent capability probe 的缓存结果。
-- `registry.json`：registry agent 索引缓存。
+- `registry.json`：registry agent 索引的 fallback 快照；正常情况下 Specflow 会优先读取 CDN 最新 registry。
 - `archives/`：registry agent distribution 下载和解包缓存。
 
 也可以通过 `SPECFLOW_AGENT_CACHE_DIR` 把 agent cache 放到其他目录。

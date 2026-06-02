@@ -203,6 +203,10 @@ export interface ResolvedAgentServer {
   source: AgentServerSource;
   command: AgentServerCommand;
   settings: AgentServerSettings;
+  registry?: {
+    registryId: string;
+    version: string;
+  };
 }
 
 export interface AgentServerRegistryStatus {

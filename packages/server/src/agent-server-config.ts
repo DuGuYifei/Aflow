@@ -49,6 +49,21 @@ export async function upsertLocalAgentServer(
   return config;
 }
 
+export async function patchLocalAgentServer(
+  root: string,
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<AgentServerLocalConfig> {
+  const config = await loadLocalAgentServerConfig(root);
+  const current = config.agent_servers[id];
+  const currentRecord = current && typeof current === "object" && !Array.isArray(current)
+    ? current as unknown as Record<string, unknown>
+    : {};
+  config.agent_servers[id] = { ...currentRecord, ...patch } as unknown as AgentServerSettings;
+  await saveLocalAgentServerConfig(root, config);
+  return config;
+}
+
 export async function removeLocalAgentServer(root: string, id: string): Promise<AgentServerLocalConfig> {
   const config = await loadLocalAgentServerConfig(root);
   delete config.agent_servers[id];

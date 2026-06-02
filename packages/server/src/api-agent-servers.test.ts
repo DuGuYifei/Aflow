@@ -13,6 +13,7 @@ describe("agent server API", () => {
     const bridge = {
       ...createSpecflowBridge(),
       ensureAgentServerInstalled: async () => {},
+      listAgentRegistry: async () => ({ version: "1", agents: [] }),
     };
     const handle = createApiHandler(bridge, root);
 
@@ -88,7 +89,7 @@ describe("agent server API", () => {
     expect((await loadLocalAgentServerConfig(root)).agent_servers["my-custom"]).toBeUndefined();
   });
 
-  test("installs registry servers only when explicitly saved", async () => {
+  test("installs registry servers only when explicitly saved and reports updates", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-api-"));
     let registryReads = 0;
     const ensured: string[] = [];
@@ -96,7 +97,15 @@ describe("agent server API", () => {
       ...createSpecflowBridge(),
       listAgentRegistry: async () => {
         registryReads += 1;
-        throw new Error("registry should be read only by the explicit registry endpoint");
+        return {
+          version: "1",
+          agents: [{
+            id: "codex-acp",
+            name: "Codex",
+            version: "2.0.0",
+            distribution: { npx: { package: "codex-acp" } },
+          }],
+        };
       },
       ensureAgentServerInstalled: async (_root: string, id: string) => {
         ensured.push(id);
@@ -114,12 +123,15 @@ describe("agent server API", () => {
       }),
     }));
     expect(putOld?.status).toBe(200);
-    const oldBody = await putOld!.json() as Array<{ id: string; registry?: unknown }>;
-    expect(oldBody.find((entry) => entry.id === "codex-acp")?.registry).toBeUndefined();
+    const oldBody = await putOld!.json() as Array<{ id: string; registry?: { updateAvailable: boolean; latestVersion?: string } }>;
+    expect(oldBody.find((entry) => entry.id === "codex-acp")?.registry).toMatchObject({
+      latestVersion: "2.0.0",
+      updateAvailable: true,
+    });
 
     const listed = await handle(new Request("http://specflow.test/api/agent-servers"));
     expect(listed?.status).toBe(200);
-    expect(registryReads).toBe(0);
+    expect(registryReads).toBe(2);
     expect(ensured).toEqual(["codex-acp"]);
   });
 
@@ -165,6 +177,7 @@ describe("agent server API", () => {
       ensureAgentServerInstalled: async (_root: string, id: string) => {
         ensured.push(id);
       },
+      listAgentRegistry: async () => ({ version: "1", agents: [] }),
     };
     const handle = createApiHandler(bridge, root);
 
@@ -207,6 +220,7 @@ describe("agent server API", () => {
       inspectAgentAuthentication: async () => authStatus,
       authenticateAgentServer: async () => authStatus,
       resolveAgentTerminalAuthTask: async () => undefined,
+      listAgentRegistry: async () => ({ version: "1", agents: [] }),
     };
     const handle = createApiHandler(bridge, root);
 

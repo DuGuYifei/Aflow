@@ -90,6 +90,10 @@ describe("AgentServerStore", () => {
         command: process.platform === "win32" ? "npx.cmd" : "npx",
         args: ["--yes", "other-acp", "--acp"],
       });
+      expect(resolved.registry).toEqual({
+        registryId: "other-acp",
+        version: "1.0.0",
+      });
     } finally {
       globalThis.fetch = restoreFetch;
     }

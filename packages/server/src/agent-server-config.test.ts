@@ -65,7 +65,7 @@ describe("agent server local config", () => {
     });
   });
 
-  test("prewarms shared registry agent servers and warns about installedVersion", async () => {
+  test("prewarms shared registry agent servers and records local installedVersion", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-servers-"));
     await mkdir(join(root, ".aflow/.specflow"), { recursive: true });
     await writeFile(agentServersPath(root), JSON.stringify({
@@ -77,23 +77,40 @@ describe("agent server local config", () => {
     await writeFile(agentServersLocalPath(root), JSON.stringify({
       agent_servers: {
         localOnly: { type: "registry", registryId: "local-acp" },
+        codex: { env: { OPENAI_API_KEY: "secret" } },
       },
     }), "utf8");
 
-    const installed: string[] = [];
+    const resolved: string[] = [];
     const warnings: string[] = [];
     await prepareSpecflowWorkspace(root, {
       createIfMissing: true,
       prewarmAgentServers: true,
-      ensureAgentServerInstalled: async (_root, id) => {
-        installed.push(id);
+      resolveAgentServer: async (_root, id) => {
+        resolved.push(id);
+        return {
+          id,
+          source: "registry",
+          settings: { type: "registry", registryId: "codex-acp" },
+          command: { command: "npx", args: ["--yes", "codex-acp"] },
+          registry: { registryId: "codex-acp", version: "1.2.3" },
+        };
       },
       warn: (message) => warnings.push(message),
     });
 
-    expect(installed).toEqual(["codex"]);
+    expect(resolved).toEqual(["codex"]);
     expect(warnings).toEqual([
       expect.stringContaining('agent-servers.json entry "codex" includes an installed version field'),
     ]);
+    expect(await loadLocalAgentServerConfig(root)).toMatchObject({
+      agent_servers: {
+        codex: {
+          env: { OPENAI_API_KEY: "secret" },
+          installedVersion: "1.2.3",
+        },
+        localOnly: { type: "registry", registryId: "local-acp" },
+      },
+    });
   });
 });

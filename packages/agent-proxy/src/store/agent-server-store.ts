@@ -11,7 +11,7 @@ import type {
   ResolvedAgentServer,
 } from "../types";
 import { resolveCustomAcpCommand } from "../sources/custom-acp";
-import { resolveRegistryAcpCommand } from "../sources/registry-acp";
+import { resolveRegistryAcp } from "../sources/registry-acp";
 import { expandHome } from "../util";
 
 export interface AgentServerStoreOptions {
@@ -53,7 +53,20 @@ export class AgentServerStore {
     await this.#load();
     const settings = this.#settings!.get(agentServerId);
     if (!settings) throw new Error(`Unknown agent server: ${agentServerId}`);
-    const command = await resolveCommand(settings, this.#cacheDir);
+    if (settings.type === "registry") {
+      const resolved = await resolveRegistryAcp({ settings, cacheDir: this.#cacheDir });
+      return {
+        id: agentServerId,
+        source: settings.type,
+        settings,
+        command: resolved.command,
+        registry: {
+          registryId: resolved.registryId,
+          version: resolved.version,
+        },
+      };
+    }
+    const command = await resolveCommand(settings);
     return { id: agentServerId, source: settings.type, settings, command };
   }
 
@@ -158,15 +171,15 @@ function installedVersionOf(settings: AgentServerSettings | undefined): string |
   return undefined;
 }
 
-async function resolveCommand(settings: AgentServerSettings, cacheDir: string): Promise<AgentServerCommand> {
+async function resolveCommand(settings: AgentServerSettings): Promise<AgentServerCommand> {
   if (settings.type === "custom") return resolveCustomAcpCommand(settings);
-  if (settings.type === "registry") return resolveRegistryAcpCommand({ settings, cacheDir });
-  return {
+  if (settings.type === "headless") return {
     command: expandHome(settings.command),
     args: settings.argsTemplate,
     cwd: settings.cwd ? expandHome(settings.cwd) : undefined,
     env: settings.env,
   };
+  throw new Error(`Unsupported agent server type: ${(settings as { type?: string }).type ?? "unknown"}`);
 }
 
 async function readConfig(path: string): Promise<Record<string, unknown>> {
