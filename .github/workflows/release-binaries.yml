@@ -52,7 +52,9 @@ jobs:
       - name: Set package version for release build
         env:
           RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
-        run: bun packages/cli/src/version.ts set-package-version package.json "$RELEASE_VERSION"
+        run: |
+          bun packages/cli/src/version.ts set-package-version package.json "$RELEASE_VERSION"
+          bun packages/cli/src/version.ts set-package-version packages/aflow/package.json "$RELEASE_VERSION"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -90,6 +92,15 @@ jobs:
 
           bun build --compile --target=bun-windows-x64-baseline --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-code-windows-x64/specflow.exe
           bun build --compile --target=bun-windows-x64-baseline --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile dist/release/specflow-code-windows-x64/aflow.exe
+
+      - name: Verify binary versions
+        env:
+          RELEASE_VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          specflow_version="$(dist/release/specflow-code-linux-x64/specflow --version)"
+          aflow_version="$(dist/release/specflow-code-linux-x64/aflow --version)"
+          test "$specflow_version" = "specflow $RELEASE_VERSION"
+          test "$aflow_version" = "$RELEASE_VERSION"
 
       - name: Package binaries
         working-directory: dist/release
@@ -157,7 +168,9 @@ jobs:
         if: ${{ steps.snapshot.outputs.create_pr == 'true' }}
         env:
           EXPECTED_VERSION: ${{ steps.snapshot.outputs.expected }}
-        run: bun packages/cli/src/version.ts set-package-version package.json "$EXPECTED_VERSION"
+        run: |
+          bun packages/cli/src/version.ts set-package-version package.json "$EXPECTED_VERSION"
+          bun packages/cli/src/version.ts set-package-version packages/aflow/package.json "$EXPECTED_VERSION"
 
       - name: Create pull request
         if: ${{ steps.snapshot.outputs.create_pr == 'true' }}
@@ -170,7 +183,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
-          git add package.json
+          git add package.json packages/aflow/package.json
           git commit -m "chore: bump version to $EXPECTED_VERSION"
           git push --force-with-lease origin "$BRANCH"
           existing_pr="$(gh pr list --base master --head "$BRANCH" --json url --jq '.[0].url')"

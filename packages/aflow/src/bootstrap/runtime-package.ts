@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AFLOW_PACKAGE_VERSION } from "../version";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -187,10 +186,13 @@ export function prepareAflowRuntimePackage(): void {
 }
 
 export function getAflowVersion(): string {
-  return process.env["AFLOW_VERSION"]
-    ?? readPackageVersionFromSource()
-    ?? readPackageVersionFromExecutableDir()
-    ?? AFLOW_PACKAGE_VERSION;
+  const injectedVersion = process.env.AFLOW_VERSION;
+  if (injectedVersion) return injectedVersion;
+
+  const packageVersion = readPackageVersionFromSource();
+  if (packageVersion) return packageVersion;
+
+  throw new Error("Missing Aflow version. Set AFLOW_VERSION or packages/aflow/package.json version.");
 }
 
 function getRuntimePackageDir(): string {
@@ -226,11 +228,6 @@ function writeBuiltInThemes(runtimeDir: string): void {
 function readPackageVersionFromSource(): string | undefined {
   const packageJsonPath = join(__dirname, "..", "..", "package.json");
   return readPackageVersion(packageJsonPath);
-}
-
-function readPackageVersionFromExecutableDir(): string | undefined {
-  if (!process.execPath) return undefined;
-  return readPackageVersion(join(dirname(process.execPath), "package.json"));
 }
 
 function readPackageVersion(packageJsonPath: string): string | undefined {
