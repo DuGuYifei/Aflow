@@ -74,6 +74,7 @@ async function runWorkflowCommand(args: string[]): Promise<void> {
   const options = parseRunArgs(args);
   const filePath = resolve(process.cwd(), options.file);
   const canvasDocument = await loadAgentFlowFile(filePath);
+  assertCliRunSupportsWorkflow(canvasDocument);
   const normalizedValues = normalizeVariableValues(canvasDocument, options.values);
   const prepared = prepareCanvasRun(canvasDocument, {
     variableValues: normalizedValues,
@@ -231,6 +232,17 @@ export function normalizeVariableValues(canvasDocument: AgentFlowDoc, values: Re
     normalized[fullKey] = value;
   }
   return normalized;
+}
+
+export function assertCliRunSupportsWorkflow(canvasDocument: AgentFlowDoc): void {
+  const pausedNodes = canvasDocument.nodes.filter((node) => node.kind === "step" && node.pauseAfterRun);
+  if (pausedNodes.length === 0) return;
+  throw new Error([
+    "specflow run does not support pauseAfterRun nodes.",
+    "Start the UI with `specflow`, then run this workflow from the browser to use pause/continue.",
+    "Paused nodes:",
+    ...pausedNodes.map((node) => `  - ${node.alias} ${node.title} (${node.id})`),
+  ].join("\n"));
 }
 
 function displayInputName(name: string): string {

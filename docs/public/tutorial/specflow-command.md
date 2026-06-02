@@ -39,6 +39,12 @@ specflow run .aflow/.specflow/agentflows/code-review-flow.yaml
 
 `run` 会先做 workflow 校验，再检查 required input 是否有值和 agent 认证状态，然后执行 workflow。
 
+当前 `specflow run` 是 direct CLI 执行路径，不会启动 localhost server，也不会打开浏览器 UI。运行过程只在 terminal 中输出简要节点进度；UI 的 run 列表、run log、SSE 事件回放和 pause 交互不会接入这次 CLI run。
+
+workflow 成功完成后，CLI 会自动退出。失败或取消时，CLI 也会退出，并返回非零 exit code。
+
+如果 workflow 中包含 `pauseAfterRun: true` 的节点，当前 CLI run 不支持交互式 pause，会在启动 agent 前直接拒绝运行。需要人工 pause/continue 的 workflow 应通过 UI/server 路径运行。
+
 ## 传入 input node 的值
 
 如果 workflow 有 input node：

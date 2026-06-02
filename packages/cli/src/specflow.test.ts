@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeVariableValues, parseRunArgs, parseValidateArgs } from "./specflow";
+import { assertCliRunSupportsWorkflow, normalizeVariableValues, parseRunArgs, parseValidateArgs } from "./specflow";
 import type { AgentFlowDoc } from "@specflow/server";
 
 const canvasDocument: AgentFlowDoc = {
@@ -78,6 +78,37 @@ describe("specflow run input values", () => {
   test("rejects values when the workflow has no input nodes", () => {
     expect(() => normalizeVariableValues({ ...canvasDocument, nodes: [] }, { task: "x" })).toThrow(
       "Unknown input: task\nAvailable inputs: none",
+    );
+  });
+});
+
+describe("specflow run workflow support", () => {
+  test("accepts workflows without paused step nodes", () => {
+    expect(() => assertCliRunSupportsWorkflow(canvasDocument)).not.toThrow();
+  });
+
+  test("rejects workflows with paused step nodes", () => {
+    const doc: AgentFlowDoc = {
+      ...canvasDocument,
+      nodes: [
+        ...canvasDocument.nodes,
+        {
+          kind: "step",
+          id: "review",
+          alias: "01",
+          title: "Review",
+          prompt: "Review the change.",
+          sessionId: "s1",
+          pauseAfterRun: true,
+        },
+      ],
+    };
+
+    expect(() => assertCliRunSupportsWorkflow(doc)).toThrow(
+      "specflow run does not support pauseAfterRun nodes.\n"
+      + "Start the UI with `specflow`, then run this workflow from the browser to use pause/continue.\n"
+      + "Paused nodes:\n"
+      + "  - 01 Review (review)",
     );
   });
 });

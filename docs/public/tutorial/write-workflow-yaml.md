@@ -141,7 +141,7 @@ nodes:
 
 - `session` 必须引用一个已存在的 session key。
 - `prompt` 是发送给 Agent 的指令。
-- `pauseAfterRun: true` 会在节点执行后暂停，方便人工检查或继续。
+- `pauseAfterRun: true` 会在节点执行后暂停，方便人工检查或继续。当前 `specflow run` CLI 不支持交互式 pause；包含 pause 节点的 workflow 会在启动 agent 前被拒绝运行，需要 pause/continue 时应通过 UI/server 路径运行。
 - `paths` 用于关联文件或目录。
 - `images` 用于关联图片资源，每项包含 `path`，以及可选的 `label`、`mimeType`。
 - `modeId` 会在该节点 prompt 执行前设置 ACP session mode。
