@@ -4,6 +4,7 @@ set -eu
 REPO="${SPECFLOW_REPO:-DuGuYifei/Aflow}"
 INSTALL_DIR="${SPECFLOW_INSTALL_DIR:-$HOME/.local/bin}"
 BIN_NAME="${SPECFLOW_BIN_NAME:-specflow}"
+AFLOW_BIN_NAME="${AFLOW_BIN_NAME:-aflow}"
 VERSION="${1:-${SPECFLOW_VERSION:-}}"
 
 need() {
@@ -55,7 +56,7 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-asset="specflow-$platform-$cpu.tar.gz"
+asset="specflow-code-$platform-$cpu.tar.gz"
 url="https://github.com/$REPO/releases/download/$VERSION/$asset"
 tmp="$(mktemp -d)"
 
@@ -64,7 +65,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Installing Specflow $VERSION for $platform-$cpu..."
+echo "Installing Specflow and Aflow $VERSION for $platform-$cpu..."
 if ! curl -fL "$url" -o "$tmp/$asset"; then
   echo "specflow installer: release asset not found: $url" >&2
   exit 1
@@ -73,10 +74,17 @@ tar -xzf "$tmp/$asset" -C "$tmp"
 
 mkdir -p "$INSTALL_DIR"
 install_path="$INSTALL_DIR/$BIN_NAME"
-mv "$tmp/specflow-$platform-$cpu" "$install_path"
+aflow_install_path="$INSTALL_DIR/$AFLOW_BIN_NAME"
+mv "$tmp/specflow" "$install_path"
+mv "$tmp/aflow" "$aflow_install_path"
 chmod +x "$install_path"
+chmod +x "$aflow_install_path"
 
 echo "Specflow installed to $install_path"
+echo "Aflow installed to $aflow_install_path"
 if ! command -v "$BIN_NAME" >/dev/null 2>&1; then
   echo "Add $INSTALL_DIR to PATH to run '$BIN_NAME' from any shell."
+fi
+if ! command -v "$AFLOW_BIN_NAME" >/dev/null 2>&1; then
+  echo "Add $INSTALL_DIR to PATH to run '$AFLOW_BIN_NAME' from any shell."
 fi

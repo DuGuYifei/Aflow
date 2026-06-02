@@ -60,31 +60,31 @@ See [Workspace Files](docs/public/tutorial/workspace-files.md).
 
 ## Installation
 
-Install the latest stable release:
+Install the latest stable release. This installs both `specflow` and `aflow`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash
 ```
 
 By default, the installer resolves the latest stable `vX.Y.Z` release. If no stable release exists yet, it falls back to the latest semver prerelease such as `vX.Y.Z-beta.1`. To install a specific release, pass the tag after `bash -s --`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v0.0.1-beta.2
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash -s -- v0.0.1-beta.2
 ```
 
 Windows PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1")))
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1")))
 ```
 
 Install a specific release on Windows:
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1"))) "v0.0.1-beta.2"
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1"))) "v0.0.1-beta.2"
 ```
 
-The `install-v1` tag pins the installer script. Release binaries are attached to `vX.Y.Z` and prerelease tags such as `vX.Y.Z-alpha.1`, `vX.Y.Z-beta.1`, or `vX.Y.Z-rc.1`.
+The `install-v2` tag pins the installer script. Release binaries are attached to `vX.Y.Z` and prerelease tags such as `vX.Y.Z-alpha.1`, `vX.Y.Z-beta.1`, or `vX.Y.Z-rc.1`.
 
 ## Development
 

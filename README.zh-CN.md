@@ -60,31 +60,31 @@ VPN 或代理用户需要在 agent server 的 `env` 中添加 `http_proxy` 和 `
 
 ## 安装
 
-安装最新稳定版：
+安装最新稳定版。该脚本会同时安装 `specflow` 和 `aflow`：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash
 ```
 
 默认情况下，安装脚本优先解析最新的稳定版 `vX.Y.Z`。如果当前还没有稳定版，会回退到最新的 semver prerelease，例如 `vX.Y.Z-beta.1`。如果要安装指定 release，在 `bash -s --` 后面传入 tag：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.sh | bash -s -- v0.0.1-beta.2
+curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash -s -- v0.0.1-beta.2
 ```
 
 Windows PowerShell：
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1")))
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1")))
 ```
 
 Windows 安装指定 release：
 
 ```powershell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v1/install/install.ps1"))) "v0.0.1-beta.2"
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.ps1"))) "v0.0.1-beta.2"
 ```
 
-`install-v1` tag 用来固定安装脚本版本。真正的 release binaries 会挂在 `vX.Y.Z` 以及 `vX.Y.Z-alpha.1`、`vX.Y.Z-beta.1`、`vX.Y.Z-rc.1` 这类 prerelease tag 下。
+`install-v2` tag 用来固定安装脚本版本。真正的 release binaries 会挂在 `vX.Y.Z` 以及 `vX.Y.Z-alpha.1`、`vX.Y.Z-beta.1`、`vX.Y.Z-rc.1` 这类 prerelease tag 下。
 
 ## 开发
 

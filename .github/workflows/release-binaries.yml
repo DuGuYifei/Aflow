@@ -69,24 +69,41 @@ jobs:
       - name: Build binaries
         env:
           SPECFLOW_VERSION: ${{ steps.release-version.outputs.version }}
+          AFLOW_VERSION: ${{ steps.release-version.outputs.version }}
         run: |
           mkdir -p dist/release
-          bun build --compile --target=bun-darwin-arm64 --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-darwin-arm64
-          bun build --compile --target=bun-darwin-x64 --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-darwin-x64
-          bun build --compile --target=bun-linux-arm64 --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-linux-arm64
-          bun build --compile --target=bun-linux-x64-baseline --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-linux-x64
-          bun build --compile --target=bun-windows-x64-baseline --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-windows-x64.exe
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64 windows-x64; do
+            mkdir -p "dist/release/specflow-code-$platform"
+          done
+
+          bun build --compile --target=bun-darwin-arm64 --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-code-darwin-arm64/specflow
+          bun build --compile --target=bun-darwin-arm64 --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile dist/release/specflow-code-darwin-arm64/aflow
+
+          bun build --compile --target=bun-darwin-x64 --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-code-darwin-x64/specflow
+          bun build --compile --target=bun-darwin-x64 --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile dist/release/specflow-code-darwin-x64/aflow
+
+          bun build --compile --target=bun-linux-arm64 --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-code-linux-arm64/specflow
+          bun build --compile --target=bun-linux-arm64 --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile dist/release/specflow-code-linux-arm64/aflow
+
+          bun build --compile --target=bun-linux-x64-baseline --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-code-linux-x64/specflow
+          bun build --compile --target=bun-linux-x64-baseline --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile dist/release/specflow-code-linux-x64/aflow
+
+          bun build --compile --target=bun-windows-x64-baseline --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile dist/release/specflow-code-windows-x64/specflow.exe
+          bun build --compile --target=bun-windows-x64-baseline --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile dist/release/specflow-code-windows-x64/aflow.exe
 
       - name: Package binaries
         working-directory: dist/release
         run: |
-          chmod +x specflow-darwin-arm64 specflow-darwin-x64 specflow-linux-arm64 specflow-linux-x64
-          tar -czf specflow-darwin-arm64.tar.gz specflow-darwin-arm64
-          tar -czf specflow-darwin-x64.tar.gz specflow-darwin-x64
-          tar -czf specflow-linux-arm64.tar.gz specflow-linux-arm64
-          tar -czf specflow-linux-x64.tar.gz specflow-linux-x64
-          zip -9 specflow-windows-x64.zip specflow-windows-x64.exe
-          shasum -a 256 specflow-*.tar.gz specflow-*.zip > SHA256SUMS
+          chmod +x specflow-code-darwin-arm64/specflow specflow-code-darwin-arm64/aflow
+          chmod +x specflow-code-darwin-x64/specflow specflow-code-darwin-x64/aflow
+          chmod +x specflow-code-linux-arm64/specflow specflow-code-linux-arm64/aflow
+          chmod +x specflow-code-linux-x64/specflow specflow-code-linux-x64/aflow
+          tar -czf specflow-code-darwin-arm64.tar.gz -C specflow-code-darwin-arm64 specflow aflow
+          tar -czf specflow-code-darwin-x64.tar.gz -C specflow-code-darwin-x64 specflow aflow
+          tar -czf specflow-code-linux-arm64.tar.gz -C specflow-code-linux-arm64 specflow aflow
+          tar -czf specflow-code-linux-x64.tar.gz -C specflow-code-linux-x64 specflow aflow
+          (cd specflow-code-windows-x64 && zip -9 ../specflow-code-windows-x64.zip specflow.exe aflow.exe)
+          shasum -a 256 specflow-code-*.tar.gz specflow-code-*.zip > SHA256SUMS
 
       - name: Attach binaries to release
         env:
@@ -94,11 +111,11 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           gh release upload "$TAG" \
-            dist/release/specflow-darwin-arm64.tar.gz \
-            dist/release/specflow-darwin-x64.tar.gz \
-            dist/release/specflow-linux-arm64.tar.gz \
-            dist/release/specflow-linux-x64.tar.gz \
-            dist/release/specflow-windows-x64.zip \
+            dist/release/specflow-code-darwin-arm64.tar.gz \
+            dist/release/specflow-code-darwin-x64.tar.gz \
+            dist/release/specflow-code-linux-arm64.tar.gz \
+            dist/release/specflow-code-linux-x64.tar.gz \
+            dist/release/specflow-code-windows-x64.zip \
             dist/release/SHA256SUMS \
             --clobber
 
