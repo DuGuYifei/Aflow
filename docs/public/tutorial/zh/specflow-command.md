@@ -3,6 +3,7 @@ title: Specflow 命令
 description: 学习 specflow、specflow validate 和 specflow run 的用途与输入规则。
 category: tutorial
 order: 2
+updatedAt: "2026-06-02 22:10:35 CEST"
 tags:
   - cli
   - command

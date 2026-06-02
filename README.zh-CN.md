@@ -42,7 +42,7 @@ specflow validate .aflow/.specflow/agentflows/example.yaml
 specflow run .aflow/.specflow/agentflows/example.yaml -Dtask="Review this change"
 ```
 
-详见 [Specflow 命令](docs/public/tutorial/specflow-command.md)。
+详见 [Specflow 命令](docs/public/tutorial/zh/specflow-command.md)。
 
 ## Workspace 文件
 
@@ -56,7 +56,7 @@ Run 记录、run 日志、缓存和 workflow 资源也保存在 `.aflow/.specflo
 
 VPN 或代理用户需要在 agent server 的 `env` 中添加 `http_proxy` 和 `https_proxy`。
 
-详见 [Workspace 文件](docs/public/tutorial/workspace-files.md)。
+详见 [Workspace 文件](docs/public/tutorial/zh/workspace-files.md)。
 
 ## 安装
 

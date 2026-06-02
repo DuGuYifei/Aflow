@@ -3,6 +3,7 @@ title: Workflow YAML 编写教程
 description: 学习如何编写 Specflow agentflow YAML，把 Agent 工作沉淀为可见、可复用的工作流。
 category: tutorial
 order: 1
+updatedAt: "2026-06-02 22:10:35 CEST"
 tags:
   - workflow
   - yaml

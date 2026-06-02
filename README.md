@@ -42,7 +42,7 @@ specflow validate .aflow/.specflow/agentflows/example.yaml
 specflow run .aflow/.specflow/agentflows/example.yaml -Dtask="Review this change"
 ```
 
-See [Specflow Commands](docs/public/tutorial/specflow-command.md).
+See [Specflow Commands](docs/public/tutorial/en/specflow-command.md).
 
 ## Workspace Files
 
@@ -56,7 +56,7 @@ Run records, run logs, caches, and workflow assets are also stored under `.aflow
 
 VPN or proxy users should add `http_proxy` and `https_proxy` under the agent server `env` keys.
 
-See [Workspace Files](docs/public/tutorial/workspace-files.md).
+See [Workspace Files](docs/public/tutorial/en/workspace-files.md).
 
 ## Installation
 

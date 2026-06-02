@@ -3,6 +3,7 @@ title: Workspace 文件
 description: 了解 Specflow workspace 中 workflow、canvas、agent server、运行记录、日志、缓存和资源文件的作用。
 category: tutorial
 order: 3
+updatedAt: "2026-06-02 22:10:35 CEST"
 tags:
   - workspace
   - config
