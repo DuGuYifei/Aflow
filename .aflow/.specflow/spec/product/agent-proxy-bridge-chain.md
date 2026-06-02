@@ -1,5 +1,7 @@
 # Bridge to Agent Proxy Chain
 
+Last updated: 2026-06-02
+
 This document records how workflow execution reaches ACP agent CLIs.
 
 ## Runtime Ownership

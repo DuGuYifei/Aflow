@@ -1,5 +1,7 @@
 # Architecture
 
+Last updated: 2026-06-02
+
 ## Package layout
 
 ```
@@ -11,6 +13,7 @@ packages/
   server/       — HTTP server; serves the UI and exposes the API; calls bridge
   ui/           — React canvas app built by Vite; embedded into the binary at build time
   cli/          — binary entry point (`specflow`); starts the server
+  aflow/        — workflow-aware agent cockpit; wraps Pi coding-agent SDK and calls Specflow API
 ```
 
 ## Call direction
@@ -18,9 +21,11 @@ packages/
 Dependencies flow one way only:
 
 ```
-cli → server → bridge → workflow
-                      → agent-proxy
-ui  → server (HTTP API)
+cli   → server → bridge → workflow
+                        → agent-proxy
+ui    → server (HTTP API)
+aflow → server (HTTP API)
+aflow → Pi coding-agent SDK
 ```
 
 No package may import from a package above it in this graph.
@@ -47,19 +52,36 @@ UI state, subprocesses, or runtime orchestration.
 | Mode | Package | Status |
 |------|---------|--------|
 | Browser UI | `cli` → `server` → `bridge` | Current primary entry point |
+| Aflow agent cockpit | `aflow` → Pi SDK + `server` API | Initial package implemented; default path preserves Pi session/tool/CLI behavior |
 | Headless agent runtime | `bridge` → `agent-proxy` | Implemented for command-template agents |
 | Direct headless CLI entry point | `cli` → `bridge` (direct) | Not exposed as a user-facing `--headless` flag |
 
-`server` is not the core — it is one consumer of `bridge`. Tests and alternate runtimes can call `bridge` directly; the shipped CLI currently starts the server-backed UI.
+`server` is not the core — it is one consumer of `bridge`. Tests and alternate runtimes can call `bridge` directly; the shipped CLI currently starts the server-backed UI. Aflow intentionally treats `server` as the API boundary for workflow operations so Browser UI and TUI observe the same persisted state.
+
+## Aflow integration
+
+`packages/aflow` depends on `@earendil-works/pi-coding-agent@0.78.0`. The default Aflow CLI path calls Pi's exported `main(args, { extensionFactories })`, so Pi options such as `--resume`, `--continue`, `--session`, `--fork`, model selection, tool allow/deny lists, skills, prompt templates, and built-in slash commands remain available.
+
+Aflow adds a package-local Pi adapter layer for:
+
+- injecting the Aflow system prompt;
+- registering `/specflow-*` slash commands;
+- reserving a compact green `Aflow` identity line in the interactive UI;
+- routing workflow validate/run/resume calls to the Specflow server API;
+- generating native external-agent resume recommendations.
+
+The Specflow server health endpoint includes `workspaceRoot`, `serverId`, and `apiVersion` so Aflow can connect to an existing server without accidentally targeting another workspace.
 
 ## Binary distribution
 
 `bun build --compile` produces a single `specflow` executable. The UI dist (`packages/ui/dist/`) is embedded at bundle time via `import.meta.glob` in `packages/server/src/static-ui.ts`. Build order:
 
 ```
-bun run build:ui   →  Vite produces packages/ui/dist/
-bun run build:bin  →  bun build --compile embeds dist/ into ./specflow
-bun run build      →  runs both in sequence
+bun run build:ui       →  Vite produces packages/ui/dist/
+bun run build:specflow →  bun build --compile embeds dist/ into ./specflow
+bun run build:aflow    →  bun build --compile produces ./aflow with embedded Aflow prompts
+bun run build:bin      →  produces both ./specflow and ./aflow
+bun run build          →  runs UI build and both binary builds
 ```
 
 In development (`bun run dev`), the server proxies all UI requests to Vite's dev server — no dist needed.

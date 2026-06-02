@@ -1,5 +1,7 @@
 # ACP Protocol Coverage
 
+Last updated: 2026-06-02
+
 本项目对 [Agent Client Protocol](https://agentclientprotocol.com/) schema 的实现覆盖情况,以及若干关键概念的解释。
 
 代码位置:[packages/agent-proxy/src/runtimes/acp/](../../../packages/agent-proxy/src/runtimes/acp)

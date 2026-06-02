@@ -71,6 +71,7 @@
 - [x] specflow --version 显示版本号
 - [ ] SKILL模式
 - [ ] agent模式
+- [ ] specflow pause功能 -> aflow 也支持
 
 ## Bug
 

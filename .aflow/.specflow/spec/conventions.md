@@ -1,5 +1,7 @@
 # Conventions
 
+Last updated: 2026-06-02
+
 ## Language and runtime
 
 - TypeScript everywhere. No JavaScript source files.
@@ -11,6 +13,7 @@
 - Each package exports only from `src/index.ts`. No deep imports across package boundaries.
 - Internal modules within a package are not re-exported unless explicitly needed by consumers.
 - Shared constants live in `@specflow/shared`. No package defines its own duplicate constants.
+- `packages/aflow` uses `@earendil-works/pi-coding-agent` as its SDK dependency and keeps all Pi-facing calls in a package-local adapter layer.
 
 ## Naming
 

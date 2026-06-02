@@ -1,0 +1,27 @@
+{
+  "name": "@specflow/aflow",
+  "version": "0.0.1-snapshot",
+  "private": true,
+  "type": "module",
+  "piConfig": {
+    "name": "aflow",
+    "configDir": ".aflow"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "aflow": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.78.0",
+    "@specflow/agent-proxy": "workspace:*",
+    "@specflow/server": "workspace:*",
+    "@specflow/shared": "workspace:*",
+    "typebox": "1.1.38"
+  }
+}

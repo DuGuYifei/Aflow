@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 import type {
@@ -15,38 +15,50 @@ function agentflowsDir(root: string) {
   return join(root, SPECFLOW_WORKSPACE_PATH, "agentflows");
 }
 
+function localAgentflowsDir(root: string) {
+  return join(root, SPECFLOW_WORKSPACE_PATH, "agentflows-local");
+}
+
 function canvasDir(root: string) {
   return join(root, SPECFLOW_WORKSPACE_PATH, "canvas");
 }
 
-function agentflowPath(id: string, root: string) {
-  return join(agentflowsDir(root), `${id}.yaml`);
+function agentflowPath(id: string, root: string, local = false) {
+  return join(local ? localAgentflowsDir(root) : agentflowsDir(root), `${id}.yaml`);
 }
 
 function canvasPath(id: string, root: string) {
   return join(canvasDir(root), `${id}.json`);
 }
 
-export async function listCanvases(root: string): Promise<{ id: string; name: string }[]> {
-  const directory = agentflowsDir(root);
+export async function listCanvases(root: string): Promise<{ id: string; name: string; local?: boolean }[]> {
+  const results = new Map<string, { id: string; name: string; local?: boolean }>();
+  await collectCanvases(results, agentflowsDir(root), false);
+  await collectCanvases(results, localAgentflowsDir(root), true);
+  return [...results.values()];
+}
+
+async function collectCanvases(
+  results: Map<string, { id: string; name: string; local?: boolean }>,
+  directory: string,
+  local: boolean,
+): Promise<void> {
   let files: string[];
   try {
     files = await readdir(directory);
   } catch {
-    return [];
+    return;
   }
-  const results: { id: string; name: string }[] = [];
   for (const file of files.filter((file) => file.endsWith(".yaml"))) {
     try {
       const rawValue = await readFile(join(directory, file), "utf8");
       const id = basename(file, ".yaml");
       const canvasDocument = parseAgentFlowSource(rawValue, id);
-      results.push({ id: canvasDocument.id, name: canvasDocument.name });
+      results.set(id, { id: canvasDocument.id, name: canvasDocument.name, ...(local ? { local: true } : {}) });
     } catch {
       // skip malformed
     }
   }
-  return results;
 }
 
 export async function loadCanvas(id: string, root: string): Promise<CanvasDoc> {
@@ -56,7 +68,8 @@ export async function loadCanvas(id: string, root: string): Promise<CanvasDoc> {
 }
 
 export async function loadAgentFlow(id: string, root: string): Promise<AgentFlowDoc> {
-  const rawValue = await readFile(agentflowPath(id, root), "utf8");
+  const path = await readableAgentflowPath(id, root);
+  const rawValue = await readFile(path, "utf8");
   return parseAgentFlowSource(rawValue, id);
 }
 
@@ -78,9 +91,11 @@ export async function loadOrCreateCanvasLayout(
 
 export async function saveCanvas(id: string, canvasDocument: CanvasDoc, root: string): Promise<void> {
   const { agentflow, layout } = splitCanvasDoc({ ...canvasDocument, id });
+  const path = await writableAgentflowPath(id, root);
   await mkdir(agentflowsDir(root), { recursive: true });
+  await mkdir(localAgentflowsDir(root), { recursive: true });
   await Promise.all([
-    writeFile(agentflowPath(id, root), stringifyAgentFlowSource(agentflow), "utf8"),
+    writeFile(path, stringifyAgentFlowSource(agentflow), "utf8"),
     saveCanvasLayout(id, layout, root),
   ]);
 }
@@ -106,8 +121,30 @@ export async function saveCanvasLayout(id: string, layout: CanvasLayoutDoc, root
 export async function deleteCanvas(id: string, root: string): Promise<void> {
   await Promise.all([
     unlink(agentflowPath(id, root)).catch(() => {}),
+    unlink(agentflowPath(id, root, true)).catch(() => {}),
     unlink(canvasPath(id, root)).catch(() => {}),
   ]);
+}
+
+async function readableAgentflowPath(id: string, root: string): Promise<string> {
+  const localPath = agentflowPath(id, root, true);
+  if (await pathExists(localPath)) return localPath;
+  return agentflowPath(id, root);
+}
+
+async function writableAgentflowPath(id: string, root: string): Promise<string> {
+  const localPath = agentflowPath(id, root, true);
+  if (await pathExists(localPath)) return localPath;
+  return agentflowPath(id, root);
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function splitCanvasDoc(canvasDocument: CanvasDoc): { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc } {

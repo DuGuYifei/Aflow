@@ -11,7 +11,7 @@ import {
 import type { CanvasDoc } from "./canvas-doc";
 import { loadSharedAgentServerConfig, patchLocalAgentServer } from "./agent-server-config";
 
-const GITIGNORE_ENTRIES = ["runs/", "canvas/"];
+const GITIGNORE_ENTRIES = ["runs/", "canvas/", "agentflows-local/"];
 
 export interface InitWorkspaceOptions {
   createIfMissing?: boolean;
@@ -45,11 +45,13 @@ export async function initWorkspace(
   }
 
   const agentflowsDir = join(root, "agentflows");
+  const localAgentflowsDir = join(root, "agentflows-local");
   const canvasDir = join(root, "canvas");
   const runsDir = join(root, "runs");
 
   await Promise.all([
     mkdir(agentflowsDir, { recursive: true }),
+    mkdir(localAgentflowsDir, { recursive: true }),
     mkdir(canvasDir, { recursive: true }),
     mkdir(runsDir, { recursive: true }),
   ]);

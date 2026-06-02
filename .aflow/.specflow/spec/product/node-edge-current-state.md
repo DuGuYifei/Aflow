@@ -1,6 +1,8 @@
 # Node 与 Edge 当前实现说明
 
-本文描述当前代码已经实现的节点、连线、资源、session 与执行行为。流程定义保存在 `.aflow/.specflow/agentflows/<workflow-id>.yaml`，画布位置单独保存在 `.aflow/.specflow/canvas/<workflow-id>.json`。
+Last updated: 2026-06-02
+
+本文描述当前代码已经实现的节点、连线、资源、session 与执行行为。共享流程定义保存在 `.aflow/.specflow/agentflows/<workflow-id>.yaml`，本地草稿或 fork/adapt 变体保存在 `.aflow/.specflow/agentflows-local/<workflow-id>.yaml`，画布位置单独保存在 `.aflow/.specflow/canvas/<workflow-id>.json`。
 
 ## 1. 模型分层
 

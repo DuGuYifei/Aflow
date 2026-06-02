@@ -1,5 +1,7 @@
 # Skills + Slash Commands
 
+Last updated: 2026-06-02
+
 Specflow layers a Zed-NativeAgent-style slash command system on top of external
 ACP agents. When a node prompt contains a `/command`, Specflow resolves it
 against locally-authored skills before the prompt is sent; anything it doesn't

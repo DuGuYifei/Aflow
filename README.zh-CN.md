@@ -154,4 +154,6 @@ Specflow 的设计参考和学习了以下项目与社区：
 - [Zed](https://github.com/zed-industries/zed)，GitHub 账号：[@zed-industries](https://github.com/zed-industries)
 - [Pi](https://github.com/earendil-works/pi)，GitHub 账号：[@earendil-works](https://github.com/earendil-works)
 
+Aflow Agent 的终端 agent 体验基于 Pi 构建，并感谢 Pi 在极简、专注的 agent harness 设计上带来的启发。
+
 以上链接作为参考资料列出，用于说明 Specflow 在协议、编辑器和 agent harness 设计上的参考来源。

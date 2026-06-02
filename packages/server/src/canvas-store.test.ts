@@ -6,6 +6,7 @@ import { parse } from "yaml";
 import { initWorkspace } from "./workspace";
 import {
   generateCanvasLayout,
+  listCanvases,
   loadCanvas,
   saveCanvas,
 } from "./canvas-store";
@@ -384,6 +385,7 @@ edges:
     const gitignore = await readFile(join(root, ".aflow/.specflow", ".gitignore"), "utf8");
     expect(gitignore).toContain("runs/");
     expect(gitignore).toContain("canvas/");
+    expect(gitignore).toContain("agentflows-local/");
 
     const agentflowRaw = await readFile(join(root, ".aflow/.specflow", "agentflows", "example-code-frontend-flow.yaml"), "utf8");
     const agentflow = parseAgentFlowSource(agentflowRaw, "example-code-frontend-flow");
@@ -408,6 +410,35 @@ edges:
 
     const docsCanvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "canvas", "example-create-specflow-doc-flow.json"), "utf8"));
     expect(docsCanvas.workflowId).toBe("example-create-specflow-doc-flow");
+  });
+
+  it("loads local agentflows from the gitignored local directory", async () => {
+    const root = await tempProject();
+    await initWorkspace(root);
+    const localDir = join(root, ".aflow/.specflow", "agentflows-local");
+    await mkdir(localDir, { recursive: true });
+    await writeFile(join(localDir, "local-draft.yaml"), `
+version: 1
+name: Local draft
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  do-work:
+    kind: step
+    title: Do work
+    session: main
+    prompt: Do the work.
+edges: []
+`, "utf8");
+
+    const canvases = await listCanvases(root);
+    expect(canvases.find((canvas) => canvas.id === "local-draft")).toEqual({
+      id: "local-draft",
+      name: "Local draft",
+      local: true,
+    });
+    expect((await loadCanvas("local-draft", root)).name).toBe("Local draft");
   });
 
   it("creates a first-run workspace and seeds the selected agent server", async () => {

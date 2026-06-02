@@ -18,6 +18,7 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 ```text
 .aflow/.specflow/
   agentflows/
+  agentflows-local/
   canvas/
   agent-servers.json
   agent-servers.local.json
@@ -34,6 +35,12 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 ```
 
 这些文件是 workflow-as-code，适合提交到版本控制中。
+
+```text
+.aflow/.specflow/agentflows-local/*.yaml
+```
+
+这些文件是本地 workflow 草稿，适合 Aflow 的 fork/adapt 输出、个人实验和暂不希望提交的变体。初始化 workspace 时，Specflow 会把 `agentflows-local/` 加入 `.aflow/.specflow/.gitignore`。Server 会把 `agentflows-local/` 中的 YAML 当作可读取、可运行的 workflow，但本地版本不应覆盖团队共享的 `agentflows/` 文件。
 
 ## Canvas 布局
 

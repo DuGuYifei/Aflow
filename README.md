@@ -154,4 +154,6 @@ Specflow references and learns from the following projects and communities:
 - [Zed](https://github.com/zed-industries/zed) by [@zed-industries](https://github.com/zed-industries)
 - [Pi](https://github.com/earendil-works/pi) by [@earendil-works](https://github.com/earendil-works)
 
+Aflow Agent's terminal agent experience is built on Pi, with appreciation for Pi's minimal, focused agent harness design.
+
 These links are listed as reference materials for protocol, editor, and agent harness design.

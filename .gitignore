@@ -5,6 +5,10 @@ dist/
 /specflow
 /specflow.exe
 /specflow.js.map
+/aflow
+/aflow.exe
+/aflow.js.map
+/cli.js.map
 .vite/
 .turbo/
 .cache/

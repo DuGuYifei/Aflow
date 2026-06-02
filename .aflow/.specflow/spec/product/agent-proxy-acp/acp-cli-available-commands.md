@@ -1,5 +1,7 @@
 # ACP CLI Available Commands 实测清单
 
+Last updated: 2026-06-02
+
 > 范围：本文记录 ACP agent 通过 `session/update` 的
 > `available_commands_update` 返回的 slash command 快照，供 Specflow 的 command
 > discovery、命令输入 UI 和更多 CLI 兼容性验证参考。

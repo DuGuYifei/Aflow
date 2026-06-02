@@ -1,0 +1,212 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
+import {
+  assertSymbolKey,
+  keyFromLabel,
+  loadAgentFlowFile,
+  parseAgentFlowSource,
+  splitCanvasDoc,
+  stringifyAgentFlowSource,
+  type AgentFlowDoc,
+} from "@specflow/server";
+import { Type } from "typebox";
+import { connectOrStartSpecflowServer } from "../server/connect-or-start";
+
+const ServerParam = {
+  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+};
+
+const WorkflowReadParams = Type.Object({
+  target: Type.String({ description: "Workflow id or local YAML path." }),
+  ...ServerParam,
+});
+
+const WorkflowWriteParams = Type.Object({
+  workflowId: Type.String({ description: "Workflow id and YAML filename without extension." }),
+  yaml: Type.String({ description: "Complete Specflow workflow YAML source." }),
+  local: Type.Optional(Type.Boolean({ description: "Write to agentflows-local when true. Defaults to true." })),
+});
+
+const WorkflowForkParams = Type.Object({
+  source: Type.String({ description: "Source workflow id or local YAML path." }),
+  newWorkflowId: Type.Optional(Type.String({ description: "New workflow id. Defaults to a non-conflicting adapted id." })),
+  newName: Type.Optional(Type.String({ description: "Optional display name for the copied workflow." })),
+  ...ServerParam,
+});
+
+export function registerWorkflowFileTools(pi: ExtensionAPI): void {
+  pi.registerTool({
+    name: "specflow_list_workflows",
+    label: "List Workflows",
+    description: "List saved Specflow workflows from the workspace.",
+    promptSnippet: "List saved Specflow workflows when the user needs to pick one.",
+    parameters: Type.Object(ServerParam),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const workflows = await connection.client.listCanvases();
+      return textResult(
+        workflows.length
+          ? workflows.map((workflow) => `${workflow.id}${workflow.local ? " (local)" : ""}: ${workflow.name}`).join("\n")
+          : "No workflows found.",
+        { workflows },
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_read_workflow",
+    label: "Read Workflow",
+    description: "Read a Specflow workflow as YAML by id or local YAML path.",
+    promptSnippet: "Read existing workflow YAML before editing or adapting it.",
+    parameters: WorkflowReadParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const loaded = await loadWorkflowYaml(params.target, ctx.cwd, params.serverUrl);
+      return textResult(loaded.yaml, loaded);
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_write_workflow",
+    label: "Write Workflow",
+    description: "Write complete Specflow workflow YAML into the workspace. Defaults to agentflows-local.",
+    promptSnippet: "Persist a workflow YAML draft or adaptation deterministically.",
+    promptGuidelines: [
+      "Use local=true for drafts and fork/adapt outputs.",
+      "Pass the complete YAML document, not a patch.",
+    ],
+    parameters: WorkflowWriteParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const workflowId = params.workflowId;
+      assertSymbolKey(workflowId, "workflow id");
+      const parsed = parseAgentFlowSource(params.yaml, workflowId);
+      const local = params.local ?? true;
+      const path = workflowYamlPath(ctx.cwd, workflowId, local);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, stringifyAgentFlowSource({ ...parsed, id: workflowId }), "utf8");
+      return textResult(`Workflow written: ${path}`, {
+        workflowId,
+        path,
+        local,
+        name: parsed.name,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_fork_workflow_to_local",
+    label: "Fork Workflow",
+    description: "Copy a workflow to agentflows-local before adapting it.",
+    promptSnippet: "Fork/adapt must copy the source workflow to agentflows-local before editing.",
+    promptGuidelines: [
+      "Call this before modifying an existing workflow for a new problem.",
+      "After this tool returns, edit the copied local workflow instead of the source.",
+    ],
+    parameters: WorkflowForkParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const source = await loadWorkflowYaml(params.source, ctx.cwd, params.serverUrl);
+      const parsed = parseAgentFlowSource(source.yaml, source.workflowId);
+      const newWorkflowId = await chooseForkId(ctx.cwd, params.newWorkflowId, source.workflowId);
+      const forked: AgentFlowDoc = {
+        ...parsed,
+        id: newWorkflowId,
+        name: params.newName?.trim() || `${parsed.name || source.workflowId} (local adaptation)`,
+      };
+      const path = workflowYamlPath(ctx.cwd, newWorkflowId, true);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, stringifyAgentFlowSource(forked), "utf8");
+      return textResult(`Workflow forked to local draft: ${path}`, {
+        sourceWorkflowId: source.workflowId,
+        workflowId: newWorkflowId,
+        path,
+        local: true,
+      });
+    },
+  });
+}
+
+async function loadWorkflowYaml(
+  target: string,
+  cwd: string,
+  serverUrl: string | undefined,
+): Promise<{ workflowId: string; yaml: string; path?: string }> {
+  const localPath = resolve(cwd, target);
+  if (looksLikePath(target)) {
+    const workflowId = basename(target).replace(/\.ya?ml$/, "");
+    return {
+      workflowId,
+      yaml: await readFile(localPath, "utf8"),
+      path: localPath,
+    };
+  }
+
+  try {
+    const path = await findWorkflowPath(cwd, target);
+    return {
+      workflowId: target,
+      yaml: await readFile(path, "utf8"),
+      path,
+    };
+  } catch {
+    const connection = await connectOrStartSpecflowServer({ cwd, serverUrl });
+    const canvas = await connection.client.getCanvas(target);
+    const { agentflow } = splitCanvasDoc(canvas);
+    return {
+      workflowId: target,
+      yaml: stringifyAgentFlowSource(agentflow),
+    };
+  }
+}
+
+async function findWorkflowPath(cwd: string, workflowId: string): Promise<string> {
+  for (const local of [true, false]) {
+    const path = workflowYamlPath(cwd, workflowId, local);
+    try {
+      await loadAgentFlowFile(path);
+      return path;
+    } catch {
+      // Try the next location.
+    }
+  }
+  throw new Error(`Workflow not found: ${workflowId}`);
+}
+
+async function chooseForkId(cwd: string, requested: string | undefined, sourceId: string): Promise<string> {
+  const base = requested?.trim() || keyFromLabel(`${sourceId}-adapted`, `${sourceId}-adapted`);
+  assertSymbolKey(base, "new workflow id");
+  let candidate = base;
+  let suffix = 2;
+  while (await workflowExists(cwd, candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+async function workflowExists(cwd: string, workflowId: string): Promise<boolean> {
+  for (const local of [true, false]) {
+    try {
+      await loadAgentFlowFile(workflowYamlPath(cwd, workflowId, local));
+      return true;
+    } catch {
+      // Missing or malformed means unavailable for fork target purposes.
+    }
+  }
+  return false;
+}
+
+function workflowYamlPath(cwd: string, workflowId: string, local: boolean): string {
+  return join(cwd, SPECFLOW_WORKSPACE_PATH, local ? "agentflows-local" : "agentflows", `${workflowId}.yaml`);
+}
+
+function looksLikePath(value: string): boolean {
+  return value.endsWith(".yaml") || value.endsWith(".yml") || value.includes("/") || value.includes("\\");
+}
+
+function textResult(text: string, details: Record<string, unknown>) {
+  return {
+    content: [{ type: "text" as const, text }],
+    details,
+  };
+}

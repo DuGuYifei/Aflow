@@ -1,6 +1,6 @@
 import { AgentServerStore } from "@specflow/agent-proxy";
 import { createSpecflowBridge } from "@specflow/bridge";
-import { APP_NAME, DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
+import { APP_NAME, DEFAULT_HOST, SERVER_PORT, uuidv7 } from "@specflow/shared";
 import { serveStaticUi } from "./static-ui";
 import { SkillStore, resolveSlashCommands } from "./skills";
 import { createDevUiProxy } from "./ui-dev";
@@ -25,6 +25,7 @@ export async function startSpecflowServer(
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
   const mode = options.mode ?? defaultServerMode();
+  const serverId = uuidv7();
   const skillStore = new SkillStore({ root: workingDirectory });
   const capabilityStore = new AgentServerStore({ root: workingDirectory });
   const bridge = createSpecflowBridge({
@@ -47,7 +48,15 @@ export async function startSpecflowServer(
   const devUi = mode === "development" ? await createDevUiProxy() : undefined;
   const handleApi = createApiHandler(bridge, workingDirectory);
 
-  const server = startHttpServer({ bridge, devUi, host, preferredPort, handleApi });
+  const server = startHttpServer({
+    bridge,
+    devUi,
+    host,
+    preferredPort,
+    handleApi,
+    serverId,
+    workspaceRoot: workingDirectory,
+  });
 
   const url = `http://${host}:${server.port}/`;
   console.log(`${APP_NAME} UI: ${url}`);
@@ -80,9 +89,19 @@ interface HttpServerOptions {
   host: string;
   preferredPort: number;
   handleApi: (request: Request) => Promise<Response | null>;
+  serverId: string;
+  workspaceRoot: string;
 }
 
-function startHttpServer({ bridge, devUi, host, preferredPort, handleApi }: HttpServerOptions) {
+function startHttpServer({
+  bridge,
+  devUi,
+  host,
+  preferredPort,
+  handleApi,
+  serverId,
+  workspaceRoot,
+}: HttpServerOptions) {
   for (let port = preferredPort; port < preferredPort + 20; port += 1) {
     try {
       return Bun.serve({
@@ -98,6 +117,9 @@ function startHttpServer({ bridge, devUi, host, preferredPort, handleApi }: Http
               ok: true,
               sessions: bridge.sessions.list().length,
               startedAt: bridge.runtime.startedAt.toISOString(),
+              workspaceRoot,
+              serverId,
+              apiVersion: 1,
             });
           }
 

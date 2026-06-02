@@ -11,12 +11,15 @@ tags:
 
 # Workflow YAML 编写教程
 
-Specflow 的 workflow-as-code 文件保存在 `.aflow/.specflow/agentflows/*.yaml`。
+Specflow 的可提交 workflow-as-code 文件保存在 `.aflow/.specflow/agentflows/*.yaml`。
+本地实验、fork/adapt 草稿应保存在 `.aflow/.specflow/agentflows-local/*.yaml`；这个目录会写入 `.aflow/.specflow/.gitignore`，默认不提交。
 每个 YAML 文件描述一个可运行的工作流图，包括 sessions、nodes、edges，以及可选的运行输入。
 浏览器画布坐标单独保存在 `.aflow/.specflow/canvas/*.json`，因此手写 YAML 时不需要维护节点位置。
 
 workflow 文件名会成为 workflow id。文件名应使用小写 kebab-case，例如 `code-review-flow.yaml`。
 session、node、branch 的 key 也遵循同一规则：必须以小写字母开头，只能包含小写字母、数字和 `-`。
+
+改写已有 workflow 时，如果目标是为当前用户或当前问题创建一个变体，应先把源 YAML 复制到 `.aflow/.specflow/agentflows-local/<new-workflow-id>.yaml`，再修改副本。不要直接覆盖源 workflow，除非明确是在维护团队共享版本。
 
 ## 最小示例
 

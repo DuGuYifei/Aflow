@@ -3,3 +3,4 @@ canvas/
 cache/
 run-logs/
 agent-servers.local.json
+agentflows-local/

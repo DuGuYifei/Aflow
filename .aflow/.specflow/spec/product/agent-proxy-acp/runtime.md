@@ -1,5 +1,7 @@
 # ACP Agent Runtime Architecture
 
+Last updated: 2026-06-02
+
 This document records the current ACP agent runtime architecture, implemented behavior, known gaps, and the execution plan boundary.
 
 ## Goal
