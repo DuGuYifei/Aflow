@@ -10,7 +10,13 @@ import {
 import { registerAflowTools } from "../tools";
 
 const AFLOW_GREEN = "\x1b[38;5;118m";
+const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
+const AFLOW_IDENTITY_WIDGET = [
+  `${AFLOW_GREEN}Aflow Agent${RESET} is built on Pi.`,
+  `${DIM}- You can ask Aflow to create, adapt, validate, run, and resume Specflow workflows.${RESET}`,
+  `${DIM}- Pi can explain its own features and look up its docs. Ask it how to use or extend Pi / Aflow.${RESET}`,
+];
 
 export function createAflowPiExtension(): ExtensionFactory {
   return (pi: ExtensionAPI) => {
@@ -61,7 +67,7 @@ export function createAflowPiExtension(): ExtensionFactory {
     pi.on("session_start", (_event, ctx) => {
       ctx.ui.setTitle("Aflow");
       ctx.ui.setStatus("aflow", `${AFLOW_GREEN}Aflow${RESET}`);
-      ctx.ui.setWidget("aflow.identity", [`${AFLOW_GREEN}Aflow${RESET}`], { placement: "aboveEditor" });
+      ctx.ui.setWidget("aflow.identity", AFLOW_IDENTITY_WIDGET, { placement: "aboveEditor" });
     });
   };
 }

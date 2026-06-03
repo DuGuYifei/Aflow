@@ -183,6 +183,8 @@ export function prepareAflowRuntimePackage(): void {
   process.env["PI_PACKAGE_DIR"] = runtimeDir;
   process.env["PI_SKIP_VERSION_CHECK"] ??= "1";
   process.env["PI_CODING_AGENT"] = "true";
+
+  ensureQuietStartupDefault();
 }
 
 export function getAflowVersion(): string {
@@ -235,6 +237,31 @@ function readPackageVersion(packageJsonPath: string): string | undefined {
   try {
     const raw = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { version?: unknown };
     return typeof raw.version === "string" ? raw.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function ensureQuietStartupDefault(): void {
+  const agentDir = process.env["AFLOW_CODING_AGENT_DIR"]
+    ? resolve(process.env["AFLOW_CODING_AGENT_DIR"])
+    : join(homedir(), ".aflow", "agent");
+  const settingsPath = join(agentDir, "settings.json");
+  const settings = readJsonObject(settingsPath);
+  if (!settings) return;
+  if (typeof settings.quietStartup === "boolean") return;
+
+  settings.quietStartup = true;
+  mkdirSync(agentDir, { recursive: true });
+  writeIfChanged(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+}
+
+function readJsonObject(path: string): Record<string, unknown> | undefined {
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    return parsed as Record<string, unknown>;
   } catch {
     return undefined;
   }
