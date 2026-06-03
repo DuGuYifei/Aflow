@@ -18,6 +18,7 @@
     headings: [],
     error: "",
   };
+  let revealObserver = null;
 
   const copy = {
     "zh-CN": {
@@ -43,7 +44,7 @@
       },
       navigation: {
         product: "产品",
-        aflowSoon: "Aflow Agent · 敬请期待",
+        aflowSoon: "Aflow Agent · 已上线",
         specflow: "Specflow",
         useCases: "场景",
         technical: "技术",
@@ -135,8 +136,8 @@
         title: "Aflow Agent 与 Specflow，是上下两层产品。",
         body: "Specflow 是工作流基础设施；Aflow Agent 是构建在其上的 Agentic Workflow Agent。一个提供可运行的流程骨架，一个在骨架上协助设计、优化和运行。",
         aflowTitle: "Aflow Agent",
-        aflowStatus: "敬请期待",
-        aflowBody: "一个靠工作流生存的 Agent。它将辅助团队搭建 Specflow workflow，维护 prompt 与分支，观察运行反馈，并把经验转化为下一版流程。",
+        aflowStatus: "已上线",
+        aflowBody: "一个靠工作流生存的 Agent。它辅助团队搭建 Specflow workflow，维护 prompt 与分支，观察运行反馈，并把经验转化为下一版流程。",
         specflowTitle: "Specflow",
         specflowStatus: "Available foundation",
         specflowBody: "面向 Agent 工作的 workflow-as-code 基础设施：可视化图、节点、关卡、跨 session 上下文、运行日志和可审查的流程定义。",
@@ -199,7 +200,7 @@
       },
       navigation: {
         product: "Product",
-        aflowSoon: "Aflow Agent · Coming soon",
+        aflowSoon: "Aflow Agent · Available now",
         specflow: "Specflow",
         useCases: "Use cases",
         technical: "Technical",
@@ -291,8 +292,8 @@
         title: "Aflow Agent and Specflow are two layers of the same idea.",
         body: "Specflow is workflow infrastructure. Aflow Agent is the agentic workflow agent built on top of it: one gives the runnable skeleton, the other helps operate and improve it.",
         aflowTitle: "Aflow Agent",
-        aflowStatus: "Coming soon",
-        aflowBody: "A workflow-native agent that will help teams build Specflow workflows, maintain prompts and branches, watch run feedback, and turn experience into the next workflow revision.",
+        aflowStatus: "Available now",
+        aflowBody: "A workflow-native agent that helps teams build Specflow workflows, maintain prompts and branches, watch run feedback, and turn experience into the next workflow revision.",
         specflowTitle: "Specflow",
         specflowStatus: "Available foundation",
         specflowBody: "Workflow-as-code infrastructure for agent work: visual graphs, nodes, gates, cross-session context, run logs, and reviewable process definitions.",
@@ -604,7 +605,7 @@
   }
 
   function productMenu(t) {
-    return `<div class="product-menu"><button type="button" aria-haspopup="true">${t.navigation.product}${icon("chevron")}</button><div class="product-menu-panel"><span class="product-menu-item is-disabled"><strong>Aflow Agent</strong><em>${t.navigation.aflowSoon}</em></span><a class="product-menu-item" href="product.html"><strong>Specflow</strong><em>${t.navigation.specflow}</em></a></div></div>`;
+    return `<div class="product-menu"><button type="button" aria-haspopup="true">${t.navigation.product}${icon("chevron")}</button><div class="product-menu-panel"><a class="product-menu-item" href="product.html#aflow-agent"><strong>Aflow Agent</strong><em>${t.navigation.aflowSoon}</em></a><a class="product-menu-item" href="product.html#specflow"><strong>Specflow</strong><em>${t.navigation.specflow}</em></a></div></div>`;
   }
 
   function header(t) {
@@ -615,7 +616,7 @@
   function workflowPreview(t) {
     const nodes = t.preview.nodes.map(([id, title, meta, state], index) => `<article class="neo-node neo-node-${index + 1} ${state}"><span>${id}</span><strong>${title}</strong><code>${meta}</code><em>${state}</em></article>`).join("");
     const trace = t.preview.trace.map((line) => `<p><span>✓</span>${line}</p>`).join("");
-    return `<figure class="workflow-preview preview" aria-describedby="preview-summary preview-caption"><p id="preview-summary" class="sr-only">${t.accessibility.previewSummary}</p><div class="preview-toolbar"><div class="preview-title">${brandMark()}<div><span class="micro">${t.preview.eyebrow}</span><strong>${t.preview.title}</strong></div></div><span class="decorative-action" aria-disabled="true">${icon("play")}${t.preview.startRun}</span></div><div class="preview-canvas hero-canvas"><div class="neo-orbit" aria-hidden="true"></div><svg class="connections" viewBox="0 0 660 360" aria-hidden="true" focusable="false"><path d="M104 186 C170 86 260 86 326 150" class="connector neon animated-connector"/><path d="M332 178 C408 238 492 228 566 158" class="connector cyan animated-connector"/><path d="M352 185 C390 260 468 292 552 268" class="connector warning animated-connector"/></svg>${nodes}</div><div class="session-dock neo-trace"><div class="dock-tabs"><span class="active">Run trace</span><span>Agent sessions</span></div>${trace}</div><figcaption id="preview-caption">${t.preview.caption}</figcaption></figure>`;
+    return `<figure class="workflow-preview preview reveal" aria-describedby="preview-summary preview-caption"><p id="preview-summary" class="sr-only">${t.accessibility.previewSummary}</p><div class="preview-toolbar"><div class="preview-title">${brandMark()}<div><span class="micro">${t.preview.eyebrow}</span><strong>${t.preview.title}</strong></div></div><button class="decorative-action" type="button" data-run-preview>${icon("play")}${t.preview.startRun}</button></div><div class="preview-canvas hero-canvas"><div class="neo-orbit" aria-hidden="true"></div><svg class="connections" viewBox="0 0 660 360" aria-hidden="true" focusable="false"><path d="M104 186 C170 86 260 86 326 150" class="connector neon animated-connector"/><path d="M332 178 C408 238 492 228 566 158" class="connector cyan animated-connector"/><path d="M352 185 C390 260 468 292 552 268" class="connector warning animated-connector"/></svg>${nodes}</div><div class="session-dock neo-trace"><div class="dock-tabs"><span class="active">Run trace</span><span>Agent sessions</span></div>${trace}</div><figcaption id="preview-caption">${t.preview.caption}</figcaption></figure>`;
   }
 
   function hero(t) {
@@ -623,24 +624,24 @@
   }
 
   function values(t) {
-    return `<section id="workflow" class="value-grid section"><div class="container values-layout">${t.values.map((item) => `<article class="value-card"><span>${item.label}</span><h2>${item.title}</h2><p>${item.body}</p></article>`).join("")}</div></section>`;
+    return `<section id="workflow" class="value-grid section"><div class="container values-layout">${t.values.map((item) => `<article class="value-card reveal"><span>${item.label}</span><h2>${item.title}</h2><p>${item.body}</p></article>`).join("")}</div></section>`;
   }
 
   function useCases(t) {
-    return `<section id="use-cases" class="use-case section" aria-labelledby="use-case-title"><div class="container"><div class="section-heading"><p class="section-label">${t.useCases.label}</p><h2 id="use-case-title">${t.useCases.title}</h2><p>${t.useCases.body}</p></div><div class="case-grid">${t.useCases.items.map((item) => `<article class="case-card"><h3>${item.title}</h3><p>${item.body}</p><code>${item.flow}</code><div>${item.stats.map((stat) => `<span>${stat}</span>`).join("")}</div></article>`).join("")}</div></div></section>`;
+    return `<section id="use-cases" class="use-case section" aria-labelledby="use-case-title"><div class="container"><div class="section-heading reveal"><p class="section-label">${t.useCases.label}</p><h2 id="use-case-title">${t.useCases.title}</h2><p>${t.useCases.body}</p></div><div class="case-grid">${t.useCases.items.map((item) => `<article class="case-card reveal"><h3>${item.title}</h3><p>${item.body}</p><code>${item.flow}</code><div>${item.stats.map((stat) => `<span>${stat}</span>`).join("")}</div></article>`).join("")}</div></div></section>`;
   }
 
   function technical(t) {
-    return `<section id="technical" class="architecture section" aria-labelledby="technical-title"><div class="container architecture-layout"><div><p class="section-label">${t.technical.label}</p><h2 id="technical-title">${t.technical.title}</h2><p>${t.technical.body}</p><div class="technical-stack">${t.technical.tags.map((tag) => `<span>${tag}</span>`).join("")}</div></div><pre class="command-card" aria-label="Aflow command example">${t.technical.command.map((line) => `<code>${line}</code>`).join("")}</pre></div></section>`;
+    return `<section id="technical" class="architecture section" aria-labelledby="technical-title"><div class="container architecture-layout"><div class="reveal"><p class="section-label">${t.technical.label}</p><h2 id="technical-title">${t.technical.title}</h2><p>${t.technical.body}</p><div class="technical-stack">${t.technical.tags.map((tag) => `<span>${tag}</span>`).join("")}</div></div><pre class="command-card reveal" aria-label="Aflow command example">${t.technical.command.map((line) => `<code>${line}</code>`).join("")}</pre></div></section>`;
   }
 
   function closing(t) {
-    return `<section id="closing" class="closing section" aria-labelledby="closing-title"><div class="container closing-card"><h2 id="closing-title">${t.closing.title}</h2><p>${t.closing.body}</p><div class="cta-row"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.closing.primaryCta}</span></a><a class="button secondary" href="#technical">${icon("terminal")}<span>${t.closing.secondaryCta}</span></a></div></div></section>`;
+    return `<section id="closing" class="closing section" aria-labelledby="closing-title"><div class="container closing-card reveal"><h2 id="closing-title">${t.closing.title}</h2><p>${t.closing.body}</p><div class="cta-row"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.closing.primaryCta}</span></a><a class="button secondary" href="#technical">${icon("terminal")}<span>${t.closing.secondaryCta}</span></a></div></div></section>`;
   }
 
   function productsPage(t) {
     const points = t.products.specflowPoints.map((point) => `<span>${point}</span>`).join("");
-    return `<main id="main-content" class="products-page" tabindex="-1"><section class="products-hero section"><div class="container"><p class="section-label">${t.products.label}</p><h1>${t.products.title}</h1><p>${t.products.body}</p></div></section><section class="products-section section"><div class="container product-grid"><article class="product-card coming-soon"><span>${t.products.aflowStatus}</span><h2>${t.products.aflowTitle}</h2><p>${t.products.aflowBody}</p></article><article class="product-card"><span>${t.products.specflowStatus}</span><h2>${t.products.specflowTitle}</h2><p>${t.products.specflowBody}</p><div class="technical-stack">${points}</div></article></div><div class="container product-cta"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.products.cta}</span></a></div></section></main>`;
+    return `<main id="main-content" class="products-page" tabindex="-1"><section class="products-hero section"><div class="container reveal"><p class="section-label">${t.products.label}</p><h1>${t.products.title}</h1><p>${t.products.body}</p></div></section><section class="products-section section"><div class="container product-grid"><article id="aflow-agent" class="product-card reveal"><span>${t.products.aflowStatus}</span><h2>${t.products.aflowTitle}</h2><p>${t.products.aflowBody}</p></article><article id="specflow" class="product-card reveal"><span>${t.products.specflowStatus}</span><h2>${t.products.specflowTitle}</h2><p>${t.products.specflowBody}</p><div class="technical-stack">${points}</div></article></div><div class="container product-cta reveal"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.products.cta}</span></a></div></section></main>`;
   }
 
   function commandGroup(group) {
@@ -749,8 +750,40 @@
           : `<main id="main-content" tabindex="-1">${hero(t)}${values(t)}${useCases(t)}${technical(t)}${closing(t)}</main>`;
     app.innerHTML = `<a class="skip-link" href="#main-content">${t.accessibility.skipToContent}</a>${header(t)}${main}${footer(t)}`;
     bindControls();
+    bindMotion();
     app.querySelector("[data-header]")?.classList.toggle("has-scroll", window.scrollY > 8);
     if (page === "docs") loadDocs();
+  }
+
+  function bindMotion() {
+    if (revealObserver) revealObserver.disconnect();
+    const revealItems = Array.from(app.querySelectorAll(".reveal"));
+    if (!revealItems.length) return;
+    if (!("IntersectionObserver" in window)) {
+      revealItems.forEach((item) => item.classList.add("is-visible"));
+    } else {
+      revealObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("is-visible");
+          revealObserver.unobserve(entry.target);
+        });
+      }, { rootMargin: "0px 0px -12% 0px", threshold: 0.15 });
+      revealItems.forEach((item, index) => {
+        item.style.setProperty("--reveal-delay", `${Math.min(index % 4, 3) * 80}ms`);
+        revealObserver.observe(item);
+      });
+    }
+
+    app.querySelectorAll("[data-run-preview]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const preview = button.closest(".workflow-preview");
+        if (!preview) return;
+        preview.classList.remove("is-running");
+        void preview.offsetWidth;
+        preview.classList.add("is-running");
+      });
+    });
   }
 
   function bindControls() {
