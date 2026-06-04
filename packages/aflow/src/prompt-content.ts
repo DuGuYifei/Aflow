@@ -125,6 +125,14 @@ sessions:
     agentServerId: claude-acp
     mcpServers: '[{"name":"docs","command":"node","args":["server.js"]}]'
 
+Session design and review independence:
+- Do not add review nodes by default.
+- Add a review node only when the workflow genuinely needs independent verification, approval, QA, critique, or a pass/rework decision.
+- When a node's primary responsibility is review, verification, critique, approval, or deciding whether prior work passes, it should normally use a separate reviewer session from the session that produced the work.
+- Do not convert ordinary planning, implementation, research, summarization, or handoff steps into review nodes just to create a reviewer session.
+- If independent review is useful but the workflow shape is ambiguous, ask_user before adding a review node.
+- When a review step uses a different session, pass only the necessary upstream output through a transmit/outputTag edge, and make the review prompt reference that token explicitly.
+
 Input node syntax:
 - kind must be input.
 - variableName is required and must match specflow_[A-Za-z0-9_]+.
