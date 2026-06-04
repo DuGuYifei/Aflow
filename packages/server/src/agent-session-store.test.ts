@@ -36,6 +36,50 @@ describe("agent session store", () => {
     expect(savedRun.agentSessions[0]?.restoreAttempts).toEqual([]);
   });
 
+  it("indexes forked handoff sessions with invocation context", async () => {
+    const root = await tempProject();
+    const run = sampleRun("run-fork");
+    run.agentInvocations.push({
+      id: "handoff-inv",
+      runId: run.id,
+      edgeId: "edge-handoff",
+      purpose: "handoff",
+      sourceNodeId: "n1",
+      targetNodeId: "n2",
+      agentId: "agent-server-codex-acp",
+      agentServerId: "codex-acp",
+      sessionId: "s1-fork-01",
+      parentSessionId: "s1",
+      acpSessionId: "acp-handoff-fork",
+      acpSupportsLoadSession: true,
+      acpSupportsResumeSession: true,
+      acpSupportsForkSession: true,
+      acpSessionForked: true,
+      prompt: "handoff",
+      status: "done",
+      startedAt: "2026-05-19T10:01:30.000Z",
+      completedAt: "2026-05-19T10:01:40.000Z",
+      output: "handled",
+    });
+
+    await upsertAgentSessionsFromRun(run, root);
+
+    const forkSession = (await listAgentSessions(root)).find((session) => session.specflowSessionId === "s1-fork-01");
+    expect(forkSession).toMatchObject({
+      parentSpecflowSessionId: "s1",
+      acpSessionId: "acp-handoff-fork",
+      acpSessionForked: true,
+      acpSupportsForkSession: true,
+    });
+    expect(forkSession?.invocations[0]).toMatchObject({
+      invocationId: "handoff-inv",
+      edgeId: "edge-handoff",
+      purpose: "handoff",
+      sourceNodeId: "n1",
+      targetNodeId: "n2",
+    });
+  });
+
   it("keeps each run's ACP sessions as separate records", async () => {
     const root = await tempProject();
     await upsertAgentSessionsFromRun(sampleRun("run1"), root);

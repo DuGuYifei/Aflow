@@ -107,6 +107,15 @@ export type TimelineEvent =
     text: string;
     nodeId?: string;
     specflowSessionId?: string;
+    fork?: {
+      specflowSessionId: string;
+      parentSpecflowSessionId?: string;
+      purpose?: 'node' | 'gate' | 'handoff';
+      sourceNodeId?: string;
+      targetNodeId?: string;
+      nodeId?: string;
+      agentInvocationId?: string;
+    };
   };
 
 export interface Branch {

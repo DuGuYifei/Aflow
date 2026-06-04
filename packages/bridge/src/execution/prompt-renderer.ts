@@ -60,7 +60,33 @@ export function renderGatePrompt(node: GateNode, input: string): string {
     "",
     `Available branches: ${branches}`,
     "",
-    "Return only valid JSON matching this schema, with no markdown or extra text:",
+    "Return exactly one complete JSON object matching this schema.",
+    "The entire trimmed response must start with { and end with }.",
+    "Do not include markdown fences, prefixes, suffixes, XML, code blocks, explanations, or any text outside the JSON object.",
+    '{"branchId":"<one available branch id>","reason":"<short explanation>"}',
+  ].join("\n");
+}
+
+export function renderGateRepairPrompt(node: GateNode, invalidOutput: string, error: string): string {
+  const branches = JSON.stringify(node.branches.map((branch) => ({
+    id: branch.id,
+    label: branch.label,
+    description: branch.description ?? "",
+  })));
+  return [
+    "Your previous gate decision could not be used.",
+    "",
+    "Validation error:",
+    error,
+    "",
+    "Previous response:",
+    `<invalid_gate_response>${invalidOutput}</invalid_gate_response>`,
+    "",
+    `Available branches: ${branches}`,
+    "",
+    "Return exactly one complete JSON object matching this schema.",
+    "The entire trimmed response must start with { and end with }.",
+    "Do not include markdown fences, prefixes, suffixes, XML, code blocks, explanations, or any text outside the JSON object.",
     '{"branchId":"<one available branch id>","reason":"<short explanation>"}',
   ].join("\n");
 }

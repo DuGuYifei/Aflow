@@ -2,7 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Clip
 import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
-import { branchAccent, edgeKey, sessionAccent } from '../appearance';
+import { branchAccent, edgeKey, isSymbolKey, sessionAccent } from '../appearance';
+import { nodeDisplayTitle, nodeTitleFallback, nodeTitleIsFallback } from '../node-display';
 import { SessionTimeline } from './session-timeline';
 import {
   fetchAgentServerCapabilities,
@@ -34,6 +35,7 @@ interface NodePanelProps {
   timelineEvents: TimelineEvent[];
   onClose: () => void;
   onEditNode: (id: string, patch: Record<string, unknown>) => void;
+  onRenameNode: (oldId: string, newId: string) => void;
   onChangeSession: (id: string, sid: string) => void;
   onEditSession?: (id: string, patch: Partial<Session>) => void;
   onAddSessionRequest: () => void;
@@ -60,9 +62,25 @@ export function NodePanel(props: NodePanelProps) {
     return <GatePanelContent {...props} node={props.node} readonly={readonly} />;
   }
   if (props.node.kind === 'end') {
-    return <EndPanelContent node={props.node} readonly={readonly} onClose={props.onClose} onEditNode={props.onEditNode} />;
+    return <EndPanelContent node={props.node} run={props.run} nodes={props.nodes} readonly={readonly} onClose={props.onClose} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />;
   }
   return <StepPanelContent {...props} node={props.node} readonly={readonly} tab={tab} setTab={setTab} />;
+}
+
+function PanelNodeTitle({ node }: { node: WorkflowNode }) {
+  return <span className={nodeTitleIsFallback(node) ? 'panel-title-placeholder' : undefined}>{nodeDisplayTitle(node)}</span>;
+}
+
+function NodeRunStatusBadge({ status }: { status?: RunState }) {
+  const { t } = useI18n();
+  const state = status ?? 'pending';
+  return (
+    <div className={`run-status-badge ${state}`}>
+      <span className={`status-dot ${state}`} />
+      <span className="label">{t('node.status')}</span>
+      <span className="value">{state}</span>
+    </div>
+  );
 }
 
 function NodeLockToggle({ node, readonly, onEditNode }: {
@@ -108,7 +126,7 @@ function StepPanelContent(props: NodePanelProps & {
     </>
   );
   return (
-    <RightPanel label={label} title={node.title} onClose={props.onClose} tabs={tabs} activeTab={tab} onTabChange={setTab}>
+    <RightPanel label={label} title={<PanelNodeTitle node={node} />} onClose={props.onClose} tabs={tabs} activeTab={tab} onTabChange={setTab}>
       {tab === 'overview' && <StepOverview {...props} session={session} />}
       {tab === 'logs' && <NodeLogs events={nodeLogEvents} />}
       {tab === 'images' && <NodeImages {...props} />}
@@ -137,10 +155,9 @@ function StepOverview(props: NodePanelProps & {
     .map((edge) => ({ token: `specflow_${edge.outputTag}`, hint: t('node.transferredOutputHint') }));
   return (
     <>
-      {run && <div className="output-card"><span className={`status-dot ${node.runState || 'pending'}`} /> {node.runState || 'pending'}</div>}
+      {run && <NodeRunStatusBadge status={node.runState} />}
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <div className="section-title">{t('node.title')}</div>
-      <input className="input" value={node.title} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.session')}</div>
@@ -281,15 +298,16 @@ function NodePaths(props: NodePanelProps & { node: StepNode; readonly: boolean; 
           <button className="btn sm ghost" onClick={() => folderRef.current?.click()}>{t('node.chooseFolder')}</button>
         </div>
       )}
+      {!props.readonly && <div className="code-hint">{t('node.pathsHint')}</div>}
       <input ref={fileRef} type="file" multiple hidden onChange={(event) => onImport(event, false)} />
       <input ref={folderRef} type="file" multiple hidden {...({ webkitdirectory: '', directory: '' } as Record<string, string>)} onChange={(event) => onImport(event, true)} />
     </>
   );
 }
 
-function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: boolean }) {
+function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?: RunState }; readonly: boolean }) {
   const { t } = useI18n();
-  const { node, nodes, edges, readonly } = props;
+  const { node, run, nodes, edges, readonly } = props;
   const criteriaRef = useRef<HTMLTextAreaElement>(null);
   const predecessorEdge = edges.find((edge) => edge.to === node.id && nodes.find((candidate) => candidate.id === edge.from)?.kind !== 'input');
   const predecessor = nodes.find((candidate) => candidate.id === predecessorEdge?.from);
@@ -300,7 +318,8 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: bo
   const { capabilities, refreshing, refresh } = useAgentCapabilities(predecessorSession?.agentServerId);
   const skills = useSkills();
   return (
-    <RightPanel label={<><Icon name="route" size={11} /> {t('node.gateLabel', { alias: node.alias })}</>} title={node.title} onClose={props.onClose}>
+    <RightPanel label={<><Icon name="route" size={11} /> {t('node.gateLabel', { alias: node.alias })}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
+      {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">
         {t('node.gateHint')}
         {predecessorSession && (supportsForkHint
@@ -308,8 +327,7 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: bo
           : t('node.gateForkRuntimeHint'))}
       </div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <div className="section-title">{t('node.title')}</div>
-      <input className="input" value={node.title} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.decisionCriteria')}</div>
@@ -356,16 +374,16 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode; readonly: bo
   );
 }
 
-function InputPanelContent(props: NodePanelProps & { node: InputNode; readonly: boolean }) {
+function InputPanelContent(props: NodePanelProps & { node: InputNode & { runState?: RunState }; readonly: boolean }) {
   const { t } = useI18n();
-  const { node, readonly, nodes, edges } = props;
+  const { node, run, readonly, nodes, edges } = props;
   const rawName = node.variableName.startsWith('specflow_') ? node.variableName.slice(9) : node.variableName;
   const stepNodes = nodes.filter((candidate): candidate is StepNode => candidate.kind === 'step');
   return (
-    <RightPanel label={<><Icon name="tag" size={11} />{t('node.runInputLabel', { alias: node.alias })}</>} title={node.title} onClose={props.onClose}>
+    <RightPanel label={<><Icon name="tag" size={11} />{t('node.runInputLabel', { alias: node.alias })}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
+      {run && <NodeRunStatusBadge status={node.runState} />}
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <div className="section-title">{t('node.title')}</div>
-      <input className="input" value={node.title} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { title: event.target.value })} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.variableName')}</div>
@@ -408,7 +426,7 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode; readonly: 
                 }}
               />
               <span className="node-ref">{step.alias}</span>
-              <span>{step.title}</span>
+              <span>{nodeDisplayTitle(step)}</span>
             </label>
           );
         })}
@@ -417,17 +435,93 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode; readonly: 
   );
 }
 
-function EndPanelContent({ node, readonly, onClose, onEditNode }: { node: Extract<WorkflowNode, { kind: 'end' }>; readonly: boolean; onClose: () => void; onEditNode: (id: string, patch: Record<string, unknown>) => void }) {
+function EndPanelContent({ node, run, nodes, readonly, onClose, onEditNode, onRenameNode }: { node: Extract<WorkflowNode, { kind: 'end' }> & { runState?: RunState }; run?: Run; nodes: WorkflowNode[]; readonly: boolean; onClose: () => void; onEditNode: (id: string, patch: Record<string, unknown>) => void; onRenameNode: (oldId: string, newId: string) => void }) {
   const { t } = useI18n();
   return (
-    <RightPanel label={<><Icon name="check" size={11} />{t('node.end')}</>} title={t('node.endTitle')} onClose={onClose}>
+    <RightPanel label={<><Icon name="check" size={11} />{t('node.end')}</>} title={<PanelNodeTitle node={node} />} onClose={onClose}>
+      {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">{t('node.endHint')}</div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={onEditNode} />
-      <div className="section-title">{t('node.title')}</div>
-      <input className="input" value={node.title} disabled={readonly} onChange={(event) => onEditNode(node.id, { title: event.target.value })} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={onEditNode} onRenameNode={onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => onEditNode(node.id, { alias: event.target.value })} />
     </RightPanel>
+  );
+}
+
+function NodeIdentityFields({
+  node,
+  nodes,
+  readonly,
+  onEditNode,
+  onRenameNode,
+}: {
+  node: WorkflowNode;
+  nodes: WorkflowNode[];
+  readonly: boolean;
+  onEditNode: (id: string, patch: Record<string, unknown>) => void;
+  onRenameNode: (oldId: string, newId: string) => void;
+}) {
+  const { t } = useI18n();
+  const [draftId, setDraftId] = useState(node.id);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setDraftId(node.id);
+    setError('');
+  }, [node.id]);
+  const commit = (value = draftId) => {
+    const nextId = value.trim();
+    if (nextId === node.id) {
+      setDraftId(node.id);
+      setError('');
+      return;
+    }
+    if (!isSymbolKey(nextId)) {
+      setError(t('node.keyInvalid'));
+      return;
+    }
+    if (nodes.some((candidate) => candidate.id === nextId && candidate.id !== node.id)) {
+      setError(t('node.keyDuplicate'));
+      return;
+    }
+    setError('');
+    onRenameNode(node.id, nextId);
+  };
+  const updateTitle = (value: string) => onEditNode(node.id, { title: value });
+  return (
+    <>
+      <div className="section-title">{t('node.key')}</div>
+      <input
+        className={`input${error ? ' invalid' : ''}`}
+        value={draftId}
+        disabled={readonly}
+        onChange={(event) => {
+          setDraftId(event.target.value);
+          if (error) setError('');
+        }}
+        onBlur={(event) => commit(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commit(event.currentTarget.value);
+          } else if (event.key === 'Escape') {
+            setDraftId(node.id);
+            setError('');
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      {error && <div className="field-error">{error}</div>}
+      <div className="section-title">{t('node.titleOptional')}</div>
+      <input
+        className="input"
+        value={node.title}
+        disabled={readonly}
+        placeholder={nodeTitleFallback(node.id)}
+        onInput={(event) => updateTitle(event.currentTarget.value)}
+        onChange={(event) => updateTitle(event.currentTarget.value)}
+      />
+    </>
   );
 }
 

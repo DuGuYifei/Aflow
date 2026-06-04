@@ -49,6 +49,7 @@ describe("run event API", () => {
     const eventResponse = await handle(new Request(`http://specflow.test/api/runs/${runId}/events`));
     expect(eventResponse?.status).toBe(200);
     const eventText = await readUntil(eventResponse!, "run-id-check");
+    expect(eventText).toContain("event: agent-prompt");
     expect(eventText).toContain("run-id-check");
   });
 
@@ -169,6 +170,42 @@ describe("run event API", () => {
     expect(eventText).toContain("\"branchId\":\"unresolved\"");
     expect(eventText).toContain("\"available\":false");
   });
+
+  test("replays agent prompt and fork lifecycle events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-agent-events-"));
+    await appendRunLogEvent(root, {
+      type: "agent_prompt",
+      runId: "run-agent",
+      nodeId: "node-1",
+      agentInvocationId: "inv1",
+      agentId: "agent-server-codex-acp",
+      agentServerId: "codex-acp",
+      specflowSessionId: "main",
+      prompt: "live user prompt",
+      at: "2026-05-25T00:00:00.000Z",
+    });
+    await appendRunLogEvent(root, {
+      type: "agent_lifecycle",
+      runId: "run-agent",
+      nodeId: "gate",
+      purpose: "gate",
+      specflowSessionId: "main-fork-01",
+      parentSpecflowSessionId: "main",
+      agentInvocationId: "inv2",
+      agentId: "agent-server-codex-acp",
+      agentServerId: "codex-acp",
+      lifecycle: { type: "session_forked", agentServerId: "codex-acp", sessionId: "acp-fork", parentSessionId: "acp-main", at: "2026-05-25T00:00:01.000Z" },
+    });
+
+    const handle = createApiHandler(createSpecflowBridge(), root);
+    const eventResponse = await handle(new Request("http://specflow.test/api/runs/run-agent/events"));
+    const eventText = await readUntil(eventResponse!, "main-fork-01");
+
+    expect(eventText).toContain("event: agent-prompt");
+    expect(eventText).toContain("live user prompt");
+    expect(eventText).toContain("event: agent-lifecycle");
+    expect(eventText).toContain("\"type\":\"session_forked\"");
+  });
 });
 
 async function eventuallyLoadRun(root: string, runId: string, status: string) {
@@ -196,7 +233,7 @@ async function readUntil(response: Response, pattern: string): Promise<string> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let text = "";
-  for (let index = 0; index < 8 && !text.includes(pattern); index += 1) {
+  for (let index = 0; index < 30 && !text.includes(pattern); index += 1) {
     const result = await reader.read();
     if (result.done) break;
     text += decoder.decode(result.value, { stream: true });

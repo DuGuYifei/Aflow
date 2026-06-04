@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import type { Session, WorkflowNode, TimelineEvent, Variable } from '../types';
+import type { Session, WorkflowNode, TimelineEvent, Variable, RunStatus } from '../types';
 import type { AgentServerEntry, AgentSessionRecord, PausedNodeSession, RestoreMode } from '../api';
 import { useI18n } from '../i18n';
 import { Icon } from './icon';
 import { isSymbolKey, sessionAccent } from '../appearance';
 import { SessionTimeline } from './session-timeline';
-
-const UNSCOPED_SESSION_FILTER = '__unscoped__';
+import { nodeDisplayTitle } from '../node-display';
 
 interface SessionsBarProps {
   sessions: Session[];
@@ -17,6 +16,8 @@ interface SessionsBarProps {
   setBarHeight: (height: number) => void;
   activeSessionId: string;
   setActiveSessionId: (id: string) => void;
+  activeRunId?: string;
+  activeRunStatus?: RunStatus;
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
   timelineEvents?: TimelineEvent[];
@@ -30,11 +31,10 @@ interface SessionsBarProps {
   onDeleteSession: (id: string) => void;
   onClearLogs: () => void;
   variables: Variable[];
+  runVariableValues?: Record<string, string>;
   onEditVariable: (name: string, patch: Partial<Variable>) => void;
   agentSessions?: AgentSessionRecord[];
   agentServers?: AgentServerEntry[];
-  runs?: Array<{ id: string; label: string }>;
-  onOpenInvocationLog?: (runId: string, nodeId?: string, specflowSessionId?: string) => void;
   onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
   restoreStatusBySession?: Record<string, string>;
   pausedNode?: PausedNodeSession | null;
@@ -49,23 +49,23 @@ export function SessionsBar({
   expanded, setExpanded,
   barHeight, setBarHeight,
   activeSessionId, setActiveSessionId,
+  activeRunId, activeRunStatus,
   onAssignSession, addSessionPing,
   timelineEvents,
   onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
   onAddSession, onEditSession, onDeleteSession, onClearLogs,
-  variables, onEditVariable,
-  agentSessions = [], agentServers = [], runs = [],
-  onOpenInvocationLog, onRestoreSession,
+  variables, runVariableValues, onEditVariable,
+  agentSessions = [], agentServers = [],
+  onRestoreSession,
   restoreStatusBySession = {},
   pausedNode, pausedPromptBusy = false,
   onPromptPausedNode, onContinuePausedNode,
   readonly,
 }: SessionsBarProps) {
-  const { t, language } = useI18n();
-  const [tab, setTab] = useState<'logs' | 'agent-sessions' | 'settings' | 'vars'>('logs');
+  const { t } = useI18n();
+  const [tab, setTab] = useState<'logs' | 'settings' | 'vars'>('logs');
   const barHeightRef = useRef(barHeight);
   const stepNodes = nodes.filter((node) => node.kind === 'step');
-  const activeSession = sessions.find((session) => session.id === activeSessionId) || sessions[0];
 
   useEffect(() => { barHeightRef.current = barHeight; }, [barHeight]);
 
@@ -130,10 +130,6 @@ export function SessionsBar({
           <button className={`bar-tab${tab === 'logs' ? ' active' : ''}`} onClick={() => setTab('logs')}>
             <Icon name="terminal" size={11} />{t('sessions.logs')}
           </button>
-          <button className={`bar-tab${tab === 'agent-sessions' ? ' active' : ''}`} onClick={() => setTab('agent-sessions')}>
-            <Icon name="history" size={11} />{t('sessions.agentSessions')}
-            {agentSessions.length > 0 && <span className="count">{agentSessions.length}</span>}
-          </button>
           <button className={`bar-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
             <Icon name="settings" size={11} />{t('sessions.title')}
             <span className="count">{sessions.length}</span>
@@ -154,10 +150,15 @@ export function SessionsBar({
       {tab === 'logs' && (
         <LogsTab
           sessions={sessions}
-          activeSession={activeSession}
+          activeSessionId={activeSessionId}
           setActiveSessionId={setActiveSessionId}
+          activeRunId={activeRunId}
+          activeRunStatus={activeRunStatus}
           stepNodes={stepNodes}
           timelineEvents={timelineEvents}
+          agentSessions={agentSessions}
+          restoreStatusBySession={restoreStatusBySession}
+          onRestoreSession={onRestoreSession}
           onLoadEarlierLogs={onLoadEarlierLogs}
           canLoadEarlierLogs={canLoadEarlierLogs}
           loadingEarlierLogs={loadingEarlierLogs}
@@ -169,17 +170,6 @@ export function SessionsBar({
           onPromptPausedNode={onPromptPausedNode}
           onContinuePausedNode={onContinuePausedNode}
           t={t}
-        />
-      )}
-      {tab === 'agent-sessions' && (
-        <AgentSessionsTab
-          agentSessions={agentSessions}
-          runs={runs}
-          onOpenInvocationLog={onOpenInvocationLog}
-          onRestoreSession={onRestoreSession}
-          restoreStatusBySession={restoreStatusBySession}
-          t={t}
-          language={language}
         />
       )}
       {tab === 'settings' && (
@@ -199,6 +189,7 @@ export function SessionsBar({
       {tab === 'vars' && (
         <VariablesTab
           variables={variables}
+          runVariableValues={runVariableValues}
           onEditVariable={onEditVariable}
           readonly={readonly}
           t={t}
@@ -212,10 +203,15 @@ export function SessionsBar({
 
 interface LogsTabProps {
   sessions: Session[];
-  activeSession?: Session;
+  activeSessionId: string;
   setActiveSessionId: (id: string) => void;
+  activeRunId?: string;
+  activeRunStatus?: RunStatus;
   stepNodes: WorkflowNode[];
   timelineEvents?: TimelineEvent[];
+  agentSessions: AgentSessionRecord[];
+  restoreStatusBySession: Record<string, string>;
+  onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
   onLoadEarlierLogs?: () => void;
   canLoadEarlierLogs?: boolean;
   loadingEarlierLogs?: boolean;
@@ -230,7 +226,7 @@ interface LogsTabProps {
 }
 
 function LogsTab({
-  sessions, activeSession, setActiveSessionId, stepNodes, timelineEvents, onDeleteSession,
+  sessions, activeSessionId, setActiveSessionId, activeRunId, activeRunStatus, stepNodes, timelineEvents, agentSessions, restoreStatusBySession, onRestoreSession, onDeleteSession,
   onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
   pausedNode, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
   t,
@@ -298,18 +294,25 @@ function LogsTab({
     prevHeightRef.current = element.scrollHeight;
   }, [timelineEvents]);
 
+  const sessionTree = buildLogSessionTree({ sessions, stepNodes, timelineEvents, agentSessions, activeRunId, t });
+  const activeEntry = findLogSessionEntry(sessionTree, activeSessionId) ?? sessionTree[0]?.root ?? sessionTree[0]?.forks[0];
   const activeNodeIds = new Set(
-    stepNodes.filter((node) => node.kind === 'step' && node.sessionId === activeSession?.id).map((node) => node.id),
+    stepNodes.filter((node) => node.kind === 'step' && node.sessionId === activeEntry?.id).map((node) => node.id),
   );
   const nodeById = new Map(stepNodes.map((node) => [node.id, node]));
   const visibleEvents = (timelineEvents ?? []).filter((event) => {
+    if (!activeEntry) return true;
+    if (event.type === 'display-message' && event.fork) {
+      if (activeEntry.kind === 'fork') return event.fork.specflowSessionId === activeEntry.id;
+      return event.fork.parentSpecflowSessionId === activeEntry.id;
+    }
     // Events explicitly tagged with this session win.
     if ('specflowSessionId' in event && event.specflowSessionId) {
-      return event.specflowSessionId === activeSession?.id;
+      return event.specflowSessionId === activeEntry.id;
     }
     // Events with a nodeId: only show if that node belongs to the active session.
     if ('nodeId' in event && event.nodeId) {
-      return activeNodeIds.has(event.nodeId);
+      return activeEntry.kind === 'root' && activeNodeIds.has(event.nodeId);
     }
     // Unscoped run-level events (system messages, cancellation, etc) appear in every tab.
     return true;
@@ -319,14 +322,22 @@ function LogsTab({
     <div className="sessions-body logs">
       <div className="term-pane">
         <div className="term-header">
-          <span className="ses-dot" style={{ width: 8, height: 8, borderRadius: 2, background: activeSession ? sessionAccent(activeSession) : 'var(--ink-3)' }} />
-          <strong style={{ fontSize: 11.5 }}>{activeSession?.name}</strong>
+          <span className="ses-dot" style={{ width: 8, height: 8, borderRadius: 2, background: activeEntry ? logSessionAccent(activeEntry) : 'var(--ink-3)' }} />
+          <strong style={{ fontSize: 11.5 }}>{activeEntry?.name}</strong>
           <span className="agent-badge">
-            <span className="dot" style={{ background: activeSession ? sessionAccent(activeSession) : 'var(--ink-3)' }} />{activeSession?.agentServerId ?? activeSession?.agent}
+            <span className="dot" style={{ background: activeEntry ? logSessionAccent(activeEntry) : 'var(--ink-3)' }} />{activeEntry?.agentServerId ?? t('sessions.runtimeSession')}
           </span>
           <span style={{ color: 'var(--ink-3)', fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
-            · {t('sessions.nodesCount', { count: stepNodes.filter((node) => node.kind === 'step' && node.sessionId === activeSession?.id).length })}
+            · {activeEntry?.kind === 'fork' ? t('sessions.runtimeFork') : t('sessions.nodesCount', { count: activeNodeIds.size })}
           </span>
+          <LogSessionActions
+            entry={activeEntry}
+            activeRunId={activeRunId}
+            activeRunStatus={activeRunStatus}
+            restoreStatusBySession={restoreStatusBySession}
+            onRestoreSession={onRestoreSession}
+            t={t}
+          />
         </div>
         <div className="term-stream" ref={termRef}>
           {canLoadEarlierLogs && onLoadEarlierLogs && (
@@ -367,7 +378,7 @@ function LogsTab({
             </>
           )}
         </div>
-        {pausedNode && activeSession && pausedNode.specflowSessionId === activeSession.id && (
+        {pausedNode && activeEntry?.kind === 'root' && pausedNode.specflowSessionId === activeEntry.id && (
           <PausedNodeComposer
             node={stepNodes.find((candidate) => candidate.id === pausedNode.nodeId)}
             busy={pausedPromptBusy}
@@ -385,39 +396,294 @@ function LogsTab({
       <div className="term-sidebar" style={{ width: sideW }}>
         <div className="term-sidebar-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span>{t('sessions.title')}</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--ink-4)' }}>{sessions.length}</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--ink-4)' }}>{countLogSessions(sessionTree)}</span>
         </div>
         <div className="term-sidebar-list">
-          {sessions.length === 0 && (
+          {sessionTree.length === 0 && (
             <div className="term-empty-session">{t('sessions.noSessions')}</div>
           )}
-          {sessions.map((session) => {
-            const count = stepNodes.filter((node) => node.kind === 'step' && node.sessionId === session.id).length;
-            const isActive = session.id === activeSession?.id;
-            return (
-              <div
-                key={session.id}
-                className={`term-ses-item${isActive ? ' active' : ''}`}
-                onClick={() => setActiveSessionId(session.id)}
-              >
-                <span className="ses-dot" style={{ background: sessionAccent(session) }} />
-                <span className="name">{session.name}</span>
-                <span className="count">{count}</span>
-                <button
-                  className="ses-del"
-                  title={t('sessions.deleteSession')}
-                  disabled={sessions.length <= 1}
-                  onClick={(event) => { event.stopPropagation(); onDeleteSession(session.id); }}
-                >
-                  <Icon name="x" size={10} />
-                </button>
-              </div>
-            );
-          })}
+          {sessionTree.map((group) => (
+            <div key={group.id} className="term-session-group">
+              {group.missingParent ? (
+                <div className="term-session-group-label">{t('agentSession.missingParent', { id: group.id })}</div>
+              ) : (
+                <LogSessionRow
+                  entry={group.root}
+                  active={group.root.id === activeEntry?.id}
+                  canDelete={Boolean(group.root.authoredSession) && sessions.length > 1}
+                  onClick={() => setActiveSessionId(group.root.id)}
+                  onDelete={() => onDeleteSession(group.root.id)}
+                  t={t}
+                />
+              )}
+              {group.forks.map((fork) => (
+                <LogSessionRow
+                  key={fork.id}
+                  entry={fork}
+                  active={fork.id === activeEntry?.id}
+                  onClick={() => setActiveSessionId(fork.id)}
+                  t={t}
+                />
+              ))}
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
+}
+
+type TFunction = (key: string, params?: Record<string, string | number>) => string;
+
+interface LogSessionEntry {
+  id: string;
+  name: string;
+  kind: 'root' | 'fork';
+  agentServerId?: string;
+  parentId?: string;
+  nodeCount: number;
+  record?: AgentSessionRecord;
+  authoredSession?: Session;
+  fork?: NonNullable<Extract<TimelineEvent, { type: 'display-message' }>['fork']>;
+}
+
+interface LogSessionGroup {
+  id: string;
+  root: LogSessionEntry;
+  forks: LogSessionEntry[];
+  missingParent?: boolean;
+}
+
+function buildLogSessionTree(input: {
+  sessions: Session[];
+  stepNodes: WorkflowNode[];
+  timelineEvents?: TimelineEvent[];
+  agentSessions: AgentSessionRecord[];
+  activeRunId?: string;
+  t: TFunction;
+}): LogSessionGroup[] {
+  const groups = new Map<string, LogSessionGroup>();
+  const nodeCounts = new Map<string, number>();
+  for (const node of input.stepNodes) {
+    if (node.kind !== 'step' || !node.sessionId) continue;
+    nodeCounts.set(node.sessionId, (nodeCounts.get(node.sessionId) ?? 0) + 1);
+  }
+  const ensureGroup = (id: string, missingParent = false): LogSessionGroup => {
+    const existing = groups.get(id);
+    if (existing) return existing;
+    const authored = input.sessions.find((session) => session.id === id);
+    const group: LogSessionGroup = {
+      id,
+      missingParent,
+      root: {
+        id,
+        kind: 'root',
+        name: authored?.name ?? (missingParent ? input.t('agentSession.missingParent', { id }) : id || input.t('agentSession.unscoped')),
+        agentServerId: authored?.agentServerId ?? authored?.agent,
+        nodeCount: nodeCounts.get(id) ?? 0,
+        authoredSession: authored,
+      },
+      forks: [],
+    };
+    groups.set(id, group);
+    return group;
+  };
+
+  for (const session of input.sessions) ensureGroup(session.id);
+
+  const addFork = (entry: LogSessionEntry) => {
+    const parentId = entry.parentId ?? '';
+    const group = ensureGroup(parentId, !input.sessions.some((session) => session.id === parentId));
+    const index = group.forks.findIndex((candidate) => candidate.id === entry.id);
+    if (index >= 0) {
+      group.forks[index] = {
+        ...group.forks[index],
+        ...entry,
+        record: entry.record ?? group.forks[index]!.record,
+        fork: entry.fork ?? group.forks[index]!.fork,
+      };
+    } else {
+      group.forks.push(entry);
+    }
+  };
+
+  for (const record of input.agentSessions) {
+    if (!record.specflowSessionId || !agentSessionMatchesRun(record, input.activeRunId)) continue;
+    if (!record.parentSpecflowSessionId) {
+      const group = ensureGroup(record.specflowSessionId);
+      group.root = {
+        ...group.root,
+        agentServerId: record.agentServerId,
+        record,
+      };
+      continue;
+    }
+    addFork({
+      id: record.specflowSessionId,
+      kind: 'fork',
+      name: sessionForkLabel(record, input.t),
+      agentServerId: record.agentServerId,
+      parentId: record.parentSpecflowSessionId,
+      nodeCount: record.invocations.length,
+      record,
+    });
+  }
+
+  for (const event of input.timelineEvents ?? []) {
+    if (event.type !== 'display-message' || !event.fork?.specflowSessionId) continue;
+    addFork({
+      id: event.fork.specflowSessionId,
+      kind: 'fork',
+      name: forkEventLabel(event.fork, input.t),
+      parentId: event.fork.parentSpecflowSessionId,
+      nodeCount: 1,
+      fork: event.fork,
+    });
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      forks: [...group.forks].sort((left, right) => {
+        const leftTime = left.record?.firstSeenAt ?? '';
+        const rightTime = right.record?.firstSeenAt ?? '';
+        return leftTime.localeCompare(rightTime) || left.id.localeCompare(right.id);
+      }),
+    }))
+    .sort((left, right) => {
+      if (left.missingParent !== right.missingParent) return left.missingParent ? 1 : -1;
+      return left.id.localeCompare(right.id);
+    });
+}
+
+function agentSessionMatchesRun(session: AgentSessionRecord, activeRunId?: string): boolean {
+  if (!activeRunId) return false;
+  return session.latestRunId === activeRunId || session.runIds.includes(activeRunId);
+}
+
+function findLogSessionEntry(groups: LogSessionGroup[], id: string): LogSessionEntry | undefined {
+  for (const group of groups) {
+    if (group.root.id === id) return group.root;
+    const fork = group.forks.find((candidate) => candidate.id === id);
+    if (fork) return fork;
+  }
+  return undefined;
+}
+
+function countLogSessions(groups: LogSessionGroup[]): number {
+  return groups.reduce((count, group) => count + (group.missingParent ? 0 : 1) + group.forks.length, 0);
+}
+
+function logSessionAccent(entry: LogSessionEntry): string {
+  if (entry.authoredSession) return sessionAccent(entry.authoredSession);
+  if (entry.agentServerId) return sessionAccent({ agentServerId: entry.agentServerId });
+  return 'var(--ink-3)';
+}
+
+function LogSessionRow({
+  entry,
+  active,
+  canDelete = false,
+  onClick,
+  onDelete,
+  t,
+}: {
+  entry: LogSessionEntry;
+  active: boolean;
+  canDelete?: boolean;
+  onClick: () => void;
+  onDelete?: () => void;
+  t: TFunction;
+}) {
+  return (
+    <div
+      className={`term-ses-item${entry.kind === 'fork' ? ' fork' : ''}${active ? ' active' : ''}`}
+      onClick={onClick}
+    >
+      <span className="ses-dot" style={{ background: logSessionAccent(entry) }} />
+      <span className="name">{entry.name}</span>
+      <span className="count">{entry.kind === 'fork' ? entry.id : entry.nodeCount}</span>
+      {canDelete && (
+        <button
+          className="ses-del"
+          title={t('sessions.deleteSession')}
+          onClick={(event) => { event.stopPropagation(); onDelete?.(); }}
+        >
+          <Icon name="x" size={10} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function LogSessionActions({
+  entry,
+  activeRunId,
+  activeRunStatus,
+  restoreStatusBySession,
+  onRestoreSession,
+  t,
+}: {
+  entry?: LogSessionEntry;
+  activeRunId?: string;
+  activeRunStatus?: RunStatus;
+  restoreStatusBySession: Record<string, string>;
+  onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
+  t: TFunction;
+}) {
+  const record = entry?.record;
+  const restoreStatus = record ? restoreStatusBySession[record.id] : undefined;
+  const runBusy = activeRunStatus === 'running' || activeRunStatus === 'pending';
+  const restoreBusy = restoreStatus === 'starting' || restoreStatus === 'requested';
+  const supportsRestore = Boolean(record && (record.acpSupportsLoadSession || record.acpSupportsResumeSession));
+
+  return (
+    <div className="term-actions">
+      {restoreStatus && <span className={`history-restore-status ${restoreStatus === 'failure' ? 'failed' : ''}`}>{t('agentSession.restoreStatus', { status: restoreStatus })}</span>}
+      {activeRunId && !record && <span className="term-action-hint">{t('sessions.noAcpSessionYet')}</span>}
+      {record && runBusy && <span className="term-action-hint">{t('sessions.runActive')}</span>}
+      {record && !runBusy && !supportsRestore && <span className="term-action-hint">{t('sessions.noRestoreSupport')}</span>}
+      {record && !runBusy && supportsRestore && (
+        <>
+          <button className="btn sm" disabled={restoreBusy} onClick={() => onRestoreSession?.(record, 'inspect')} title={t('agentSession.inspectTitle')}>
+            <Icon name="search" size={10} />{t('agentSession.inspect')}
+          </button>
+          <button className="btn sm primary" disabled={restoreBusy} onClick={() => onRestoreSession?.(record, 'continue')} title={t('agentSession.resumeTitle')}>
+            <Icon name="play-circle" size={10} />{t('agentSession.resume')}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function sessionForkLabel(session: AgentSessionRecord, t: TFunction): string {
+  const latest = [...session.invocations].reverse().find((reference) => reference.purpose === 'handoff' || reference.purpose === 'gate')
+    ?? session.invocations.at(-1);
+  if (!latest) return session.specflowSessionId ?? session.acpSessionId;
+  if (latest.purpose === 'handoff') {
+    return t('agentSession.handoffInvocation', {
+      source: latest.sourceNodeId ?? latest.edgeId ?? 'source',
+      target: latest.targetNodeId ?? 'target',
+    });
+  }
+  if (latest.purpose === 'gate') {
+    return t('agentSession.gateInvocation', { node: latest.nodeId ?? 'gate' });
+  }
+  return latest.nodeId ?? latest.edgeId ?? latest.invocationId;
+}
+
+function forkEventLabel(fork: NonNullable<Extract<TimelineEvent, { type: 'display-message' }>['fork']>, t: TFunction): string {
+  if (fork.purpose === 'handoff') {
+    return t('agentSession.handoffInvocation', {
+      source: fork.sourceNodeId ?? 'source',
+      target: fork.targetNodeId ?? 'target',
+    });
+  }
+  if (fork.purpose === 'gate') {
+    return t('agentSession.gateInvocation', { node: fork.nodeId ?? 'gate' });
+  }
+  return fork.specflowSessionId;
 }
 
 function PausedNodeComposer(props: {
@@ -436,7 +702,7 @@ function PausedNodeComposer(props: {
   return (
     <div className="paused-composer">
       <div className="paused-composer-head">
-        <span><Icon name="pause" size={11} /> {props.t('sessions.pausedAfter', { node: props.node?.title ?? 'node' })}</span>
+        <span><Icon name="pause" size={11} /> {props.t('sessions.pausedAfter', { node: props.node ? nodeDisplayTitle(props.node) : 'node' })}</span>
         <button className="btn sm primary" disabled={props.busy} onClick={props.onContinue}>
           <Icon name="play" size={10} />{props.t('sessions.continueWorkflow')}
         </button>
@@ -461,214 +727,6 @@ function PausedNodeComposer(props: {
   );
 }
 
-// ── agent sessions tab ─────────────────────────────────────────────────────────
-
-interface AgentSessionsTabProps {
-  agentSessions: AgentSessionRecord[];
-  runs: Array<{ id: string; label: string }>;
-  onOpenInvocationLog?: (runId: string, nodeId?: string, specflowSessionId?: string) => void;
-  onRestoreSession?: (session: AgentSessionRecord, mode: RestoreMode) => void;
-  restoreStatusBySession: Record<string, string>;
-  t: (key: string, params?: Record<string, string | number>) => string;
-  language: string;
-}
-
-function AgentSessionsTab({
-  agentSessions,
-  runs,
-  onOpenInvocationLog,
-  onRestoreSession,
-  restoreStatusBySession,
-  t,
-  language,
-}: AgentSessionsTabProps) {
-  const [agentFilter, setAgentFilter] = useState('');
-  const [workflowSessionFilter, setWorkflowSessionFilter] = useState('');
-  const knownRuns = new Set(runs.map((run) => run.id));
-  const runLabelById = new Map(runs.map((run) => [run.id, run.label]));
-  const agentIds = [...new Set(agentSessions.map((session) => session.agentServerId))].sort();
-  const selectedAgentId = agentIds.includes(agentFilter) ? agentFilter : agentIds[0] ?? '';
-  const agentScopedSessions = agentSessions.filter((session) => session.agentServerId === selectedAgentId);
-  const workflowSessionIds = [...new Set(agentScopedSessions.map((session) => session.specflowSessionId ?? ''))].sort();
-  const selectedWorkflowSession =
-    workflowSessionFilter === UNSCOPED_SESSION_FILTER && workflowSessionIds.includes('')
-      ? UNSCOPED_SESSION_FILTER
-      : workflowSessionIds.includes(workflowSessionFilter) ? workflowSessionFilter : '';
-  const visibleSessions = agentScopedSessions.filter((session) =>
-    !selectedWorkflowSession
-      || (selectedWorkflowSession === UNSCOPED_SESSION_FILTER
-        ? !session.specflowSessionId
-        : session.specflowSessionId === selectedWorkflowSession)
-  );
-  const groupedSessions = groupAgentSessionsByLogicalSession(visibleSessions);
-
-  return (
-    <div className="sessions-body agent-sessions">
-      <div className="history-filters">
-        <label className="history-filter">
-          <span>{t('agentSession.agent')}</span>
-          <select
-            className="input agent-session-agent-select"
-            value={selectedAgentId}
-            disabled={agentIds.length === 0}
-            onChange={(event) => {
-              setAgentFilter(event.target.value);
-              setWorkflowSessionFilter('');
-            }}
-          >
-            {agentIds.length === 0 && <option value="">{t('agentSession.noAgents')}</option>}
-            {agentIds.map((agentId) => (
-              <option key={agentId} value={agentId}>{agentId}</option>
-            ))}
-          </select>
-        </label>
-        <label className="history-filter">
-          <span>{t('agentSession.workflowSession')}</span>
-          <select
-            className="input agent-session-workflow-select"
-            value={selectedWorkflowSession}
-            disabled={workflowSessionIds.length === 0}
-            onChange={(event) => setWorkflowSessionFilter(event.target.value)}
-          >
-            <option value="">{t('agentSession.allSessions')}</option>
-            {workflowSessionIds.filter(Boolean).map((sessionId) => (
-              <option key={sessionId} value={sessionId}>{sessionId}</option>
-            ))}
-            {workflowSessionIds.includes('') && <option value={UNSCOPED_SESSION_FILTER}>{t('agentSession.unscoped')}</option>}
-          </select>
-        </label>
-        {selectedAgentId && (
-          <div className="history-agent-summary">
-            <span className="agent-badge"><span className="dot" />{selectedAgentId}</span>
-            <span>{t('agentSession.runtimeSessions', { count: agentScopedSessions.length })}</span>
-          </div>
-        )}
-      </div>
-
-      <div className="history-list">
-        {groupedSessions.length === 0 && (
-          <div className="history-empty">
-            {t('agentSession.empty')}
-          </div>
-        )}
-
-        {groupedSessions.map((group) => (
-          <section key={group.id} className="history-session-group">
-            <div className="history-session-group-head">
-              <span>{t('agentSession.workflowSession')}</span>
-              <span className="mono-id">{group.id || t('agentSession.unscoped')}</span>
-              <span className="count">{group.sessions.length}</span>
-            </div>
-            <div className="history-session-cards">
-              {group.sessions.map((session) => {
-                const latestRunMissing = !knownRuns.has(session.latestRunId);
-                const status = restoreStatusBySession[session.id];
-                const canRestore = Boolean(session.acpSessionId);
-                return (
-                  <div key={session.id} className="history-card">
-                    <div className="history-card-head">
-                      <div style={{ minWidth: 0 }}>
-                        <div className="history-title">
-                          <span className="mono-id">{session.acpSessionId}</span>
-                        </div>
-                        <div className="history-meta">
-                          <span>{t('agentSession.invocations', { count: session.invocations.length })}</span>
-                          <span>·</span>
-                          <span>{formatShortDate(session.lastSeenAt, language)}</span>
-                          {session.parentSpecflowSessionId && <span>· {t('agentSession.forkOf', { id: session.parentSpecflowSessionId })}</span>}
-                        </div>
-                      </div>
-                      <div className="history-actions">
-                        <CapabilityBadge label="load" enabled={session.acpSupportsLoadSession} />
-                        <CapabilityBadge label="resume" enabled={session.acpSupportsResumeSession} />
-                        <CapabilityBadge label="fork" enabled={session.acpSupportsForkSession} />
-                        <button
-                          className="btn sm"
-                          disabled={!canRestore}
-                          onClick={() => onRestoreSession?.(session, 'inspect')}
-                          title={t('agentSession.inspectTitle')}
-                        >
-                          <Icon name="search" size={10} />{t('agentSession.inspect')}
-                        </button>
-                        <button
-                          className="btn sm primary"
-                          disabled={!canRestore}
-                          onClick={() => onRestoreSession?.(session, 'continue')}
-                          title={t('agentSession.resumeTitle')}
-                        >
-                          <Icon name="play-circle" size={10} />{t('agentSession.resume')}
-                        </button>
-                      </div>
-                    </div>
-
-                    {status && (
-                      <div className={`history-restore-status ${status === 'failure' ? 'failed' : ''}`}>
-                        {t('agentSession.restoreStatus', { status })}
-                      </div>
-                    )}
-
-                    <div className="history-invocations">
-                      {session.invocations.slice(-4).reverse().map((reference) => {
-                        const runMissing = !knownRuns.has(reference.runId);
-                        return (
-                          <button
-                            key={reference.invocationId}
-                            className="history-invocation"
-                            disabled={runMissing}
-                            onClick={() => onOpenInvocationLog?.(reference.runId, reference.nodeId, session.specflowSessionId)}
-                            title={runMissing ? t('agentSession.deletedRun') : t('agentSession.openRunLog')}
-                          >
-                            <span className={`status-dot ${reference.status === 'done' ? 'success' : reference.status === 'failed' ? 'error' : reference.status}`} />
-                            <span className="mono-id">{reference.nodeId ?? reference.edgeId ?? reference.invocationId}</span>
-                            <span>{runMissing ? t('agentSession.missingRun') : runLabelById.get(reference.runId) ?? reference.runId}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {latestRunMissing && (
-                      <div className="history-warning">
-                        {t('agentSession.latestRunUnavailable')}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function groupAgentSessionsByLogicalSession(
-  sessions: AgentSessionRecord[],
-): Array<{ id: string; sessions: AgentSessionRecord[] }> {
-  const groups = new Map<string, AgentSessionRecord[]>();
-  for (const session of sessions) {
-    const id = session.specflowSessionId ?? '';
-    groups.set(id, [...(groups.get(id) ?? []), session]);
-  }
-  return [...groups.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([id, grouped]) => ({ id, sessions: grouped }));
-}
-
-function CapabilityBadge({ label, enabled }: { label: string; enabled: boolean }) {
-  return (
-    <span className={`cap-badge${enabled ? ' on' : ''}`}>
-      {label}
-    </span>
-  );
-}
-
-function formatShortDate(iso: string, language: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US', { month: 'short', day: '2-digit' });
-}
-
 // ── settings tab ──────────────────────────────────────────────────────────────
 
 interface SettingsTabProps {
@@ -688,12 +746,13 @@ interface SettingsTabProps {
 
 interface VariablesTabProps {
   variables: Variable[];
+  runVariableValues?: Record<string, string>;
   onEditVariable: (name: string, patch: Partial<Variable>) => void;
   readonly?: boolean;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
 
-function VariablesTab({ variables, onEditVariable, readonly, t }: VariablesTabProps) {
+function VariablesTab({ variables, runVariableValues, onEditVariable, readonly, t }: VariablesTabProps) {
   if (variables.length === 0) {
     return (
       <div className="sessions-body settings">
@@ -708,37 +767,67 @@ function VariablesTab({ variables, onEditVariable, readonly, t }: VariablesTabPr
   return (
     <div className="sessions-body settings">
       <div className="assn-list" style={{ overflow: 'auto', flex: 1 }}>
-        <div className="assn-list-head">
+        <div className={`assn-list-head vars${readonly ? ' readonly' : ''}`}>
           <span>{t('variables.name')}</span>
-          <span>{t('variables.defaultValue')}</span>
+          <span>{readonly ? t('variables.runValue') : t('variables.defaultValue')}</span>
           <span>{t('variables.description')}</span>
         </div>
         {variables.map((variable) => (
-          <div key={variable.name} className="assn-row" style={{ gap: 8, alignItems: 'center' }}>
+          <div key={variable.name} className={`assn-row vars${readonly ? ' readonly' : ''}`} style={{ gap: 8, alignItems: 'center' }}>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--ink-2)', flexShrink: 0, minWidth: 120 }}>
               &lt;{variable.name}&gt;
             </span>
-            <input
-              className="input"
-              value={variable.defaultValue ?? ''}
-              disabled={readonly}
-              placeholder="—"
-              onChange={(event) => onEditVariable(variable.name, { defaultValue: event.target.value || undefined })}
-              style={{ flex: 1, minWidth: 80 }}
-            />
-            <input
-              className="input"
-              value={variable.description ?? ''}
-              disabled={readonly}
-              placeholder="—"
-              onChange={(event) => onEditVariable(variable.name, { description: event.target.value || undefined })}
-              style={{ flex: 2 }}
-            />
+            {readonly ? (
+              <>
+                <VariableValueCell variable={variable} runVariableValues={runVariableValues} t={t} />
+                <ReadOnlyText value={variable.description} />
+              </>
+            ) : (
+              <>
+                <input
+                  className="input"
+                  value={variable.defaultValue ?? ''}
+                  placeholder="—"
+                  onChange={(event) => onEditVariable(variable.name, { defaultValue: event.target.value || undefined })}
+                  style={{ flex: 1, minWidth: 80 }}
+                />
+                <input
+                  className="input"
+                  value={variable.description ?? ''}
+                  placeholder="—"
+                  onChange={(event) => onEditVariable(variable.name, { description: event.target.value || undefined })}
+                  style={{ flex: 2 }}
+                />
+              </>
+            )}
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+function VariableValueCell({
+  variable,
+  runVariableValues,
+  t,
+}: {
+  variable: Variable;
+  runVariableValues?: Record<string, string>;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  const hasRunValue = Boolean(runVariableValues && Object.prototype.hasOwnProperty.call(runVariableValues, variable.name));
+  const value = hasRunValue ? runVariableValues![variable.name] : variable.defaultValue;
+  return (
+    <div className="readonly-value-cell">
+      <span className={value ? undefined : 'placeholder'}>{value || '—'}</span>
+      {!hasRunValue && variable.defaultValue !== undefined && <span className="mini-tag">{t('variables.defaultTag')}</span>}
+    </div>
+  );
+}
+
+function ReadOnlyText({ value }: { value?: string }) {
+  return <div className="readonly-value-cell"><span className={value ? undefined : 'placeholder'}>{value || '—'}</span></div>;
 }
 
 function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onEditSession, onDeleteSession, agentServers, readonly, t }: SettingsTabProps) {

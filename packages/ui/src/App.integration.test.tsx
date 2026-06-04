@@ -119,6 +119,45 @@ describe("App run integration", () => {
     expect(document.body.textContent).toContain("Back to design");
   });
 
+  test("renders live agent prompts and fork lifecycle events in the log panel", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    clickButton("Start run");
+    await waitForText("No run inputs for this workflow.");
+    clickButton("Start run", "last");
+
+    await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events"));
+    const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/runs/run1/events")!;
+    source.emit("agent-prompt", {
+      type: "agent_prompt",
+      runId: "run1",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      agentId: "agent-server-echo-headless",
+      agentServerId: "echo-headless",
+      specflowSessionId: "main",
+      prompt: "live user prompt",
+      at: "2026-05-19T10:00:00.000Z",
+    });
+    await waitForText("live user prompt");
+    source.emit("agent-lifecycle", {
+      type: "agent_lifecycle",
+      runId: "run1",
+      nodeId: "gate",
+      purpose: "gate",
+      specflowSessionId: "main-fork-01",
+      parentSpecflowSessionId: "main",
+      agentInvocationId: "invocation-2",
+      agentId: "agent-server-echo-headless",
+      agentServerId: "echo-headless",
+      lifecycle: { type: "session_forked", sessionId: "acp-fork", parentSessionId: "acp-main", at: "2026-05-19T10:00:01.000Z" },
+    });
+
+    await waitForText("fork · gate");
+  });
+
   test("opens historical run logs without replaying them through SSE", async () => {
     const defaultFetch = globalThis.fetch;
     globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
@@ -154,6 +193,54 @@ describe("App run integration", () => {
     runCard.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
     await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events?replay=false"));
+  });
+
+  test("shows run node status as a badge and historical variable values as read-only text", async () => {
+    const defaultFetch = globalThis.fetch;
+    const historicalRun = sampleRunWithInput("success", "42");
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
+        return json(sampleInputCanvas());
+      }
+      if (method === "GET" && url.startsWith("/api/runs?")) {
+        return json([historicalRun]);
+      }
+      if (method === "GET" && url === "/api/runs/run1") {
+        return json(historicalRun);
+      }
+      if (method === "GET" && url === "/api/runs/run1/logs?tail=500") {
+        return json({ events: [], total: 0, startIndex: 0 });
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Run #1");
+    const runCard = document.querySelector(".run-card");
+    if (!(runCard instanceof window.HTMLElement)) throw new Error("Run card not found");
+    runCard.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    selectFirstCanvasNode();
+    await waitFor(() => document.querySelector(".run-status-badge.success") instanceof window.HTMLElement);
+
+    if (document.querySelectorAll(".bar-tab").length === 0) {
+      const expand = document.querySelector(".sessions-head .bar-handle");
+      if (!(expand instanceof window.HTMLButtonElement)) throw new Error("Sessions expand button not found");
+      expand.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await waitFor(() => document.querySelectorAll(".bar-tab").length >= 3);
+    }
+    const variableTab = [...document.querySelectorAll(".bar-tab")].at(2);
+    if (!(variableTab instanceof window.HTMLButtonElement)) throw new Error("Variables tab not found");
+    variableTab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitForText("Run value");
+    await waitForText("42");
+    if (document.querySelector(".assn-row.vars.readonly .input")) {
+      throw new Error("Historical variables should render as read-only text, not inputs");
+    }
   });
 
   test("renders streamed ACP message chunks as one growing timeline message", async () => {
@@ -304,6 +391,54 @@ describe("App run integration", () => {
 
     setSelectValue(select, "reviewer");
     await waitFor(() => select.value === "reviewer");
+  });
+
+  test("renames a node key and uses the key as an empty title fallback", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases/example-code-frontend-flow") {
+        return json(sampleTwoNodeCanvas());
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    await waitFor(() => document.querySelector(".node") instanceof window.HTMLElement);
+    selectFirstCanvasNode();
+    await waitForText("Node key");
+    const inputs = [...document.querySelectorAll(".right .input")];
+    const keyInput = inputs.find((input): input is HTMLInputElement => input instanceof window.HTMLInputElement && input.value === "node-1");
+    const titleInput = inputs.find((input): input is HTMLInputElement => input instanceof window.HTMLInputElement && input.value === "Echo");
+    if (!(keyInput instanceof window.HTMLInputElement) || !(titleInput instanceof window.HTMLInputElement)) {
+      throw new Error("Node key/title inputs not found");
+    }
+    setInputValue(keyInput, "renamed-node");
+    keyInput.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    keyInput.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true }));
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const saved = canvas as { nodes?: Array<{ id: string }>; edges?: Array<{ id: string; from: string; to: string }> };
+      return saved.nodes?.some((node) => node.id === "renamed-node")
+        && saved.edges?.some((edge) => edge.id === "edge:renamed-node:->node-2" && edge.from === "renamed-node" && edge.to === "node-2");
+    }));
+    await waitFor(() => [...document.querySelectorAll(".right .input")]
+      .some((input) => input instanceof window.HTMLInputElement && input.value === "renamed-node"));
+
+    const renamedTitleInput = [...document.querySelectorAll(".right .input")]
+      .find((input): input is HTMLInputElement => input instanceof window.HTMLInputElement && input.value === "Echo");
+    if (!(renamedTitleInput instanceof window.HTMLInputElement)) throw new Error("Renamed node title input not found");
+    setInputValue(renamedTitleInput, "");
+    renamedTitleInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+    renamedTitleInput.dispatchEvent(new window.FocusEvent("focusout", { bubbles: true }));
+    await waitFor(() => savedCanvases.some((canvas) => {
+      const saved = canvas as { nodes?: Array<{ id: string; title: string }> };
+      return saved.nodes?.some((node) => node.id === "renamed-node" && node.title === "");
+    }));
+    await waitForText("renamed node");
   });
 
   test("copies and pastes the selected node with keyboard shortcuts", async () => {
@@ -482,28 +617,43 @@ describe("App run integration", () => {
     }));
   });
 
-  test("organizes ACP session history under the selected agent", async () => {
-    agentSessionHistory = [
-      sampleAgentSession("claude-acp", "claude-review", "claude-runtime"),
-      sampleAgentSession("codex-acp", "implementation", "codex-runtime"),
-    ];
+  test("shows current run ACP session actions in the Logs toolbar", async () => {
+    agentSessionHistory = [sampleAgentSession("echo-headless", "main", "historical")];
     root = createRoot(container);
     renderApp(root);
 
-    await waitForText("Start run");
-    clickBottomBarHandle();
-    await waitForText("Agent Sessions");
-    clickButtonContaining("Agent Sessions");
+    await startRunAndComplete();
+    expect(document.body.textContent).not.toContain("Agent Sessions");
+    await waitForText("Inspect");
+    await waitForText("Resume");
+  });
 
-    await waitForText("claude-runtime");
-    expect(document.body.textContent).not.toContain("codex-runtime");
+  test("shows forked ACP sessions in the Logs session tree", async () => {
+    const base = sampleAgentSession("echo-headless", "main", "main-runtime");
+    base.acpSupportsForkSession = true;
+    const fork = sampleAgentSession("echo-headless", "main-fork-01", "handoff-fork");
+    fork.parentSpecflowSessionId = "main";
+    fork.acpSupportsForkSession = true;
+    fork.acpSessionForked = true;
+    fork.invocations = [{
+      runId: "run1",
+      invocationId: "handoff-invocation",
+      nodeId: undefined,
+      edgeId: "edge-handoff",
+      purpose: "handoff",
+      sourceNodeId: "node-1",
+      targetNodeId: "node-2",
+      status: "done",
+      startedAt: "2026-05-19T10:01:00.000Z",
+    }];
+    agentSessionHistory = [base, fork];
+    root = createRoot(container);
+    renderApp(root);
 
-    const agentSelect = document.querySelector(".agent-session-agent-select");
-    if (!(agentSelect instanceof window.HTMLSelectElement)) throw new Error("Agent session selector not found");
-    setSelectValue(agentSelect, "codex-acp");
-
-    await waitForText("codex-runtime");
-    expect(document.body.textContent).not.toContain("claude-runtime");
+    await startRunAndComplete();
+    await waitForText("node-1 -> node-2");
+    expect(document.body.textContent).toContain("main-fork-01");
+    expect(document.body.textContent).not.toContain("Agent Sessions");
   });
 
   test("opens the auth modal when run preflight requires agent authentication", async () => {
@@ -556,11 +706,8 @@ describe("App run integration", () => {
     root = createRoot(container);
     renderApp(root);
 
-    await waitForText("Start run");
-    clickBottomBarHandle();
-    await waitForText("Agent Sessions");
-    clickButtonContaining("Agent Sessions");
-    await waitForText("historical");
+    await startRunAndComplete();
+    await waitForText("Inspect");
     clickButton("Inspect");
     await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/agent-session-restores/restore-1/events"));
 
@@ -589,11 +736,8 @@ describe("App run integration", () => {
     root = createRoot(container);
     renderApp(root);
 
-    await waitForText("Start run");
-    clickBottomBarHandle();
-    await waitForText("Agent Sessions");
-    clickButtonContaining("Agent Sessions");
-    await waitForText("historical");
+    await startRunAndComplete();
+    await waitForText("Resume");
     clickButton("Resume");
     await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/agent-session-restores/restore-1/events"));
     const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/agent-session-restores/restore-1/events")!;
@@ -650,11 +794,8 @@ describe("App run integration", () => {
     root = createRoot(container);
     renderApp(root);
 
-    await waitForText("Start run");
-    clickBottomBarHandle();
-    await waitForText("Agent Sessions");
-    clickButtonContaining("Agent Sessions");
-    await waitForText("resume-only");
+    await startRunAndComplete();
+    await waitForText("Resume");
     clickButton("Resume");
 
     await waitForText("ACP resume cannot replay history; showing recorded Specflow context.");
@@ -895,6 +1036,29 @@ function sampleTwoNodeCanvas() {
   };
 }
 
+function sampleInputCanvas() {
+  const canvas = sampleCanvas();
+  return {
+    ...canvas,
+    nodes: [
+      {
+        kind: "input",
+        id: "value-input",
+        alias: "I",
+        x: 60,
+        y: 140,
+        w: 210,
+        title: "Value",
+        variableName: "specflow_value",
+        defaultValue: "1",
+        description: "Value used by the arithmetic steps.",
+      },
+      canvas.nodes[0],
+    ],
+    edges: [{ id: "edge:value-input:->node-1", from: "value-input", to: "node-1" }],
+  };
+}
+
 function sampleRun(status: string) {
   return {
     id: "run1",
@@ -914,16 +1078,37 @@ function sampleRun(status: string) {
   };
 }
 
+function sampleRunWithInput(status: string, value: string) {
+  const canvas = sampleInputCanvas();
+  return {
+    ...sampleRun(status),
+    nodeStates: { "value-input": "success", "node-1": status },
+    agentflowSnapshot: canvas,
+    canvasSnapshot: {
+      workflowId: "example-code-frontend-flow",
+      version: 1,
+      nodes: [
+        { nodeId: "value-input", x: 60, y: 140, w: 210 },
+        { nodeId: "node-1", x: 120, y: 120, w: 240 },
+      ],
+    },
+    variableValues: { specflow_value: value },
+  };
+}
+
 function sampleAgentSession(agentServerId: string, specflowSessionId: string, acpSessionId: string) {
   return {
     id: `${agentServerId}-${acpSessionId}`,
     workflowId: "example-code-frontend-flow",
     specflowSessionId,
+    parentSpecflowSessionId: undefined as string | undefined,
     agentId: `agent-server-${agentServerId}`,
     agentServerId,
     acpSessionId,
     acpSupportsLoadSession: true,
     acpSupportsResumeSession: true,
+    acpSupportsForkSession: false,
+    acpSessionForked: false,
     firstSeenAt: "2026-05-19T10:00:00.000Z",
     lastSeenAt: "2026-05-19T10:05:00.000Z",
     latestRunId: "run1",
@@ -934,11 +1119,26 @@ function sampleAgentSession(agentServerId: string, specflowSessionId: string, ac
     invocations: [{
       runId: "run1",
       invocationId: `${acpSessionId}-invocation`,
-      nodeId: "node-1",
+      nodeId: "node-1" as string | undefined,
+      edgeId: undefined as string | undefined,
+      purpose: undefined as "node" | "gate" | "handoff" | undefined,
+      sourceNodeId: undefined as string | undefined,
+      targetNodeId: undefined as string | undefined,
       status: "done",
       startedAt: "2026-05-19T10:00:00.000Z",
     }],
   };
+}
+
+async function startRunAndComplete(): Promise<MockEventSource> {
+  await waitForText("Start run");
+  clickButton("Start run");
+  await waitForText("No run inputs for this workflow.");
+  clickButton("Start run", "last");
+  await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events"));
+  const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/runs/run1/events")!;
+  source.emit("run-status", { status: "success" });
+  return source;
 }
 
 function clickButton(text: string, pick: "first" | "last" = "first"): void {

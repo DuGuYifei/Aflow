@@ -5,6 +5,7 @@ import type { IconName } from './icon';
 import { Icon } from './icon';
 import { closesGateControlledCycle, isSameSessionContentEdge, wouldCreateExecutedCycle } from '../edge-semantics';
 import { useI18n } from '../i18n';
+import { nodeDisplayTitle, nodeTitleIsFallback } from '../node-display';
 
 // ── geometry ──────────────────────────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ function StepCard({ node, session, selected, runState, onMouseDown, onSelect, on
           {runState === 'pending' && <span style={{ color: 'var(--ink-3)' }}>{t('canvas.queued')}</span>}
         </span>
       </div>
-      <h3 className="node-title">{node.title}</h3>
+      <h3 className={`node-title${nodeTitleIsFallback(node) ? ' placeholder' : ''}`}>{nodeDisplayTitle(node)}</h3>
       <p className="node-desc">{node.prompt}</p>
       <div className="node-meta">
         {(node.images || []).map((attachment, index) => (
@@ -179,7 +180,7 @@ function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch
           {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
           <span className="gate-sub"><Icon name="route" size={10} /> {t('canvas.gateBranches', { count: branches.length })}</span>
         </div>
-        <h3 className="gate-title">{node.title}</h3>
+        <h3 className={`gate-title${nodeTitleIsFallback(node) ? ' placeholder' : ''}`}>{nodeDisplayTitle(node)}</h3>
       </div>
       <div className="gate-port-in" data-port="in" data-node={node.id} />
       {branches.map((branch, index) => {
@@ -230,7 +231,7 @@ function EndCard({ node, selected, onMouseDown, onSelect }: EndCardProps) {
       onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}
       data-port="in" data-node={node.id}
     >
-      <Icon name="check" size={11} />{node.title || t('canvas.end')}
+      <Icon name="check" size={11} /><span className={nodeTitleIsFallback(node) ? 'placeholder-title' : undefined}>{node.title || nodeDisplayTitle(node) || t('canvas.end')}</span>
       {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
     </div>
   );
@@ -259,7 +260,7 @@ function InputCard({ node, selected, onMouseDown, onSelect }: InputCardProps) {
         <Icon name="tag" size={10} />
         <span className="node-id">{node.alias}</span>
         {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
-        <span style={{ flex: 1 }}>{node.title}</span>
+        <span className={nodeTitleIsFallback(node) ? 'placeholder-title' : undefined} style={{ flex: 1 }}>{nodeDisplayTitle(node)}</span>
       </div>
       <div className="input-node-var">
         <span className="var-chip">&lt;{node.variableName}&gt;</span>

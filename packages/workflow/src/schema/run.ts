@@ -39,6 +39,9 @@ export interface AgentInvocation {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   agentId: string;
   agentServerId?: string;
   sessionId?: string;
@@ -55,6 +58,8 @@ export interface AgentInvocation {
   output?: string;
   error?: string;
 }
+
+export type AgentInvocationPurpose = "node" | "gate" | "handoff";
 
 export type TerminalStream = "stdout" | "stderr" | "system";
 

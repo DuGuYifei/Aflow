@@ -151,6 +151,83 @@ describe("WorkflowExecutor", () => {
     expect(run.agentInvocations.find((invocation) => invocation.nodeId === "gate")?.parentSessionId).toBeUndefined();
   });
 
+  test("repairs an invalid gate JSON response once in the same fork session", async () => {
+    const requests: AgentCommandRequest[] = [];
+    const executor = new WorkflowExecutor({
+      agentRunner: async (request): Promise<AgentCommandResult> => {
+        requests.push(request);
+        if (request.prompt.startsWith("source")) {
+          return { agentServerId: request.agentServerId, workflowSessionId: request.workflowSessionId, sessionId: "acp-source", exitCode: 0, output: "needs review" };
+        }
+        if (request.forkFromWorkflowSessionId) {
+          return {
+            agentServerId: request.agentServerId,
+            workflowSessionId: request.workflowSessionId,
+            parentWorkflowSessionId: request.forkFromWorkflowSessionId,
+            sessionId: "acp-gate-fork",
+            sessionForked: true,
+            exitCode: 0,
+            output: "```json\n{\"branchId\":\"pass\"}\n```",
+          };
+        }
+        if (request.prompt.startsWith("Your previous gate decision")) {
+          return { agentServerId: request.agentServerId, workflowSessionId: request.workflowSessionId, sessionId: "acp-gate-fork", exitCode: 0, output: "{\"branchId\":\"pass\",\"reason\":\"fixed\"}" };
+        }
+        return { agentServerId: request.agentServerId, workflowSessionId: request.workflowSessionId, sessionId: "acp-pass", exitCode: 0, output: "done" };
+      },
+    });
+
+    const run = await executor.run(createWorkflow({
+      nodes: [agentNode("source", "source"), gateNode("gate", ["pass", "rework"]), agentNode("pass", "pass"), agentNode("rework", "rework")],
+      edges: [
+        gateInput("source-gate", "source", "gate"),
+        trigger("gate-pass", "gate", "pass", "pass"),
+        trigger("gate-rework", "gate", "rework", "rework"),
+      ],
+    }));
+
+    expect(run.status).toBe("done");
+    expect(requests[1]).toMatchObject({ workflowSessionId: `${sessionId}-fork-01`, forkFromWorkflowSessionId: sessionId });
+    expect(requests[2]).toMatchObject({ workflowSessionId: `${sessionId}-fork-01`, forkFromWorkflowSessionId: undefined });
+    expect(requests[2]?.prompt).toContain("Your previous gate decision could not be used.");
+    expect(requests[2]?.prompt).toContain("start with { and end with }");
+    expect(run.nodeRuns.find((nodeRun) => nodeRun.nodeId === "gate")?.gateDecision).toEqual({ branchId: "pass", reason: "fixed" });
+    expect(run.agentInvocations.filter((invocation) => invocation.nodeId === "gate")).toHaveLength(2);
+  });
+
+  test("fails the gate when the repair response is still not pure JSON", async () => {
+    const executor = new WorkflowExecutor({
+      agentRunner: async (request): Promise<AgentCommandResult> => {
+        if (request.prompt.startsWith("source")) {
+          return { agentServerId: request.agentServerId, workflowSessionId: request.workflowSessionId, sessionId: "acp-source", exitCode: 0, output: "needs review" };
+        }
+        return {
+          agentServerId: request.agentServerId,
+          workflowSessionId: request.workflowSessionId,
+          parentWorkflowSessionId: request.forkFromWorkflowSessionId,
+          sessionId: request.forkFromWorkflowSessionId ? "acp-gate-fork" : "acp-gate-fork",
+          sessionForked: Boolean(request.forkFromWorkflowSessionId),
+          exitCode: 0,
+          output: "not json",
+        };
+      },
+    });
+
+    const run = await executor.run(createWorkflow({
+      nodes: [agentNode("source", "source"), gateNode("gate", ["pass", "rework"]), agentNode("pass", "pass")],
+      edges: [
+        gateInput("source-gate", "source", "gate"),
+        trigger("gate-pass", "gate", "pass", "pass"),
+      ],
+    }));
+
+    expect(run.status).toBe("failed");
+    expect(run.nodeRuns.find((nodeRun) => nodeRun.nodeId === "gate")).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("Gate repair failed"),
+    });
+  });
+
   test("keeps ordinary limited gates single-pass when branches later join", async () => {
     const gate = gateNode("gate", ["pass", "rework"]);
     gate.branches = gate.branches.map((branch) => ({ ...branch, maxTraversals: 2 }));
@@ -240,8 +317,10 @@ describe("WorkflowExecutor", () => {
 
   test("injects tagged output into the target prompt", async () => {
     const prompts: string[] = [];
+    const requests: AgentCommandRequest[] = [];
     const executor = new WorkflowExecutor({
       agentRunner: createAgentRunner((request) => {
+        requests.push(request);
         prompts.push(request.prompt);
         return request.prompt.startsWith("source") ? "tree content" : "done";
       }),
@@ -271,12 +350,16 @@ describe("WorkflowExecutor", () => {
 
     expect(run.status).toBe("done");
     expect(prompts[1]).toBe("target <component_tree>tree content</component_tree>");
+    expect(requests).toHaveLength(2);
+    expect(requests.some((request) => request.forkFromWorkflowSessionId)).toBe(false);
   });
 
   test("uses handoff output before tagged edge injection", async () => {
     const prompts: string[] = [];
+    const requests: AgentCommandRequest[] = [];
     const executor = new WorkflowExecutor({
       agentRunner: createAgentRunner((request) => {
+        requests.push(request);
         prompts.push(request.prompt);
         if (request.prompt.startsWith("source")) {
           return "raw content";
@@ -319,6 +402,81 @@ describe("WorkflowExecutor", () => {
     expect(prompts[1]).toContain("The receiving workflow session cannot see this conversation history.");
     expect(prompts[1]).toContain("Do not refer to a prior, previous, above, or preceding message");
     expect(prompts[2]).toBe("target <component_tree>handled content</component_tree>");
+    expect(requests[1]?.forkFromWorkflowSessionId).toBe(sessionId);
+    expect(requests[1]?.workflowSessionId).toBe(`${sessionId}-fork-01`);
+    expect(run.agentInvocations.find((invocation) => invocation.edgeId === "edge-handoff")).toMatchObject({
+      purpose: "handoff",
+      sessionId,
+      parentSessionId: undefined,
+      acpSessionForked: undefined,
+      sourceNodeId: "source",
+      targetNodeId: "target",
+    });
+  });
+
+  test("runs handoff prompts in a forked session when ACP supports fork", async () => {
+    const requests: AgentCommandRequest[] = [];
+    const executor = new WorkflowExecutor({
+      agentRunner: async (request): Promise<AgentCommandResult> => {
+        requests.push(request);
+        if (request.prompt.startsWith("source")) {
+          return { agentServerId: request.agentServerId, workflowSessionId: request.workflowSessionId, sessionId: "acp-source", exitCode: 0, output: "raw content" };
+        }
+        if (request.forkFromWorkflowSessionId) {
+          return {
+            agentServerId: request.agentServerId,
+            workflowSessionId: request.workflowSessionId,
+            parentWorkflowSessionId: request.forkFromWorkflowSessionId,
+            sessionId: "acp-handoff-fork",
+            sessionForked: true,
+            exitCode: 0,
+            output: "handled content",
+          };
+        }
+        return { agentServerId: request.agentServerId, workflowSessionId: request.workflowSessionId, sessionId: "acp-target", exitCode: 0, output: "target done" };
+      },
+    });
+
+    const run = await executor.run(
+      createWorkflow({
+        nodes: [
+          agentNode("source", "source"),
+          agentNode("target", "target <specflow_component_tree>"),
+        ],
+        edges: [
+          {
+            id: "edge-handoff",
+            kind: "tagged-output",
+            sourceNodeId: "source",
+            targetNodeId: "target",
+            outputTag: {
+              identifier: "component_tree",
+              promptReference: "specflow_component_tree",
+              xmlTagName: "component_tree",
+            },
+            handoff: {
+              promptTemplate: { template: "handoff <specflow_input>" },
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(run.status).toBe("done");
+    expect(requests[1]).toMatchObject({
+      workflowSessionId: `${sessionId}-fork-01`,
+      forkFromWorkflowSessionId: sessionId,
+    });
+    expect(requests[2]?.prompt).toBe("target <component_tree>handled content</component_tree>");
+    expect(run.agentInvocations.find((invocation) => invocation.edgeId === "edge-handoff")).toMatchObject({
+      purpose: "handoff",
+      sessionId: `${sessionId}-fork-01`,
+      parentSessionId: sessionId,
+      acpSessionId: "acp-handoff-fork",
+      acpSessionForked: true,
+      sourceNodeId: "source",
+      targetNodeId: "target",
+    });
   });
 
   test("keeps terminal events when an agent fails", async () => {
@@ -349,7 +507,7 @@ describe("WorkflowExecutor", () => {
     );
   });
 
-  test("passes the workflow session id to agent-proxy for nodes and edge handoffs", async () => {
+  test("passes workflow session ids to agent-proxy for nodes and forkable edge handoffs", async () => {
     const seen: Array<string | undefined> = [];
     const executor = new WorkflowExecutor({
       agentRunner: createAgentRunner((request) => {
@@ -384,7 +542,7 @@ describe("WorkflowExecutor", () => {
     );
 
     expect(run.status).toBe("done");
-    expect(seen).toEqual([sessionId, sessionId, sessionId]);
+    expect(seen).toEqual([sessionId, `${sessionId}-fork-01`, sessionId]);
   });
 
   test("pauses an agent node for same-session prompts before continuing downstream", async () => {

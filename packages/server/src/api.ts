@@ -33,6 +33,7 @@ import {
 } from "./agent-server-config";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import type { AgentInvocationPurpose } from "@specflow/workflow";
 
 // ── simple in-process event bus ───────────────────────────────────────────────
 
@@ -316,6 +317,9 @@ async function reconstructInvocationsFromRunLog(root: string, record: RunRecord)
           nodeRunId: event.nodeRunId,
           nodeId: event.nodeId,
           edgeId: event.edgeId,
+          purpose: event.purpose,
+          sourceNodeId: event.sourceNodeId,
+          targetNodeId: event.targetNodeId,
           agentId: event.agentId,
           agentServerId: event.agentServerId,
           sessionId: event.specflowSessionId,
@@ -328,6 +332,9 @@ async function reconstructInvocationsFromRunLog(root: string, record: RunRecord)
         existing.prompt = event.prompt;
         existing.agentServerId ||= event.agentServerId;
         existing.sessionId ||= event.specflowSessionId;
+        existing.purpose ||= event.purpose;
+        existing.sourceNodeId ||= event.sourceNodeId;
+        existing.targetNodeId ||= event.targetNodeId;
       }
     } else if (event.type === "agent_lifecycle") {
       const lifecycle = (event.lifecycle ?? {}) as { type?: string; at?: string; sessionId?: string; parentSessionId?: string; error?: string };
@@ -340,6 +347,9 @@ async function reconstructInvocationsFromRunLog(root: string, record: RunRecord)
           nodeRunId: event.nodeRunId,
           nodeId: event.nodeId,
           edgeId: event.edgeId,
+          purpose: event.purpose,
+          sourceNodeId: event.sourceNodeId,
+          targetNodeId: event.targetNodeId,
           agentId: event.agentId,
           agentServerId: event.agentServerId,
           prompt: "",
@@ -349,7 +359,13 @@ async function reconstructInvocationsFromRunLog(root: string, record: RunRecord)
         byInvocationId.set(event.agentInvocationId, existing);
       }
       if (lifecycle.sessionId && !existing.acpSessionId) existing.acpSessionId = lifecycle.sessionId;
-      if (lifecycle.parentSessionId && !existing.parentSessionId) existing.parentSessionId = lifecycle.parentSessionId;
+      if (event.specflowSessionId && !existing.sessionId) existing.sessionId = event.specflowSessionId;
+      if (event.purpose && !existing.purpose) existing.purpose = event.purpose;
+      if (event.sourceNodeId && !existing.sourceNodeId) existing.sourceNodeId = event.sourceNodeId;
+      if (event.targetNodeId && !existing.targetNodeId) existing.targetNodeId = event.targetNodeId;
+      const parentSpecflowSessionId = typeof event.parentSpecflowSessionId === "string" ? event.parentSpecflowSessionId : undefined;
+      if (parentSpecflowSessionId && !existing.parentSessionId) existing.parentSessionId = parentSpecflowSessionId;
+      if (lifecycle.type === "session_forked") existing.acpSessionForked = true;
       if (lifecycle.type === "session_closed" || lifecycle.type === "prompt_stopped") {
         if (existing.status === "running") existing.status = "done";
         if (!existing.completedAt) existing.completedAt = lifecycle.at ?? new Date().toISOString();
@@ -440,6 +456,11 @@ function upsertRunInvocation(record: RunRecord, input: {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
+  specflowSessionId?: string;
+  parentSpecflowSessionId?: string;
   agentId: string;
   agentServerId: string;
   lifecycle: LifecyclePayload;
@@ -447,7 +468,7 @@ function upsertRunInvocation(record: RunRecord, input: {
   const existingInvocationIndex = record.agentInvocations.findIndex((invocation) => invocation.id === input.id);
   const occurredAt = input.lifecycle.at ?? new Date().toISOString();
   const lifecycleSessionId = typeof input.lifecycle.sessionId === "string" ? input.lifecycle.sessionId : undefined;
-  const parentSessionId = typeof input.lifecycle.parentSessionId === "string" ? input.lifecycle.parentSessionId : undefined;
+  const parentSessionId = input.parentSpecflowSessionId;
   const error = typeof input.lifecycle.error === "string" ? input.lifecycle.error : undefined;
 
   if (existingInvocationIndex < 0) {
@@ -457,10 +478,15 @@ function upsertRunInvocation(record: RunRecord, input: {
       nodeRunId: input.nodeRunId,
       nodeId: input.nodeId,
       edgeId: input.edgeId,
+      purpose: input.purpose,
+      sourceNodeId: input.sourceNodeId,
+      targetNodeId: input.targetNodeId,
       agentId: input.agentId,
       agentServerId: input.agentServerId,
+      sessionId: input.specflowSessionId,
       acpSessionId: lifecycleSessionId,
       parentSessionId,
+      acpSessionForked: input.lifecycle.type === "session_forked" ? true : undefined,
       prompt: "",
       status: "running",
       startedAt: occurredAt,
@@ -469,7 +495,12 @@ function upsertRunInvocation(record: RunRecord, input: {
   }
   const existing = record.agentInvocations[existingInvocationIndex]!;
   if (lifecycleSessionId && !existing.acpSessionId) existing.acpSessionId = lifecycleSessionId;
+  if (input.specflowSessionId && !existing.sessionId) existing.sessionId = input.specflowSessionId;
   if (parentSessionId && !existing.parentSessionId) existing.parentSessionId = parentSessionId;
+  if (input.purpose && !existing.purpose) existing.purpose = input.purpose;
+  if (input.sourceNodeId && !existing.sourceNodeId) existing.sourceNodeId = input.sourceNodeId;
+  if (input.targetNodeId && !existing.targetNodeId) existing.targetNodeId = input.targetNodeId;
+  if (input.lifecycle.type === "session_forked") existing.acpSessionForked = true;
   if (input.lifecycle.type === "session_closed" || input.lifecycle.type === "prompt_stopped") {
     if (existing.status === "running") existing.status = "done";
     if (!existing.completedAt) existing.completedAt = occurredAt;
@@ -487,6 +518,9 @@ function upsertRunInvocationPrompt(record: RunRecord, input: {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   agentId: string;
   agentServerId: string;
   sessionId?: string;
@@ -498,6 +532,9 @@ function upsertRunInvocationPrompt(record: RunRecord, input: {
     existing.prompt = input.prompt;
     existing.agentServerId ||= input.agentServerId;
     existing.sessionId ||= input.sessionId;
+    existing.purpose ||= input.purpose;
+    existing.sourceNodeId ||= input.sourceNodeId;
+    existing.targetNodeId ||= input.targetNodeId;
     return;
   }
   record.agentInvocations.push({
@@ -506,6 +543,9 @@ function upsertRunInvocationPrompt(record: RunRecord, input: {
     nodeRunId: input.nodeRunId,
     nodeId: input.nodeId,
     edgeId: input.edgeId,
+    purpose: input.purpose,
+    sourceNodeId: input.sourceNodeId,
+    targetNodeId: input.targetNodeId,
     agentId: input.agentId,
     agentServerId: input.agentServerId,
     sessionId: input.sessionId,
@@ -692,6 +732,10 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
               });
             } else if (event.type === "session_update") {
               enqueue("session-update", { ...event, replay: true });
+            } else if (event.type === "agent_prompt") {
+              enqueue("agent-prompt", { ...event, replay: true });
+            } else if (event.type === "agent_lifecycle") {
+              enqueue("agent-lifecycle", { ...event, replay: true });
             } else if (event.type === "node_status") {
               enqueue("node-status", {
                 nodeId: event.nodeId,
@@ -719,6 +763,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         });
         const unsubscribeTerminal = eventBus.on(`${runId}:term`, (event) => enqueue("terminal", event));
         const unsubscribeSessionUpdate = eventBus.on(`${runId}:session-update`, (event) => enqueue("session-update", event));
+        const unsubscribeAgentPrompt = eventBus.on(`${runId}:agent-prompt`, (event) => enqueue("agent-prompt", event));
+        const unsubscribeAgentLifecycle = eventBus.on(`${runId}:agent-lifecycle`, (event) => enqueue("agent-lifecycle", event));
 
         for (const interaction of bridge.interactions.list({ runId, status: "pending" })) {
           enqueue("interaction-requested", interaction);
@@ -732,7 +778,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         }
 
         cleanup = () => {
-          unsubscribeNode(); unsubscribeRun(); unsubscribeTerminal(); unsubscribeSessionUpdate(); unsubscribeInteraction();
+          unsubscribeNode(); unsubscribeRun(); unsubscribeTerminal(); unsubscribeSessionUpdate(); unsubscribeAgentPrompt(); unsubscribeAgentLifecycle(); unsubscribeInteraction();
         };
       },
       cancel() {
@@ -960,6 +1006,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           nodeRunId,
           nodeId,
           edgeId,
+          purpose,
+          sourceNodeId,
+          targetNodeId,
+          specflowSessionId,
+          parentSpecflowSessionId,
           agentInvocationId,
           agentId,
           agentServerId,
@@ -988,23 +1039,35 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
             nodeRunId,
             nodeId,
             edgeId,
+            purpose,
+            sourceNodeId,
+            targetNodeId,
+            specflowSessionId,
+            parentSpecflowSessionId: lifecycle.type === "session_forked" ? parentSpecflowSessionId : undefined,
             agentId,
             agentServerId,
             lifecycle,
           });
           void saveRun(record, root);
         }
-        appendLog({
+        const lifecycleLogEvent = {
           type: "agent_lifecycle",
           runId,
           nodeRunId,
           nodeId,
           edgeId,
+          purpose,
+          sourceNodeId,
+          targetNodeId,
+          specflowSessionId,
+          parentSpecflowSessionId,
           agentInvocationId,
           agentId,
           agentServerId,
           lifecycle,
-        });
+        } as const;
+        appendLog(lifecycleLogEvent);
+        eventBus.emit(`${runId}:agent-lifecycle`, lifecycleLogEvent);
       },
       onAgentPrompt: (event) => {
         upsertRunInvocationPrompt(record, {
@@ -1013,6 +1076,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           nodeRunId: event.nodeRunId,
           nodeId: event.nodeId,
           edgeId: event.edgeId,
+          purpose: event.purpose,
+          sourceNodeId: event.sourceNodeId,
+          targetNodeId: event.targetNodeId,
           agentId: event.agentId,
           agentServerId: event.agentServerId,
           sessionId: event.specflowSessionId,
@@ -1020,7 +1086,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           at: event.at,
         });
         void saveRun(record, root);
-        appendLog({ type: "agent_prompt", ...event });
+        const promptLogEvent = { type: "agent_prompt", ...event } as const;
+        appendLog(promptLogEvent);
+        eventBus.emit(`${event.runId}:agent-prompt`, promptLogEvent);
       },
       onAgentSessionUpdate: (event) => {
         if (event.agentInvocationId && event.nodeId) {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AgentInvocation } from "@specflow/workflow";
+import type { AgentInvocation, AgentInvocationPurpose } from "@specflow/workflow";
 import { listRuns, saveRun, type RunRecord } from "./run-store";
 
 export interface AgentSessionRecord {
@@ -31,6 +31,9 @@ export interface AgentSessionInvocationRef {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   status: AgentInvocation["status"];
   startedAt: string;
   completedAt?: string;
@@ -92,6 +95,9 @@ export function buildAgentSessionsForRun(record: RunRecord): AgentSessionRecord[
       nodeRunId: invocation.nodeRunId,
       nodeId: invocation.nodeId,
       edgeId: invocation.edgeId,
+      purpose: invocation.purpose,
+      sourceNodeId: invocation.sourceNodeId,
+      targetNodeId: invocation.targetNodeId,
       status: invocation.status,
       startedAt: invocation.startedAt,
       completedAt: invocation.completedAt,

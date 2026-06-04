@@ -41,6 +41,11 @@ export type RunLogEvent =
       nodeRunId?: string;
       nodeId?: string;
       edgeId?: string;
+      purpose?: "node" | "gate" | "handoff";
+      sourceNodeId?: string;
+      targetNodeId?: string;
+      specflowSessionId?: string;
+      parentSpecflowSessionId?: string;
       agentInvocationId: string;
       agentId: string;
       agentServerId: string;

@@ -57,6 +57,9 @@ export interface AgentSessionInvocationRef {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: 'node' | 'gate' | 'handoff';
+  sourceNodeId?: string;
+  targetNodeId?: string;
   status: 'running' | 'done' | 'failed' | 'cancelled';
   startedAt: string;
   completedAt?: string;
@@ -296,6 +299,7 @@ export type ApiRunLogEvent =
       runId: string;
       nodeId?: string;
       agentInvocationId?: string;
+      specflowSessionId?: string;
       stream: LogLine['stream'];
       sequence: number;
       chunk: string;
@@ -307,6 +311,7 @@ export type ApiRunLogEvent =
       nodeId?: string;
       agentInvocationId: string;
       sessionId: string;
+      specflowSessionId?: string;
       update: unknown;
       at: string;
     }
@@ -316,6 +321,9 @@ export type ApiRunLogEvent =
       nodeRunId?: string;
       nodeId?: string;
       edgeId?: string;
+      purpose?: 'node' | 'gate' | 'handoff';
+      sourceNodeId?: string;
+      targetNodeId?: string;
       agentInvocationId: string;
       agentId: string;
       agentServerId: string;
@@ -332,7 +340,23 @@ export type ApiRunLogEvent =
       [key: string]: unknown;
     }
   | {
-      type: 'run_status' | 'agent_lifecycle' | 'restore_attempt' | 'interaction';
+      type: 'agent_lifecycle';
+      runId: string;
+      nodeRunId?: string;
+      nodeId?: string;
+      edgeId?: string;
+      purpose?: 'node' | 'gate' | 'handoff';
+      sourceNodeId?: string;
+      targetNodeId?: string;
+      specflowSessionId?: string;
+      parentSpecflowSessionId?: string;
+      agentInvocationId: string;
+      agentId: string;
+      agentServerId: string;
+      lifecycle: unknown;
+    }
+  | {
+      type: 'run_status' | 'restore_attempt' | 'interaction';
       runId: string;
       [key: string]: unknown;
     };
@@ -716,7 +740,7 @@ export async function respondToRunInteraction(
   if (!response.ok) throw new Error(`Failed to respond to interaction: ${response.status}`);
 }
 
-export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'run-status' | 'interaction-requested';
+export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'agent-prompt' | 'agent-lifecycle' | 'run-status' | 'interaction-requested';
 
 export function subscribeToRun(
   runId: string,
@@ -736,6 +760,8 @@ export function subscribeToRun(
   source.addEventListener('node-status', handle('node-status'));
   source.addEventListener('terminal',    handle('terminal'));
   source.addEventListener('session-update', handle('session-update'));
+  source.addEventListener('agent-prompt', handle('agent-prompt'));
+  source.addEventListener('agent-lifecycle', handle('agent-lifecycle'));
   source.addEventListener('run-status',  handle('run-status'));
   source.addEventListener('interaction-requested', handle('interaction-requested'));
 
@@ -812,45 +838,90 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
 
 export function apiRunLogsToTimelineEvents(events: ApiRunLogEvent[]): TimelineEvent[] {
   return events
-    .flatMap((event): TimelineEvent[] => {
-      if (event.type === 'terminal') {
-        return [{
-          type: 'terminal',
-          chunk: event.chunk,
-          nodeId: event.nodeId,
-          agentInvocationId: event.agentInvocationId,
-          stream: event.stream,
-        }];
-      }
-      if (event.type === 'session_update') {
-        return [{
-          type: 'session-update',
-          update: event.update,
-          nodeId: event.nodeId,
-          agentInvocationId: event.agentInvocationId,
-          sessionId: event.sessionId,
-        }];
-      }
-      if (event.type === 'agent_prompt') {
-        return [{
-          type: 'display-message',
-          role: 'user',
-          text: event.prompt,
-          nodeId: event.nodeId,
-          specflowSessionId: event.specflowSessionId,
-        }];
-      }
-      if (event.type === 'node_status' && event.gateDecision) {
-        return [{
-          type: 'gate-decision',
-          nodeId: event.nodeId,
-          branchId: event.gateDecision.branchId,
-          reason: event.gateDecision.reason,
-          branches: event.gateBranches,
-        }];
-      }
-      return [];
-    });
+    .flatMap((event): TimelineEvent[] => apiRunLogToTimelineEvents(event));
+}
+
+export function apiRunLogToTimelineEvents(event: ApiRunLogEvent): TimelineEvent[] {
+  if (event.type === 'terminal') {
+    return [{
+      type: 'terminal',
+      chunk: event.chunk,
+      nodeId: event.nodeId,
+      agentInvocationId: event.agentInvocationId,
+      specflowSessionId: event.specflowSessionId,
+      stream: event.stream,
+    }];
+  }
+  if (event.type === 'session_update') {
+    return [{
+      type: 'session-update',
+      update: event.update,
+      nodeId: event.nodeId,
+      agentInvocationId: event.agentInvocationId,
+      sessionId: event.sessionId,
+      specflowSessionId: event.specflowSessionId,
+    }];
+  }
+  if (event.type === 'agent_prompt') {
+    return [{
+      type: 'display-message',
+      role: 'user',
+      text: event.prompt,
+      nodeId: event.nodeId,
+      specflowSessionId: event.specflowSessionId,
+    }];
+  }
+  if (event.type === 'agent_lifecycle') {
+    const lifecycle = recordValue(event.lifecycle);
+    if (lifecycle.type === 'session_forked') {
+      return [{
+        type: 'display-message',
+        role: 'system',
+        text: forkLogText(event),
+        nodeId: event.nodeId,
+        specflowSessionId: event.parentSpecflowSessionId ?? event.specflowSessionId,
+        ...(event.specflowSessionId ? {
+          fork: {
+            specflowSessionId: event.specflowSessionId,
+            parentSpecflowSessionId: event.parentSpecflowSessionId,
+            purpose: event.purpose,
+            sourceNodeId: event.sourceNodeId,
+            targetNodeId: event.targetNodeId,
+            nodeId: event.nodeId,
+            agentInvocationId: event.agentInvocationId,
+          },
+        } : {}),
+      }];
+    }
+    return [];
+  }
+  if (event.type === 'node_status' && event.gateDecision) {
+    return [{
+      type: 'gate-decision',
+      nodeId: event.nodeId,
+      branchId: event.gateDecision.branchId,
+      reason: event.gateDecision.reason,
+      branches: event.gateBranches,
+    }];
+  }
+  return [];
+}
+
+function forkLogText(event: Extract<ApiRunLogEvent, { type: 'agent_lifecycle' }>): string {
+  const session = event.specflowSessionId ? ` · ${event.parentSpecflowSessionId ?? 'parent'} -> ${event.specflowSessionId}` : '';
+  if (event.purpose === 'handoff') {
+    const from = event.sourceNodeId ?? 'source';
+    const to = event.targetNodeId ?? 'target';
+    return `fork · handoff · ${from} -> ${to}${session}`;
+  }
+  if (event.purpose === 'gate') {
+    return `fork · gate · ${event.nodeId ?? 'gate'}${session}`;
+  }
+  return `fork${session}`;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
 function combineSnapshot(

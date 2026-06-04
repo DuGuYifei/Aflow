@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode } from './types';
-import { isSymbolKey } from './appearance';
+import { edgeKey, isSymbolKey } from './appearance';
 import {
   fetchCanvases, fetchCanvas, saveCanvas, uploadCanvasAssets, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
@@ -9,7 +9,7 @@ import {
   fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
   fetchAgentSession, fetchResumableSession, fetchRunLogsRange, resumeWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
-  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
+  apiRunToUiRun, apiRunLogToTimelineEvents, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
   AgentAuthenticationRequiredError,
   type SseEventType,
   type AgentAuthenticationStatus,
@@ -20,6 +20,7 @@ import {
   type RestoreSseEventType,
   type RestoreStreamEvent,
   type PausedNodeSession,
+  type ApiRunLogEvent,
 } from './api';
 import { TopBar } from './components/top-bar';
 import { Sidebar, sidebarTotalWidth, type SidebarLayout } from './components/sidebar';
@@ -35,6 +36,7 @@ import { AgentConversationWindow } from './components/agent-conversation-window'
 import { Icon } from './components/icon';
 import { normalizeTransferConfiguration, resolveTransferSource } from './edge-semantics';
 import { useI18n } from './i18n';
+import { nodeDisplayTitle } from './node-display';
 import {
   createCanvasNodeCopy,
   createPastedNodes,
@@ -333,6 +335,50 @@ export function App() {
     });
   }, [scheduleSave]);
 
+  const onRenameNode = useCallback((oldId: string, newId: string) => {
+    const nextId = newId.trim();
+    if (nextId === oldId || !isSymbolKey(nextId) || nodesRef.current.some((node) => node.id === nextId)) return;
+
+    const updatedNodes = nodesRef.current.map((node) =>
+      node.id === oldId ? { ...node, id: nextId } as WorkflowNode : node,
+    );
+    const updatedEdges = edgesRef.current.map((edge) => {
+      const from = edge.from === oldId ? nextId : edge.from;
+      const to = edge.to === oldId ? nextId : edge.to;
+      return { ...edge, from, to, id: edgeKey({ from, to, branch: edge.branch }) };
+    });
+    nodesRef.current = updatedNodes;
+    edgesRef.current = updatedEdges;
+    setNodes(updatedNodes);
+    setEdges(updatedEdges);
+    setSelection((current) => {
+      if (!current) return current;
+      if (current.kind === 'node') {
+        return current.id === oldId ? { kind: 'node', id: nextId } : current;
+      }
+      if (current.kind === 'nodes') {
+        return { kind: 'nodes', ids: current.ids.map((id) => id === oldId ? nextId : id) };
+      }
+      const updatedEdge = updatedEdges.find((edge) =>
+        edge.id === current.id
+        || edgeKey({
+          from: edge.from === nextId ? oldId : edge.from,
+          to: edge.to === nextId ? oldId : edge.to,
+          branch: edge.branch,
+        }) === current.id,
+      );
+      return updatedEdge ? { kind: 'edge', id: updatedEdge.id } : current;
+    });
+    const renameStateKey = (states: RunStateMap): RunStateMap => {
+      if (!(oldId in states)) return states;
+      const { [oldId]: value, ...rest } = states;
+      return { ...rest, [nextId]: value };
+    };
+    setLiveNodeStates(renameStateKey);
+    setHistoricNodeStates(renameStateKey);
+    scheduleSave();
+  }, [scheduleSave]);
+
   const onChangeSession = useCallback((id: string, sid: string) => {
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
@@ -518,7 +564,7 @@ export function App() {
     const node = nodesRef.current.find((node) => node.id === id);
     if (!node) return;
     if ((node as WorkflowNode & { locked?: boolean }).locked) return;
-    if (!window.confirm(t('node.deleteConfirm', { title: node.title }))) return;
+    if (!window.confirm(t('node.deleteConfirm', { title: nodeDisplayTitle(node) }))) return;
     const updatedNodes = nodesRef.current.filter((node) => node.id !== id);
     const updatedEdges = edgesRef.current.filter((edge) => edge.from !== id && edge.to !== id);
     nodesRef.current = updatedNodes;
@@ -806,6 +852,18 @@ export function App() {
       } else if (type === 'session-update') {
         const event = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string; specflowSessionId?: string };
         setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { ...event, type: 'session-update' }]);
+      } else if (type === 'agent-prompt' || type === 'agent-lifecycle') {
+        const event = data as ApiRunLogEvent;
+        const events = apiRunLogToTimelineEvents(data as ApiRunLogEvent);
+        if (events.length > 0) {
+          setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), ...events]);
+        }
+        if (event.type === 'agent_lifecycle') {
+          const lifecycle = event.lifecycle && typeof event.lifecycle === 'object' ? event.lifecycle as { type?: string } : {};
+          if (lifecycle.type === 'session_created' || lifecycle.type === 'session_forked') {
+            refreshAgentSessions();
+          }
+        }
       } else if (type === 'interaction-requested') {
         onRunInteractionEvent(data as RunInteraction);
       } else if (type === 'run-status') {
@@ -847,7 +905,16 @@ export function App() {
       const uiRun = apiRunToUiRun(runRecord);
       setHistoricNodeStates(uiRun.nodeStates ?? {});
       setRuns((previous) => previous.map((run) =>
-        run.id === id ? { ...run, canvasSnapshot: uiRun.canvasSnapshot, nodeStates: uiRun.nodeStates, nodeOutputs: uiRun.nodeOutputs } : run,
+        run.id === id
+          ? {
+              ...run,
+              canvasSnapshot: uiRun.canvasSnapshot,
+              nodeStates: uiRun.nodeStates,
+              nodeOutputs: uiRun.nodeOutputs,
+              initialInput: uiRun.initialInput,
+              variableValues: uiRun.variableValues,
+            }
+          : run,
       ));
     }).catch(console.error);
     fetchPausedNodes(id).then((paused) => {
@@ -1056,13 +1123,6 @@ export function App() {
       console.error('Failed to cancel run', error);
     }
   }, []);
-
-  const onOpenInvocationLog = useCallback((runId: string, nodeId?: string, specflowSessionId?: string) => {
-    if (specflowSessionId) setActiveSessionId(specflowSessionId);
-    if (nodeId) setSelection({ kind: 'node', id: nodeId });
-    setBarExpanded(true);
-    onSelectRun(runId);
-  }, [onSelectRun]);
 
   const onRestoreHistoricalSession = useCallback(async (
     session: AgentSessionRecord,
@@ -1530,6 +1590,7 @@ export function App() {
           timelineEvents={logEvents}
           onClose={onClearSelection}
           onEditNode={onEditNode}
+          onRenameNode={onRenameNode}
           onChangeSession={onChangeSession}
           onEditSession={(id, patch) => {
             if ('mcpServers' in patch) onUpdateSessionMcpServers(id, patch.mcpServers ?? undefined);
@@ -1574,6 +1635,8 @@ export function App() {
           }}
           activeSessionId={activeSessionId}
           setActiveSessionId={setActiveSessionId}
+          activeRunId={activeRunId}
+          activeRunStatus={activeRun?.status}
           onAssignSession={onChangeSession}
           addSessionPing={addSessionPing}
           timelineEvents={logEvents}
@@ -1587,11 +1650,10 @@ export function App() {
           onDeleteSession={onDeleteSession}
           onClearLogs={onClearLogs}
           variables={displayVariables}
+          runVariableValues={activeRun?.variableValues}
           onEditVariable={onEditVariable}
           agentSessions={agentSessions}
           agentServers={agentServers}
-          runs={runs}
-          onOpenInvocationLog={onOpenInvocationLog}
           onRestoreSession={onRestoreHistoricalSession}
           restoreStatusBySession={restoreStatusBySession}
           pausedNode={pausedNode}

@@ -11,6 +11,7 @@ import {
   assertValidAgentNodeSession,
   type AgentDefinition,
   type AgentInvocation,
+  type AgentInvocationPurpose,
   type AgentNode,
   type GateDecision,
   type NodeRun,
@@ -24,6 +25,7 @@ import {
 import {
   createTaggedEdgeVariable,
   renderGatePrompt,
+  renderGateRepairPrompt,
   renderHandoffPrompt,
   renderNodePrompt,
 } from "./prompt-renderer";
@@ -64,10 +66,15 @@ export type AgentLifecycleStatusEvent = AgentLifecycleEvent & {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   agentInvocationId: string;
   agentId: string;
   /** Specflow session id this invocation belongs to (covers edge-handoff invocations that have no nodeId). */
   specflowSessionId?: string;
+  /** Parent Specflow session id when this invocation successfully forks. */
+  parentSpecflowSessionId?: string;
 };
 
 export type AgentSessionUpdateStatusEvent = AgentSessionUpdateEvent & {
@@ -75,6 +82,9 @@ export type AgentSessionUpdateStatusEvent = AgentSessionUpdateEvent & {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   agentInvocationId: string;
   agentId: string;
   agentServerId: string;
@@ -88,6 +98,9 @@ export interface AgentPromptStatusEvent {
   nodeRunId?: string;
   nodeId?: string;
   edgeId?: string;
+  purpose?: AgentInvocationPurpose;
+  sourceNodeId?: string;
+  targetNodeId?: string;
   agentInvocationId: string;
   agentId: string;
   agentServerId: string;
@@ -566,31 +579,37 @@ export class WorkflowExecutor {
       if (!input.origin) throw new Error(`Gate node "${input.node.id}" requires one upstream step output.`);
       const origin = input.origin;
       const prompt = renderGatePrompt(input.node, origin.output);
-      const forkSessionId = this.#nextForkSessionId(origin.sessionId);
-      const invocation = this.#createInvocation({
-        run: input.run,
-        nodeRun,
-        agentId: origin.agentId,
-        sessionId: forkSessionId,
-        parentSessionId: origin.sessionId,
-        prompt,
-      });
-      const sessionDef = input.workflow.sessions.find((candidate) => candidate.id === origin.sessionId);
-      const mcpServers = parseMcpServersField(sessionDef?.mcpServers, sessionDef?.id ?? origin.sessionId);
-      const output = await this.#invokeAgent({
+      let { output, invocation } = await this.#invokeForkableFromOrigin({
         workflow: input.workflow,
         agentRunner: input.agentRunner,
         run: input.run,
         nodeRun,
-        invocation,
-        agentId: origin.agentId,
+        origin,
         prompt,
-        forkFromSessionId: origin.sessionId,
+        purpose: "gate",
         signal: input.signal,
         configOptions: input.node.configOptions,
-        mcpServers,
       });
-      const decision = parseGateDecision(input.node, output);
+      let decision: GateDecision;
+      try {
+        decision = parseGateDecision(input.node, output);
+      } catch (error) {
+        const repaired = await this.#repairGateDecision({
+          workflow: input.workflow,
+          agentRunner: input.agentRunner,
+          run: input.run,
+          nodeRun,
+          node: input.node,
+          origin,
+          previousInvocation: invocation,
+          invalidOutput: output,
+          error,
+          signal: input.signal,
+        });
+        output = repaired.output;
+        invocation = repaired.invocation;
+        decision = repaired.decision;
+      }
       const gateBranches = input.gateBranches?.map((branch) => {
         if (branch.branchId !== decision.branchId) return branch;
         const traversalsUsed = branch.traversalsUsed + 1;
@@ -675,25 +694,107 @@ export class WorkflowExecutor {
   }): Promise<string> {
     if (input.edge.kind !== "tagged-output" || !input.edge.handoff) return input.origin.output;
     const prompt = renderHandoffPrompt(input.edge.handoff.promptTemplate, input.origin.output);
+    const { output } = await this.#invokeForkableFromOrigin({
+      workflow: input.workflow,
+      agentRunner: input.agentRunner,
+      run: input.run,
+      origin: input.origin,
+      edge: input.edge,
+      edgeId: input.edge.id,
+      prompt,
+      purpose: "handoff",
+      signal: input.signal,
+    });
+    return output;
+  }
+
+  async #repairGateDecision(input: {
+    agentRunner: AgentRunner;
+    workflow: Workflow;
+    run: WorkflowRun;
+    nodeRun: NodeRun;
+    node: Extract<WorkflowNode, { kind: "gate" }>;
+    origin: TransferOrigin;
+    previousInvocation: AgentInvocation;
+    invalidOutput: string;
+    error: unknown;
+    signal?: AbortSignal;
+  }): Promise<{ output: string; invocation: AgentInvocation; decision: GateDecision }> {
+    const firstError = input.error instanceof Error ? input.error.message : String(input.error);
+    const prompt = renderGateRepairPrompt(input.node, input.invalidOutput, firstError);
     const invocation = this.#createInvocation({
       run: input.run,
+      nodeRun: input.nodeRun,
       agentId: input.origin.agentId,
-      sessionId: input.origin.sessionId,
-      edgeId: input.edge.id,
+      sessionId: input.previousInvocation.sessionId,
+      parentSessionId: input.previousInvocation.parentSessionId,
+      purpose: "gate",
       prompt,
     });
     const sessionDef = input.workflow.sessions.find((candidate) => candidate.id === input.origin.sessionId);
     const mcpServers = parseMcpServersField(sessionDef?.mcpServers, sessionDef?.id ?? input.origin.sessionId);
-    return this.#invokeAgent({
+    const output = await this.#invokeAgent({
+      workflow: input.workflow,
+      agentRunner: input.agentRunner,
+      run: input.run,
+      nodeRun: input.nodeRun,
+      invocation,
+      agentId: input.origin.agentId,
+      prompt,
+      signal: input.signal,
+      configOptions: input.node.configOptions,
+      mcpServers,
+    });
+    try {
+      return { output, invocation, decision: parseGateDecision(input.node, output) };
+    } catch (error) {
+      const secondError = error instanceof Error ? error.message : String(error);
+      throw new Error(`${firstError} Gate repair failed: ${secondError}`);
+    }
+  }
+
+  async #invokeForkableFromOrigin(input: {
+    agentRunner: AgentRunner;
+    workflow: Workflow;
+    run: WorkflowRun;
+    nodeRun?: NodeRun;
+    origin: TransferOrigin;
+    edge?: WorkflowEdge;
+    edgeId?: string;
+    prompt: string;
+    purpose: "gate" | "handoff";
+    signal?: AbortSignal;
+    configOptions?: Record<string, string | boolean>;
+    mcpServers?: AgentCommandRequest["mcpServers"];
+  }): Promise<{ output: string; invocation: AgentInvocation }> {
+    const forkSessionId = this.#nextForkSessionId(input.origin.sessionId);
+    const invocation = this.#createInvocation({
+      run: input.run,
+      nodeRun: input.nodeRun,
+      agentId: input.origin.agentId,
+      sessionId: forkSessionId,
+      parentSessionId: input.origin.sessionId,
+      edgeId: input.edgeId,
+      purpose: input.purpose,
+      sourceNodeId: input.edge?.sourceNodeId,
+      targetNodeId: input.edge?.targetNodeId,
+      prompt: input.prompt,
+    });
+    const sessionDef = input.workflow.sessions.find((candidate) => candidate.id === input.origin.sessionId);
+    const mcpServers = parseMcpServersField(sessionDef?.mcpServers, sessionDef?.id ?? input.origin.sessionId);
+    const output = await this.#invokeAgent({
       workflow: input.workflow,
       agentRunner: input.agentRunner,
       run: input.run,
       invocation,
       agentId: input.origin.agentId,
-      prompt,
+      prompt: input.prompt,
       signal: input.signal,
-      mcpServers,
+      forkFromSessionId: input.origin.sessionId,
+      configOptions: input.configOptions,
+      mcpServers: input.mcpServers ?? mcpServers,
     });
+    return { output, invocation };
   }
 
   #nextForkSessionId(sourceSessionId: string): string {
@@ -709,6 +810,9 @@ export class WorkflowExecutor {
     sessionId?: string;
     parentSessionId?: string;
     edgeId?: string;
+    purpose?: AgentInvocationPurpose;
+    sourceNodeId?: string;
+    targetNodeId?: string;
     prompt: string;
   }): AgentInvocation {
     const invocation: AgentInvocation = {
@@ -717,6 +821,9 @@ export class WorkflowExecutor {
       nodeRunId: input.nodeRun?.id,
       nodeId: input.nodeRun?.nodeId,
       edgeId: input.edgeId,
+      purpose: input.purpose ?? (input.edgeId ? "handoff" : input.nodeRun?.nodeId ? "node" : undefined),
+      sourceNodeId: input.sourceNodeId,
+      targetNodeId: input.targetNodeId,
       agentId: input.agentId,
       sessionId: input.sessionId,
       parentSessionId: input.parentSessionId,
@@ -763,6 +870,9 @@ export class WorkflowExecutor {
       nodeRunId: input.nodeRun?.id,
       nodeId: input.invocation.nodeId,
       edgeId: input.invocation.edgeId,
+      purpose: input.invocation.purpose,
+      sourceNodeId: input.invocation.sourceNodeId,
+      targetNodeId: input.invocation.targetNodeId,
       agentInvocationId: input.invocation.id,
       agentId: input.agentId,
       agentServerId,
@@ -796,9 +906,13 @@ export class WorkflowExecutor {
           nodeRunId: input.nodeRun?.id,
           nodeId: input.invocation.nodeId,
           edgeId: input.invocation.edgeId,
+          purpose: input.invocation.purpose,
+          sourceNodeId: input.invocation.sourceNodeId,
+          targetNodeId: input.invocation.targetNodeId,
           agentInvocationId: input.invocation.id,
           agentId: input.agentId,
           specflowSessionId: input.invocation.sessionId,
+          parentSpecflowSessionId: input.forkFromSessionId,
         }),
         onSessionUpdate: (event) => this.#onAgentSessionUpdate?.({
           ...event,
@@ -806,6 +920,9 @@ export class WorkflowExecutor {
           nodeRunId: input.nodeRun?.id,
           nodeId: input.invocation.nodeId,
           edgeId: input.invocation.edgeId,
+          purpose: input.invocation.purpose,
+          sourceNodeId: input.invocation.sourceNodeId,
+          targetNodeId: input.invocation.targetNodeId,
           agentInvocationId: input.invocation.id,
           agentId: input.agentId,
           agentServerId,

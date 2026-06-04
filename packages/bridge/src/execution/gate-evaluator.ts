@@ -1,6 +1,7 @@
 import type { GateDecision, GateNode } from "@specflow/workflow";
 
 export function parseGateDecision(node: GateNode, output: string): GateDecision {
+  assertPureJsonObjectText(node, output);
   let parsed: unknown;
   try {
     parsed = JSON.parse(output.trim());
@@ -21,4 +22,11 @@ export function parseGateDecision(node: GateNode, output: string): GateDecision 
     branchId: decision.branchId,
     ...(typeof decision.reason === "string" ? { reason: decision.reason } : {}),
   };
+}
+
+export function assertPureJsonObjectText(node: GateNode, output: string): void {
+  const trimmed = output.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    throw new Error(`Gate node "${node.id}" returned invalid JSON: response must be a pure JSON object that starts with "{" and ends with "}".`);
+  }
 }
