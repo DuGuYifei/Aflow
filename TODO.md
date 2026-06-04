@@ -45,38 +45,35 @@
 - [x] 服务端仅允许当前 run 中由执行器登记的暂停节点接收 prompt/continue；headless agent 不允许启用交互暂停。
 - [x] UI 明示当前为 ACP 尚无 ask-human tool 的暂停方案，待 Agent Client Protocol Elicitation RFD 合并后扩展原生交互。
 
+### Run Logs, Fork Sessions, And Node Panels
+
+- [x] `Logs` 面板实时展示 agent prompt、fork lifecycle，以及 fork workflow session。
+- [x] `Inspect`/`Resume` 操作入口合并到 `Logs` 面板，不再维护独立 Agent 会话页签。
+- [x] Handoff/gate fork session 记录可在 log session tree 中查看，并保留 Inspect/Resume 能力。
+- [x] Gate 输出必须为纯 JSON；首次 parse/schema/branch 校验失败时，在同一 fork session 内自动 repair 一次。
+- [x] 右侧节点面板支持编辑 node key；标题为空时使用 node key 拆词作为 fallback。
+- [x] Run/history 视图中节点状态显示为只读 status badge，变量页签显示本次输入值而非可编辑输入框。
+
 ## Open Work
 
-- [x] 决定是否需要跨独立 run 复用 ACP connection；当前复用范围仅为单次 run。(不需要)
 - [ ] 实现 spec 文档生成、更新及 flow 完成后的自动更新。(waiting maturation)
 - [ ] specflow generate-spec 命令
 - [ ] specflow update-spec 命令
-- [x] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。(不再遇到)
+- [ ] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。
 - [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界，清理 .specflow 下的文件 / 文件夹
-- [x] 改进执行中才触发 auth 请求时的重试与 UI 流程。
-- [x] Skill系统接入
 - [ ] MCP系统接入
-- [x] 无头模式
-- [x] Gate 循环的上限
-- [x] 从某一个节点继续它的session运行
 - [ ] token计数
-- [ ] 辅助build workflow的agent
 - [ ] 优化workflow的agent或server中台，整体链路（还得发送workflow快照和日志快照）
-- [ ] 合并inspect和resume的界面到logs （还需要思考）
-- [x] ACP skill怎么实现 (好像是自己去读 ~/.agents/skills和 project/.agents/skills)
 - [ ] 日志大小上限，文件数量上限
 - [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
 - [ ] app
 - [ ] UI更新为和homepage一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
-- [x] specflow --version 显示版本号
 - [ ] SKILL模式
-- [ ] agent模式
-- [ ] specflow pause功能 -> aflow 也支持
 
-## Bug
+## Resolved Bugs
 
-- [ ] fork不实时显示session，gate节点fork出来的session，不会显示到log panel。
-- [ ] variable页签不显示正在运行的已经填过的变量。
+- [x] fork session 与 gate fork 实时显示到 Logs 面板。
+- [x] Variables 页签在 run/history 视图显示本次输入值。
 - [x] session似乎在显示时候共享了session
 - [x] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）
 - [x] UI: input value节点不能连线
