@@ -1,11 +1,11 @@
 export type IconName =
   | 'plus' | 'input' | 'step-node' | 'cursor' | 'copy' | 'paste' | 'play' | 'play-line' | 'pause' | 'edit' | 'trash' | 'x'
   | 'search' | 'chevron-right' | 'chevron-down' | 'chevron-up'
-  | 'lock' | 'image' | 'folder' | 'file' | 'paperclip'
+  | 'lock' | 'image' | 'folder' | 'file' | 'paperclip' | 'upload'
   | 'flow' | 'workflow' | 'play-circle' | 'history' | 'settings'
   | 'external' | 'check' | 'alert' | 'loader' | 'sparkle' | 'tag'
   | 'zoom-in' | 'zoom-out' | 'fit' | 'hand' | 'connect' | 'rotate'
-  | 'list' | 'logs' | 'star' | 'arrow-right' | 'arrow-down' | 'more'
+  | 'list' | 'logs' | 'star' | 'arrow-right' | 'arrow-down' | 'arrow-up' | 'more'
   | 'attachment-img' | 'route' | 'link' | 'sun' | 'moon' | 'terminal';
 
 interface IconProps {
@@ -50,6 +50,7 @@ export function Icon({ name, size = 14, className = '', style }: IconProps) {
     case 'folder':        return <svg {...props}><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>;
     case 'file':          return <svg {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>;
     case 'paperclip':     return <svg {...props}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 1 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>;
+    case 'upload':        return <svg {...props}><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>;
     case 'flow':          return <svg {...props}><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="15" y="15" width="6" height="6" rx="1.2"/><path d="M9 6h4a3 3 0 0 1 3 3v6"/></svg>;
     case 'workflow':      return <svg {...props}><rect x="3" y="3" width="8" height="6" rx="1"/><rect x="13" y="15" width="8" height="6" rx="1"/><path d="M7 9v3a3 3 0 0 0 3 3h3"/></svg>;
     case 'play-circle':   return <svg {...props}><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>;
@@ -72,6 +73,7 @@ export function Icon({ name, size = 14, className = '', style }: IconProps) {
     case 'star':          return <svg {...props}><path d="M12 2l3 7 7 .5-5.5 4.5L18 22l-6-3.8L6 22l1.5-7.5L2 9.5 9 9z"/></svg>;
     case 'arrow-right':   return <svg {...props}><path d="M5 12h14M12 5l7 7-7 7"/></svg>;
     case 'arrow-down':    return <svg {...props}><path d="M12 5v14M5 12l7 7 7-7"/></svg>;
+    case 'arrow-up':      return <svg {...props}><path d="M12 19V5M5 12l7-7 7 7"/></svg>;
     case 'more':          return <svg {...props}><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>;
     case 'attachment-img': return <svg {...props}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.81.01L6 21"/></svg>;
     case 'route':         return <svg {...props}><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M6 16V8a2 2 0 0 1 2-2h6"/><path d="m12 14 6-6"/></svg>;
