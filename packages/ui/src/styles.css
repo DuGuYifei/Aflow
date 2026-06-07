@@ -637,6 +637,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   color: var(--ink-2);
   line-height: 1.45;
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
@@ -5046,7 +5047,7 @@ body.design-resizing-chat {
 /* Tweaks override hooks */
 [data-density="compact"] .node { width: 220px; padding: 10px 11px 9px; }
 [data-density="compact"] .node-title { font-size: 12.5px; }
-[data-density="compact"] .node-desc { font-size: 11px; -webkit-line-clamp: 1; }
+[data-density="compact"] .node-desc { font-size: 11px; line-clamp: 1; -webkit-line-clamp: 1; }
 
 [data-theme="dark"] {
   --bg: #0b0f0c;
