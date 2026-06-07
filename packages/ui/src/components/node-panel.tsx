@@ -1,10 +1,16 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ClipboardEvent, type ChangeEvent, type KeyboardEvent } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent } from 'react';
 import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
 import { branchAccent, edgeKey, isSymbolKey, sessionAccent } from '../appearance';
 import { nodeDisplayTitle, nodeTitleFallback, nodeTitleIsFallback } from '../node-display';
 import { SessionTimeline } from './session-timeline';
+import {
+  RichPromptInput,
+  type RichPromptInputHandle,
+  displayPromptVariableName,
+  variableTokenDefinition,
+} from './rich-prompt-input';
 import {
   fetchAgentServerCapabilities,
   fetchSkills,
@@ -13,17 +19,6 @@ import {
   type SkillSummary,
 } from '../api';
 import { useI18n } from '../i18n';
-
-function insertAtCaret(element: HTMLTextAreaElement | null, token: string, write: (next: string) => void) {
-  if (!element) return;
-  const { selectionStart: start, selectionEnd: end, value } = element;
-  const next = value.slice(0, start) + token + value.slice(end);
-  write(next);
-  requestAnimationFrame(() => {
-    element.focus();
-    element.setSelectionRange(start + token.length, start + token.length);
-  });
-}
 
 interface NodePanelProps {
   node: WorkflowNode & { runState?: RunState };
@@ -142,7 +137,7 @@ function StepOverview(props: NodePanelProps & {
 }) {
   const { t } = useI18n();
   const { node, run, session, sessions, nodes, edges, readonly } = props;
-  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const promptRef = useRef<RichPromptInputHandle>(null);
   const { capabilities, refreshing, refresh } = useAgentCapabilities(session?.agentServerId);
   const skills = useSkills();
   const inputTokens = edges
@@ -153,6 +148,12 @@ function StepOverview(props: NodePanelProps & {
   const outputTokens = edges
     .filter((edge) => edge.to === node.id && edge.transmit && edge.outputTag)
     .map((edge) => ({ token: `specflow_${edge.outputTag}`, hint: t('node.transferredOutputHint') }));
+  const promptTokens = [...inputTokens, ...outputTokens];
+  const promptTokenKey = promptTokens.map(({ token, hint }) => `${token}:${hint ?? ''}`).join('\n');
+  const promptTokenDefinitions = useMemo(
+    () => [variableTokenDefinition(promptTokens)],
+    [promptTokenKey],
+  );
   return (
     <>
       {run && <NodeRunStatusBadge status={node.runState} />}
@@ -185,20 +186,21 @@ function StepOverview(props: NodePanelProps & {
         />
       )}
       <div className="section-title">{t('node.prompt')}</div>
-      {!readonly && [...inputTokens, ...outputTokens].length > 0 && (
+      {!readonly && promptTokens.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-          {[...inputTokens, ...outputTokens].map(({ token, hint }) => (
-            <button key={token} className="btn sm ghost" title={hint} onClick={() => insertAtCaret(promptRef.current, `<${token}>`, (next) => props.onEditNode(node.id, { prompt: next }))}>
-              {'<'}{token}{'>'}
+          {promptTokens.map(({ token, hint }) => (
+            <button key={token} className="btn sm ghost" title={hint} onClick={() => promptRef.current?.insertSerialized(`<${token}>`)}>
+              {displayPromptVariableName(token)}
             </button>
           ))}
         </div>
       )}
-      <SlashCommandTextarea
+      <RichPromptInput
         ref={promptRef}
         rows={6}
         value={node.prompt}
         disabled={readonly}
+        tokenDefinitions={promptTokenDefinitions}
         skills={skills}
         availableCommands={capabilities?.availableCommands}
         onChange={(next) => props.onEditNode(node.id, { prompt: next })}
@@ -247,7 +249,7 @@ function NodeImages(props: NodePanelProps & { node: StepNode; readonly: boolean;
     if (files.length) props.onUploadImages(props.node.id, files);
     event.target.value = '';
   };
-  const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+  const onPaste = (event: ReactClipboardEvent<HTMLDivElement>) => {
     const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'));
     if (images.length) {
       event.preventDefault();

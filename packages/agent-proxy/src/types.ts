@@ -192,9 +192,17 @@ export interface AgentConversationPromptResult {
   stopReason?: PromptResponse["stopReason"];
 }
 
+export interface AgentConversationPromptRequest {
+  prompt: string;
+  /** See AgentRunRequest.modeId. */
+  modeId?: string;
+  /** See AgentRunRequest.configOptions. */
+  configOptions?: Record<string, string | boolean>;
+}
+
 export interface AgentConversation {
   restore(): Promise<AgentRestoreResult>;
-  prompt(prompt: string, signal?: AbortSignal): Promise<AgentConversationPromptResult>;
+  prompt(prompt: string | AgentConversationPromptRequest, signal?: AbortSignal): Promise<AgentConversationPromptResult>;
   close(): Promise<void>;
 }
 

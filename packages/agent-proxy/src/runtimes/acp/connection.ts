@@ -475,15 +475,16 @@ export class AcpAgentConnection {
         `Agent "${request.agentServerId}" does not support session load/resume; cannot continue ACP session ${acpSessionId}.`,
       );
     }
+    let restoredSession: acp.LoadSessionResponse | acp.ResumeSessionResponse;
     if (supportsLoad) {
-      await this.#client.connection.loadSession({
+      restoredSession = await this.#client.connection.loadSession({
         sessionId: acpSessionId,
         cwd: this.#cwd,
         additionalDirectories: this.#additionalDirectories,
         mcpServers: request.mcpServers ?? [],
       });
     } else {
-      await this.#client.connection.resumeSession({
+      restoredSession = await this.#client.connection.resumeSession({
         sessionId: acpSessionId,
         cwd: this.#cwd,
         additionalDirectories: this.#additionalDirectories,
@@ -499,6 +500,8 @@ export class AcpAgentConnection {
       sessionId: acpSessionId,
       at: new Date().toISOString(),
     });
+    this.#sessionCaps.set(acpSessionId, snapshotSession(restoredSession));
+    if (!this.#capabilityWritten) void this.#emitCapabilities();
     return acpSessionId;
   }
 }
@@ -768,14 +771,17 @@ export async function restoreAcpAgentSession(
 
 export class AcpRestoredConversation implements AgentConversation {
   readonly #request: AgentRestoreRequest;
+  readonly #resolvedId: string;
   readonly #client: AcpAgentClient;
   #initializeResponse: acp.InitializeResponse | undefined;
+  #sessionCaps: SessionCapsSnapshot | undefined;
   #output = "";
   #restored = false;
   #closed = false;
 
   constructor(resolved: ResolvedAgentServer, request: AgentRestoreRequest) {
     this.#request = request;
+    this.#resolvedId = resolved.id;
     this.#client = new AcpAgentClient({
       resolved,
       cwd: request.cwd,
@@ -798,6 +804,7 @@ export class AcpRestoredConversation implements AgentConversation {
         additionalDirectories: this.#request.additionalDirectories,
         mcpServers: this.#request.mcpServers ?? [],
       }), this.#request.signal, "ACP restore cancelled.");
+      this.#sessionCaps = snapshotSession(loadResponse);
       this.#restored = true;
       return {
         agentServerId: this.#request.agentServerId,
@@ -813,6 +820,7 @@ export class AcpRestoredConversation implements AgentConversation {
       additionalDirectories: this.#request.additionalDirectories,
       mcpServers: this.#request.mcpServers ?? [],
     }), this.#request.signal, "ACP restore cancelled.");
+    this.#sessionCaps = snapshotSession(resumeResponse);
     this.#restored = true;
     return {
       agentServerId: this.#request.agentServerId,
@@ -823,10 +831,20 @@ export class AcpRestoredConversation implements AgentConversation {
     };
   }
 
-  async prompt(prompt: string, signal?: AbortSignal): Promise<AgentConversationPromptResult> {
+  async prompt(input: string | { prompt: string; modeId?: string; configOptions?: Record<string, string | boolean> }, signal?: AbortSignal): Promise<AgentConversationPromptResult> {
     if (!this.#restored || this.#closed) throw new Error("ACP conversation is not active.");
+    const prompt = typeof input === "string" ? input : input.prompt;
     if (prompt.trim() === "") throw new Error("Prompt must not be empty.");
     this.#output = "";
+    if (typeof input !== "string") {
+      await applyPerRequestOverrides({
+        connection: this.#client.connection,
+        sessionId: this.#request.sessionId,
+        request: input,
+        caps: this.#sessionCaps,
+        resolvedId: this.#resolvedId,
+      });
+    }
     const response = await raceWithAbort(this.#client.connection.prompt({
       sessionId: this.#request.sessionId,
       prompt: [{ type: "text", text: prompt }],
@@ -1120,7 +1138,7 @@ interface SessionCapsSnapshot {
   models: NonNullable<acp.NewSessionResponse["models"]> | null;
 }
 
-function snapshotSession(session: acp.NewSessionResponse): SessionCapsSnapshot {
+function snapshotSession(session: Pick<acp.NewSessionResponse, "modes" | "configOptions" | "models">): SessionCapsSnapshot {
   return {
     modes: session.modes ?? null,
     configOptions: session.configOptions ?? null,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import {
+  AcpRestoredConversation,
   authenticateAcpAgent,
   inspectAcpAgentAuthentication,
   resolveAcpTerminalAuthTask,
@@ -185,6 +186,34 @@ describe("runAcpAgent", () => {
 });
 
 describe("restoreAcpAgentSession", () => {
+  it("applies per-turn config options when prompting a restored conversation", async () => {
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-"));
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
+    const conversation = new AcpRestoredConversation(resolved({
+      restoreCapabilities: "load",
+      env: { SPECFLOW_FAKE_ACP_CODEX_MODEL_CONFIG: "1" },
+    }), {
+      agentServerId: "fake-acp",
+      sessionId: "restored-session",
+      mode: "continue",
+      cwd: workingDirectory,
+      onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
+    });
+
+    try {
+      await conversation.restore();
+      const result = await conversation.prompt({
+        prompt: "hello",
+        configOptions: { model: "gpt-5.5", reasoning: "high" },
+      });
+
+      expect(result.output).toContain("configCalls:model:gpt-5.5,reasoning:high");
+      expect(result.output).toContain("prompt:hello");
+    } finally {
+      await conversation.close();
+    }
+  });
+
   it("uses load for inspect mode when the agent supports load and resume", async () => {
     const updates: string[] = [];
     const result = await restoreAcpAgentSession(resolved({ restoreCapabilities: "load,resume" }), {

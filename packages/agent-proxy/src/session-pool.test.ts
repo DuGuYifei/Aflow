@@ -81,4 +81,55 @@ describe("AgentProxySessionPool", () => {
       await pool.closeAll();
     }
   });
+
+  it("keeps restored ACP session capabilities available for per-turn config options", async () => {
+    const workingDirectory = await mkdtemp(join(tmpdir(), "specflow-acp-pool-"));
+    const specflowDir = join(workingDirectory, ".aflow/.specflow");
+    const fakeAgentPath = fileURLToPath(new URL("./runtimes/acp/test-fixtures/fake-agent.ts", import.meta.url));
+    await mkdir(specflowDir, { recursive: true });
+    await writeFile(join(workingDirectory, "input.txt"), "file-content", "utf8");
+    await writeFile(join(specflowDir, "agent-servers.json"), JSON.stringify({
+      agent_servers: {
+        fake: {
+          type: "custom",
+          command: "bun",
+          args: [fakeAgentPath],
+          env: {
+            SPECFLOW_FAKE_ACP_RESTORE: "load",
+            SPECFLOW_FAKE_ACP_CODEX_MODEL_CONFIG: "1",
+          },
+        },
+      },
+    }), "utf8");
+
+    const firstPool = new AgentProxySessionPool({ root: workingDirectory });
+    const first = await firstPool.run({
+      agentServerId: "fake",
+      cwd: workingDirectory,
+      workflowSessionId: "design-session",
+      prompt: "first",
+      configOptions: { model: "gpt-5.5", reasoning: "high" },
+      onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
+    });
+    await firstPool.closeAll();
+
+    const restoredPool = new AgentProxySessionPool({ root: workingDirectory });
+    try {
+      const restored = await restoredPool.run({
+        agentServerId: "fake",
+        cwd: workingDirectory,
+        workflowSessionId: "design-session",
+        restoreFromAcpSessionId: first.sessionId,
+        prompt: "restored",
+        configOptions: { model: "gpt-5.5", reasoning: "high" },
+        onPermissionRequest: async () => ({ outcome: "selected", optionId: "allow" }),
+      });
+
+      expect(restored.exitCode).toBe(0);
+      expect(restored.sessionId).toBe(first.sessionId);
+      expect(restored.output).toContain("configCalls:model:gpt-5.5,reasoning:high");
+    } finally {
+      await restoredPool.closeAll();
+    }
+  });
 });

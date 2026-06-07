@@ -6,7 +6,7 @@ import {
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteCanvas as apiDeleteCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
   cancelRun as apiCancelRun,
-  fetchAgentSessions, fetchAgentServers, restoreAgentSession, subscribeToRestore,
+  fetchAgentSessions, fetchAgentServers, fetchAgentServerCapabilities, refreshAgentServerCapabilities, restoreAgentSession, subscribeToRestore,
   fetchAgentSession, fetchResumableSession, fetchRunLogsRange, resumeWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
   apiRunToUiRun, apiRunLogToTimelineEvents, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
@@ -15,6 +15,7 @@ import {
   type AgentAuthenticationStatus,
   type RunInteraction,
   type AgentSessionRecord,
+  type AgentServerCapabilities,
   type AgentServerEntry,
   type RestoreMode,
   type RestoreSseEventType,
@@ -55,6 +56,89 @@ function runStatusFromEvent(status: string): RunStatus {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+type ConversationConfigState = {
+  capabilities?: AgentServerCapabilities;
+  modeId: string;
+  configOptions: Record<string, string | boolean>;
+  configTouched: boolean;
+};
+
+function applyConversationCapabilities<T extends ConversationConfigState>(
+  current: T,
+  capabilities: AgentServerCapabilities | undefined,
+  options: { preferCurrentValues: boolean },
+): T {
+  if (!capabilities) return current;
+  if (!options.preferCurrentValues || current.configTouched) {
+    return { ...current, capabilities };
+  }
+  return {
+    ...current,
+    capabilities,
+    modeId: capabilities.modes?.currentModeId ?? current.modeId,
+    configOptions: currentConfigOptions(capabilities),
+  };
+}
+
+function applyConversationSessionUpdate<T extends ConversationConfigState>(
+  current: T,
+  update: unknown,
+): T {
+  const record = update && typeof update === 'object' ? update as {
+    modes?: AgentServerCapabilities['modes'];
+    configOptions?: AgentServerCapabilities['configOptions'];
+  } : undefined;
+  if (!record || (!record.modes && !record.configOptions)) return current;
+  const capabilities: AgentServerCapabilities = {
+    ...(current.capabilities ?? emptyAgentCapabilities()),
+    modes: record.modes ?? current.capabilities?.modes ?? null,
+    configOptions: record.configOptions ?? current.capabilities?.configOptions ?? null,
+  };
+  return applyConversationCapabilities(current, capabilities, { preferCurrentValues: true });
+}
+
+function restoreEventCapabilities(
+  current: AgentServerCapabilities | undefined,
+  capabilities: Pick<AgentServerCapabilities, 'modes' | 'configOptions'> | undefined,
+): AgentServerCapabilities | undefined {
+  if (!capabilities) return current;
+  return {
+    ...(current ?? emptyAgentCapabilities()),
+    modes: capabilities.modes,
+    configOptions: capabilities.configOptions,
+  };
+}
+
+function currentConfigOptions(capabilities: AgentServerCapabilities): Record<string, string | boolean> {
+  const next: Record<string, string | boolean> = {};
+  for (const option of capabilities.configOptions ?? []) {
+    if (typeof option.currentValue === 'string' || typeof option.currentValue === 'boolean') {
+      next[option.id] = option.currentValue;
+    }
+  }
+  return next;
+}
+
+function conversationPromptOptions(
+  conversation: ConversationConfigState | null | undefined,
+): { modeId?: string; configOptions?: Record<string, string | boolean> } {
+  if (!conversation?.configTouched) return {};
+  return {
+    ...(conversation.modeId ? { modeId: conversation.modeId } : {}),
+    ...(Object.keys(conversation.configOptions).length > 0 ? { configOptions: conversation.configOptions } : {}),
+  };
+}
+
+function emptyAgentCapabilities(): AgentServerCapabilities {
+  return {
+    probedAt: new Date(0).toISOString(),
+    agentCapabilities: {},
+    modes: null,
+    configOptions: null,
+    availableCommands: [],
+  };
 }
 
 const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
@@ -123,6 +207,11 @@ export function App() {
     events: TimelineEvent[];
     canPrompt: boolean;
     busy: boolean;
+    capabilities?: AgentServerCapabilities;
+    capabilityRefreshing: boolean;
+    modeId: string;
+    configOptions: Record<string, string | boolean>;
+    configTouched: boolean;
   } | null>(null);
   const [pausedNode, setPausedNode] = useState<PausedNodeSession | null>(null);
   const [pausedPromptBusy, setPausedPromptBusy] = useState(false);
@@ -1140,7 +1229,20 @@ export function App() {
       events: [{ type: 'display-message', role: 'system', text: mode === 'inspect' ? t('app.restoreLoading') : t('app.restoreResuming') }],
       canPrompt: false,
       busy: false,
+      capabilityRefreshing: false,
+      modeId: '',
+      configOptions: {},
+      configTouched: false,
     });
+
+    fetchAgentServerCapabilities(session.agentServerId)
+      .then((capabilities) => {
+        if (!capabilities || requestToken !== restoreRequestTokenRef.current) return;
+        setConversation((current) => current?.session.id === session.id
+          ? applyConversationCapabilities(current, capabilities, { preferCurrentValues: true })
+          : current);
+      })
+      .catch(() => {});
 
     let recordedContextLoaded = false;
     const loadRecordedContext = async () => {
@@ -1185,7 +1287,10 @@ export function App() {
 
         if (type === 'session-update' && event.type === 'session-update') {
           setConversation((current) => current?.session.id === session.id
-            ? { ...current, events: [...current.events, { type: 'session-update', update: event.update, sessionId: event.sessionId }] }
+            ? applyConversationSessionUpdate({
+                ...current,
+                events: [...current.events, { type: 'session-update' as const, update: event.update, sessionId: event.sessionId }],
+              }, event.update)
             : current);
           return;
         }
@@ -1206,12 +1311,12 @@ export function App() {
               ? t('app.restoreFailed', { error: event.error ?? t('app.restoreUnknownError') })
               : t('app.restoreRequested');
           setConversation((current) => current?.session.id === session.id
-            ? {
+            ? applyConversationCapabilities({
                 ...current,
                 status: event.status,
                 canPrompt: mode === 'continue' && event.status === 'success',
-                events: [...current.events, { type: 'display-message', role: 'system', text }],
-              }
+                events: [...current.events, { type: 'display-message' as const, role: 'system' as const, text }],
+              }, restoreEventCapabilities(current.capabilities, event.capabilities), { preferCurrentValues: true })
             : current);
           if (event.status === 'failure' || (event.status === 'success' && mode === 'inspect')) {
             refreshAgentSessions();
@@ -1224,7 +1329,7 @@ export function App() {
             setConversation((current) => current?.session.id === session.id
               ? { ...current, busy: true, events: [...current.events, { type: 'display-message', role: 'user', text: prompt }] }
               : current);
-            void promptRestoredSession(restoreId, prompt)
+            void promptRestoredSession(restoreId, prompt, conversationPromptOptions(conversationRef.current))
               .catch((promptError) => {
                 const message = promptError instanceof Error ? promptError.message : String(promptError);
                 setConversation((current) => current?.session.id === session.id
@@ -1280,12 +1385,26 @@ export function App() {
     if (!active?.restoreId || !active.canPrompt || active.busy) return;
     setConversation((current) => current ? { ...current, busy: true, events: [...current.events, { type: 'display-message', role: 'user', text: prompt }] } : current);
     try {
-      await promptRestoredSession(active.restoreId, prompt);
+      await promptRestoredSession(active.restoreId, prompt, conversationPromptOptions(active));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setConversation((current) => current ? { ...current, events: [...current.events, { type: 'display-message', role: 'system', text: message }] } : current);
     } finally {
       setConversation((current) => current ? { ...current, busy: false } : current);
+    }
+  }, [conversation]);
+
+  const refreshConversationCapabilities = useCallback(async () => {
+    const active = conversation;
+    if (!active) return;
+    setConversation((current) => current?.session.id === active.session.id ? { ...current, capabilityRefreshing: true } : current);
+    try {
+      const capabilities = await refreshAgentServerCapabilities(active.session.agentServerId);
+      setConversation((current) => current?.session.id === active.session.id
+        ? applyConversationCapabilities({ ...current, capabilityRefreshing: false }, capabilities, { preferCurrentValues: !current.configTouched })
+        : current);
+    } catch {
+      setConversation((current) => current?.session.id === active.session.id ? { ...current, capabilityRefreshing: false } : current);
     }
   }, [conversation]);
 
@@ -1671,6 +1790,23 @@ export function App() {
           events={conversation.events}
           canPrompt={conversation.canPrompt}
           busy={conversation.busy}
+          capabilities={conversation.capabilities}
+          capabilityRefreshing={conversation.capabilityRefreshing}
+          modeId={conversation.modeId}
+          configOptions={conversation.configOptions}
+          onRefreshCapabilities={refreshConversationCapabilities}
+          onChangeMode={(modeId) => {
+            setConversation((current) => current ? { ...current, modeId: modeId ?? '', configTouched: true } : current);
+          }}
+          onChangeConfigOption={(configId, value) => {
+            setConversation((current) => {
+              if (!current) return current;
+              const next = { ...current.configOptions };
+              if (value === undefined) delete next[configId];
+              else next[configId] = value;
+              return { ...current, configOptions: next, configTouched: true };
+            });
+          }}
           onPrompt={onPromptConversation}
           onClose={onCloseConversation}
         />

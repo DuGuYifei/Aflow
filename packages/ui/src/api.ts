@@ -235,6 +235,7 @@ export type RestoreStreamEvent =
       runId: string;
       requestedMode: RestoreMode;
       selectedPrimitive?: 'load' | 'resume';
+      capabilities?: Pick<AgentServerCapabilities, 'modes' | 'configOptions'>;
       status: 'requested' | 'success' | 'failure';
       error?: string;
       at: string;
@@ -636,11 +637,19 @@ export async function restoreAgentSession(id: string, mode: RestoreMode): Promis
   return response.json();
 }
 
-export async function promptRestoredSession(restoreId: string, prompt: string): Promise<{ output: string }> {
+export async function promptRestoredSession(
+  restoreId: string,
+  prompt: string,
+  options: { modeId?: string; configOptions?: Record<string, string | boolean> } = {},
+): Promise<{ output: string }> {
   const response = await fetch(`/api/agent-session-restores/${restoreId}/prompt`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({
+      prompt,
+      ...(options.modeId ? { modeId: options.modeId } : {}),
+      ...(options.configOptions && Object.keys(options.configOptions).length > 0 ? { configOptions: options.configOptions } : {}),
+    }),
   });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to prompt restored session'));
   return response.json();
