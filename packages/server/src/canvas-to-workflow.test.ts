@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { canvasToWorkflow } from "./canvas-to-workflow";
-import type { CanvasDoc } from "./canvas-doc";
+import { canvasToWorkflow } from "./agentflow/canvas-to-workflow";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
 
 // Minimal frontend example canvas matching the data.ts shape.
 const frontendExampleCanvas: CanvasDoc = {

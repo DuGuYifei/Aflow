@@ -1,6 +1,12 @@
-runs/
-canvas/
+agentflow/runs/
+agentflow/run-logs/
+agentflow/canvas/
+agentflow/agentflows-local/
+agentflow/assets/
+design/references/
+design/conversations/
+design/projects/
+design/settings.json
+prd/drafts/
 cache/
-run-logs/
 agent-servers.local.json
-agentflows-local/

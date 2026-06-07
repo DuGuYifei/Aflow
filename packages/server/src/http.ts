@@ -3,13 +3,12 @@ import { createSpecflowBridge } from "@specflow/bridge";
 import { APP_NAME, DEFAULT_HOST, SERVER_PORT, uuidv7 } from "@specflow/shared";
 import { serveStaticUi } from "./static-ui";
 import { SkillStore, resolveSlashCommands } from "./skills";
-import { createDevUiProxy } from "./ui-dev";
 import { createApiHandler } from "./api";
+import { createDesignApiHandler } from "./design/api";
 
 export interface SpecflowServerOptions {
   host?: string;
   port?: number;
-  mode?: "development" | "production";
 }
 
 export interface RunningSpecflowServer {
@@ -24,7 +23,6 @@ export async function startSpecflowServer(
 
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
-  const mode = options.mode ?? defaultServerMode();
   const serverId = uuidv7();
   const skillStore = new SkillStore({ root: workingDirectory });
   const capabilityStore = new AgentServerStore({ root: workingDirectory });
@@ -45,15 +43,15 @@ export async function startSpecflowServer(
       return resolved.prompt;
     },
   });
-  const devUi = mode === "development" ? await createDevUiProxy() : undefined;
   const handleApi = createApiHandler(bridge, workingDirectory);
+  const handleDesignApi = createDesignApiHandler(workingDirectory);
 
   const server = startHttpServer({
     bridge,
-    devUi,
     host,
     preferredPort,
     handleApi,
+    handleDesignApi,
     serverId,
     workspaceRoot: workingDirectory,
   });
@@ -64,41 +62,27 @@ export async function startSpecflowServer(
   return {
     url,
     stop() {
-      devUi?.stop();
       server.stop();
     },
   };
 }
 
-function defaultServerMode(): "development" | "production" {
-  const explicitMode = process.env["SPECFLOW_SERVER_MODE"];
-  if (explicitMode === "development" || explicitMode === "production") {
-    return explicitMode;
-  }
-
-  const nodeEnv = process.env["NODE_ENV"];
-  if (nodeEnv === "development") return "development";
-  if (nodeEnv === "production") return "production";
-
-  return "production";
-}
-
 interface HttpServerOptions {
   bridge: ReturnType<typeof createSpecflowBridge>;
-  devUi?: Awaited<ReturnType<typeof createDevUiProxy>>;
   host: string;
   preferredPort: number;
   handleApi: (request: Request) => Promise<Response | null>;
+  handleDesignApi: (request: Request) => Promise<Response | null>;
   serverId: string;
   workspaceRoot: string;
 }
 
 function startHttpServer({
   bridge,
-  devUi,
   host,
   preferredPort,
   handleApi,
+  handleDesignApi,
   serverId,
   workspaceRoot,
 }: HttpServerOptions) {
@@ -131,8 +115,12 @@ function startHttpServer({
             return apiResponse;
           }
 
-          if (devUi) {
-            return devUi.fetch(request);
+          const designApiResponse = await handleDesignApi(request);
+          if (designApiResponse) {
+            if (designApiResponse.headers.get("content-type")?.startsWith("text/event-stream")) {
+              server.timeout(request, 0);
+            }
+            return designApiResponse;
           }
 
           return serveStaticUi(request);

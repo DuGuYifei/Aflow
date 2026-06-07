@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
+import { SPECFLOW_AGENTFLOW_PATH } from "@specflow/shared";
 import {
   loadAgentFlowFile,
   splitCanvasDoc,
@@ -52,7 +52,8 @@ export async function listWorkflowFiles(cwd: string): Promise<WorkflowSummary[]>
 
 export async function resolveWorkflowFile(cwd: string, workflowId: string): Promise<WorkflowFileResolution | undefined> {
   for (const local of [true, false]) {
-    const path = workflowYamlPath(cwd, workflowId, local);
+    const directory = workflowDirectory(cwd, local);
+    const path = join(directory, `${workflowId}.yaml`);
     try {
       await loadAgentFlowFile(path);
       return { workflowId, path, local };
@@ -143,5 +144,5 @@ export function looksLikePath(value: string): boolean {
 }
 
 function workflowDirectory(cwd: string, local: boolean): string {
-  return join(cwd, SPECFLOW_WORKSPACE_PATH, local ? "agentflows-local" : "agentflows");
+  return join(cwd, SPECFLOW_AGENTFLOW_PATH, local ? "agentflows-local" : "agentflows");
 }

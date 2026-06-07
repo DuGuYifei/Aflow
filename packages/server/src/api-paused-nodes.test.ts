@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { saveRun, type RunRecord } from "./run-store";
+import { saveRun, type RunRecord } from "./agentflow/run-store";
 
 describe("paused node interaction API", () => {
   test("accepts prompt and continue only for an active server-authorized pause", async () => {

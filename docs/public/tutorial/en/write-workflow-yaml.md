@@ -12,15 +12,15 @@ tags:
 
 # Workflow YAML Authoring Tutorial
 
-Committed workflow-as-code files live in `.aflow/.specflow/agentflows/*.yaml`.
-Local experiments and fork/adapt drafts should live in `.aflow/.specflow/agentflows-local/*.yaml`; this directory is added to `.aflow/.specflow/.gitignore` by default and is not committed.
+Committed workflow-as-code files live in `.aflow/.specflow/agentflow/agentflows/*.yaml`.
+Local experiments and fork/adapt drafts should live in `.aflow/.specflow/agentflow/agentflows-local/*.yaml`; this directory is added to `.aflow/.specflow/.gitignore` by default and is not committed.
 Each YAML file describes a runnable workflow graph, including sessions, nodes, edges, and optional runtime inputs.
-Browser canvas coordinates are stored separately in `.aflow/.specflow/canvas/*.json`, so handwritten YAML does not need to manage node positions.
+Browser canvas coordinates are stored separately in `.aflow/.specflow/agentflow/canvas/*.json`, so handwritten YAML does not need to manage node positions.
 
 The workflow file name becomes the workflow id. Use lowercase kebab-case, for example `code-review-flow.yaml`.
 Session, node, and branch keys follow the same rule: they must start with a lowercase letter and may only contain lowercase letters, numbers, and `-`.
 
-When adapting an existing workflow for a specific user or problem, copy the source YAML to `.aflow/.specflow/agentflows-local/<new-workflow-id>.yaml` first, then edit the copy. Do not overwrite the source workflow unless you are explicitly maintaining the shared team version.
+When adapting an existing workflow for a specific user or problem, copy the source YAML to `.aflow/.specflow/agentflow/agentflows-local/<new-workflow-id>.yaml` first, then edit the copy. Do not overwrite the source workflow unless you are explicitly maintaining the shared team version.
 
 ## Minimal Example
 
@@ -132,7 +132,7 @@ nodes:
     paths:
       - docs/
     images:
-      - path: .aflow/.specflow/assets/wireframe.png
+      - path: .aflow/.specflow/agentflow/assets/wireframe.png
         label: wireframe.png
         mimeType: image/png
     modeId: plan
@@ -200,7 +200,7 @@ prompt: |
 When running through the CLI, pass values with `-D`:
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
 ```
 
 ## Edges And Context Transmission
@@ -264,7 +264,7 @@ Before running a workflow, check these rules:
 Validate a workflow:
 
 ```sh
-specflow validate .aflow/.specflow/agentflows/code-review-flow.yaml
+specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
 `validate` only parses YAML and validates the workflow graph. It does not start agents.

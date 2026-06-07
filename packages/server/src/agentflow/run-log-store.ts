@@ -1,6 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 import type { TerminalOutputEvent } from "@specflow/workflow";
 import type {
   AgentPromptStatusEvent,
@@ -9,6 +8,7 @@ import type {
   RunInteraction,
   RunStatusEvent,
 } from "@specflow/bridge";
+import { runLogsDir as agentflowRunLogsDir } from "../workspace-paths";
 
 export type AgentLifecycleLogPayload = {
   type: string;
@@ -55,7 +55,7 @@ export type RunLogEvent =
   | ({ type: "interaction" } & RunInteraction);
 
 export function runLogsDir(root: string): string {
-  return join(root, SPECFLOW_WORKSPACE_PATH, "run-logs");
+  return agentflowRunLogsDir(root);
 }
 
 export function runLogPath(root: string, runId: string): string {

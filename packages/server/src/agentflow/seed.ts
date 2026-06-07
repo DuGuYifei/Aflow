@@ -17,7 +17,7 @@ export const SEED_CANVAS_DOCS: CanvasDoc[] = [
       { kind: "step", id: "n1",  alias: "01",   x: 60,   y: 240, w: 230,
         title: "Ticket",
         prompt: "Capture the incoming ticket — title, description, attached screenshots.",
-        images: [{ path: ".aflow/.specflow/assets/example-code-frontend-flow/images/ticket.png", label: "ticket.png", mimeType: "image/png" }], paths: ["/issues/PROD-2841"],
+        images: [{ path: ".aflow/.specflow/agentflow/assets/example-code-frontend-flow/images/ticket.png", label: "ticket.png", mimeType: "image/png" }], paths: ["/issues/PROD-2841"],
         sessionId: "parser", locked: true },
 
       { kind: "step", id: "n2a", alias: "02·a", x: 340,  y: 80,  w: 220,

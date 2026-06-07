@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "bun:test";
 import { stringify } from "yaml";
-import { appendRunLogEvent, listRunLogEvents } from "./run-log-store";
-import { loadRun, reconcileInterruptedRuns, saveRun, type RunRecord } from "./run-store";
-import type { CanvasDoc } from "./canvas-doc";
-import { splitCanvasDoc } from "./canvas-store";
+import { appendRunLogEvent, listRunLogEvents } from "./agentflow/run-log-store";
+import { loadRun, reconcileInterruptedRuns, saveRun, type RunRecord } from "./agentflow/run-store";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
+import { splitCanvasDoc } from "./agentflow/canvas-store";
 
 describe("run store snapshots", () => {
   it("stores agentflow and canvas snapshots separately", async () => {
@@ -31,7 +31,7 @@ describe("run store snapshots", () => {
     };
 
     await saveRun(record, root);
-    const rawValue = JSON.parse(await readFile(join(root, ".aflow/.specflow", "runs", "run1.json"), "utf8")) as RunRecord;
+    const rawValue = JSON.parse(await readFile(join(root, ".aflow/.specflow", "agentflow", "runs", "run1.json"), "utf8")) as RunRecord;
     expect(rawValue.agentflowSnapshot.nodes[0]).not.toHaveProperty("x");
     expect(rawValue.canvasSnapshot.nodes[0]).toHaveProperty("nodeId");
     expect(rawValue.agentSessions).toEqual([]);
@@ -52,7 +52,7 @@ describe("run store snapshots", () => {
       initialInput: "",
       variableValues: {},
     };
-    await writeFile(join(root, ".aflow/.specflow", "runs", "legacy-run.yaml"), stringify(legacy), "utf8");
+    await writeFile(join(root, ".aflow/.specflow", "agentflow", "runs", "legacy-run.yaml"), stringify(legacy), "utf8");
 
     const loaded = await loadRun("legacy-run", root);
     expect(loaded.agentInvocations).toEqual([]);
@@ -136,7 +136,7 @@ describe("run store snapshots", () => {
 
 async function tempProject(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "specflow-runs-"));
-  await mkdir(join(root, ".aflow/.specflow", "runs"), { recursive: true });
+  await mkdir(join(root, ".aflow/.specflow", "agentflow", "runs"), { recursive: true });
   return root;
 }
 

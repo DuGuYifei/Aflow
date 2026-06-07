@@ -1,21 +1,45 @@
 import { mkdir, writeFile, access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parse } from "yaml";
 import { AgentServerStore, type ResolvedAgentServer } from "@specflow/agent-proxy";
-import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
-import { SEED_CANVAS_DOCS } from "./seed";
+import { SEED_CANVAS_DOCS } from "./agentflow/seed";
 import {
   saveAgentFlowAndLayout,
   splitCanvasDoc,
-} from "./canvas-store";
-import type { CanvasDoc } from "./canvas-doc";
+} from "./agentflow/canvas-store";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
 import { loadSharedAgentServerConfig, patchLocalAgentServer } from "./agent-server-config";
+import {
+  agentflowAssetsDir,
+  agentflowRoot,
+  agentflowsDir,
+  canvasDir,
+  designConversationsDir,
+  designProjectsDir,
+  designReferencesDir,
+  localAgentflowsDir,
+  prdDraftsDir,
+  runLogsDir,
+  runsDir,
+  specflowRoot,
+} from "./workspace-paths";
 
-const GITIGNORE_ENTRIES = ["runs/", "canvas/", "agentflows-local/"];
+const GITIGNORE_ENTRIES = [
+  "agentflow/runs/",
+  "agentflow/run-logs/",
+  "agentflow/canvas/",
+  "agentflow/agentflows-local/",
+  "agentflow/assets/",
+  "design/references/",
+  "design/conversations/",
+  "design/projects/",
+  "design/settings.json",
+  "prd/drafts/",
+];
 
 export interface InitWorkspaceOptions {
   createIfMissing?: boolean;
   seedAgentServerId?: string;
+  warn?: (message: string) => void;
 }
 
 export interface PrepareSpecflowWorkspaceOptions extends InitWorkspaceOptions {
@@ -37,23 +61,25 @@ export async function initWorkspace(
   workingDirectory: string = process.cwd(),
   options: InitWorkspaceOptions = {},
 ): Promise<void> {
-  const root = join(workingDirectory, SPECFLOW_WORKSPACE_PATH);
+  const root = specflowRoot(workingDirectory);
 
   if (!await pathExists(root)) {
     if (!options.createIfMissing) return;
     await mkdir(root, { recursive: true });
   }
 
-  const agentflowsDir = join(root, "agentflows");
-  const localAgentflowsDir = join(root, "agentflows-local");
-  const canvasDir = join(root, "canvas");
-  const runsDir = join(root, "runs");
-
   await Promise.all([
-    mkdir(agentflowsDir, { recursive: true }),
-    mkdir(localAgentflowsDir, { recursive: true }),
-    mkdir(canvasDir, { recursive: true }),
-    mkdir(runsDir, { recursive: true }),
+    mkdir(agentflowRoot(workingDirectory), { recursive: true }),
+    mkdir(agentflowsDir(workingDirectory), { recursive: true }),
+    mkdir(localAgentflowsDir(workingDirectory), { recursive: true }),
+    mkdir(canvasDir(workingDirectory), { recursive: true }),
+    mkdir(agentflowAssetsDir(workingDirectory), { recursive: true }),
+    mkdir(runsDir(workingDirectory), { recursive: true }),
+    mkdir(runLogsDir(workingDirectory), { recursive: true }),
+    mkdir(designReferencesDir(workingDirectory), { recursive: true }),
+    mkdir(designConversationsDir(workingDirectory), { recursive: true }),
+    mkdir(designProjectsDir(workingDirectory), { recursive: true }),
+    mkdir(prdDraftsDir(workingDirectory), { recursive: true }),
   ]);
 
   const gitignorePath = join(root, ".gitignore");
@@ -69,32 +95,17 @@ export async function initWorkspace(
     }
   }
 
-  const existingAgentflows = await readdir(agentflowsDir);
-  if (existingAgentflows.filter((file) => file.endsWith(".yaml")).length > 0) return;
+  const existingAgentflows = await listYamlFiles(agentflowsDir(workingDirectory));
+  const existingLocalAgentflows = await listYamlFiles(localAgentflowsDir(workingDirectory));
+  if (existingAgentflows.length > 0 || existingLocalAgentflows.length > 0) return;
 
-  const legacyFiles = await readdir(canvasDir);
-  const legacyYamlFiles = legacyFiles.filter((file) => file.endsWith(".yaml"));
-  if (legacyYamlFiles.length > 0) {
-    await Promise.all(
-      legacyYamlFiles.map(async (file) => {
-        const rawValue = await readFile(join(canvasDir, file), "utf8");
-        const canvasDocument = parse(rawValue) as CanvasDoc;
-        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(canvasDocument, options.seedAgentServerId));
-        await saveAgentFlowAndLayout(agentflow.id, agentflow, layout, workingDirectory);
-      }),
-    );
-    return;
-  }
-
-  // Seed agentflows once when the agentflows dir is empty.
-  if (legacyYamlFiles.length === 0) {
-    await Promise.all(
-      SEED_CANVAS_DOCS.map((canvasDocument) => {
-        const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(canvasDocument, options.seedAgentServerId));
-        return saveAgentFlowAndLayout(agentflow.id, agentflow, layout, workingDirectory);
-      }),
-    );
-  }
+  // Seed local agentflows once when the workspace is empty.
+  await Promise.all(
+    SEED_CANVAS_DOCS.map((canvasDocument) => {
+      const { agentflow, layout } = splitCanvasDoc(withSeedAgentServer(canvasDocument, options.seedAgentServerId));
+      return saveAgentFlowAndLayout(agentflow.id, agentflow, layout, workingDirectory, { local: true });
+    }),
+  );
 }
 
 export async function prepareSpecflowWorkspace(
@@ -133,6 +144,14 @@ async function prewarmSharedRegistryAgentServers(
 
 async function resolveAgentServer(root: string, agentServerId: string): Promise<ResolvedAgentServer> {
   return new AgentServerStore({ root }).resolve(agentServerId);
+}
+
+async function listYamlFiles(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory)).filter((file) => file.endsWith(".yaml"));
+  } catch {
+    return [];
+  }
 }
 
 function hasLocalAuditVersion(settings: unknown): boolean {

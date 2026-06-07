@@ -1,11 +1,11 @@
-import { AgentServerStore, probeAcpAgentCapabilities } from "@specflow/agent-proxy";
+import { AgentServerStore, probeAcpAgentCapabilities, type AgentServerCapabilitiesCache } from "@specflow/agent-proxy";
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
 import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
-import { SPECFLOW_WORKSPACE_PATH, uuidv7 } from "@specflow/shared";
+import { SPECFLOW_AGENTFLOW_PATH, uuidv7 } from "@specflow/shared";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
-import { canvasToWorkflow } from "./canvas-to-workflow";
+import { canvasToWorkflow } from "./agentflow/canvas-to-workflow";
 import {
   listCanvases,
   loadCanvas,
@@ -13,19 +13,19 @@ import {
   loadOrCreateCanvasLayout,
   saveCanvas,
   deleteCanvas,
-} from "./canvas-store";
-import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunRecord, type RunState } from "./run-store";
+} from "./agentflow/canvas-store";
+import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunRecord, type RunState } from "./agentflow/run-store";
 import {
   listAgentSessions,
   loadAgentSession,
   recordAgentSessionRestoreAttempt,
   upsertAgentSessionsFromRun,
-} from "./agent-session-store";
-import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./run-log-store";
-import { prepareCanvasRun } from "./run-inputs";
-import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
-import { assertServerRunnableAgentFlow } from "./agentflow-validation";
-import { assertSymbolKey, keyFromLabel } from "./agentflow-source";
+} from "./agentflow/agent-session-store";
+import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./agentflow/run-log-store";
+import { prepareCanvasRun } from "./agentflow/run-inputs";
+import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
+import { assertServerRunnableAgentFlow } from "./agentflow/agentflow-validation";
+import { assertSymbolKey, keyFromLabel } from "./agentflow/agentflow-source";
 import {
   loadLocalAgentServerConfig,
   removeLocalAgentServer,
@@ -34,6 +34,7 @@ import {
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { AgentInvocationPurpose } from "@specflow/workflow";
+import { agentflowAssetsDir } from "./workspace-paths";
 
 // ── simple in-process event bus ───────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ type RestoreStreamEvent =
       runId: string;
       requestedMode: AgentRestoreMode;
       selectedPrimitive?: AgentRestorePrimitive;
+      capabilities?: Pick<AgentServerCapabilitiesCache, "modes" | "configOptions">;
       status: RestoreStatus;
       error?: string;
       at: string;
@@ -1321,6 +1323,10 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         runId: session.latestRunId,
         requestedMode: mode,
         selectedPrimitive: result.selectedPrimitive,
+        capabilities: {
+          modes: result.loadResponse?.modes ?? result.resumeResponse?.modes ?? null,
+          configOptions: result.loadResponse?.configOptions ?? result.resumeResponse?.configOptions ?? null,
+        },
         status: "success",
         at: completedAt,
       });
@@ -1638,7 +1644,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       const files = form.getAll("files").filter((value): value is File => value instanceof File);
       const relativePaths = form.getAll("relativePaths").filter((value): value is string => typeof value === "string");
       if (files.length === 0) return Response.json({ error: "No files supplied" }, { status: 400 });
-      const base = join(root, SPECFLOW_WORKSPACE_PATH, "assets", workflowId, kind === "image" ? "images" : "resources");
+      const base = join(agentflowAssetsDir(root), workflowId, kind === "image" ? "images" : "resources");
       await mkdir(base, { recursive: true });
       if (kind === "image") {
         const images: Array<{ path: string; label: string; mimeType?: string }> = [];
@@ -1648,7 +1654,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           const filename = `${uuidv7()}${extension}`;
           await writeFile(join(base, filename), new Uint8Array(await file.arrayBuffer()));
           images.push({
-            path: `${SPECFLOW_WORKSPACE_PATH}/assets/${workflowId}/images/${filename}`,
+            path: `${SPECFLOW_AGENTFLOW_PATH}/assets/${workflowId}/images/${filename}`,
             label: basename(file.name) || filename,
             ...(file.type ? { mimeType: file.type } : {}),
           });
@@ -1662,8 +1668,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         await mkdir(dirname(output), { recursive: true });
         await writeFile(output, new Uint8Array(await file.arrayBuffer()));
         importedPaths.add(directory
-          ? `${SPECFLOW_WORKSPACE_PATH}/assets/${workflowId}/resources/${safePath.split("/")[0]}/`
-          : `${SPECFLOW_WORKSPACE_PATH}/assets/${workflowId}/resources/${safePath}`);
+          ? `${SPECFLOW_AGENTFLOW_PATH}/assets/${workflowId}/resources/${safePath.split("/")[0]}/`
+          : `${SPECFLOW_AGENTFLOW_PATH}/assets/${workflowId}/resources/${safePath}`);
       }
       return Response.json({ paths: [...importedPaths] });
     }
@@ -1885,7 +1891,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       const active = activeConversations.get(restoreId);
       if (!active) return Response.json({ error: "Interactive restored session is not active" }, { status: 409 });
       if (active.promptPending) return Response.json({ error: "A prompt is already running" }, { status: 409 });
-      let body: { prompt?: unknown };
+      let body: { prompt?: unknown; modeId?: unknown; configOptions?: unknown };
       try {
         body = await request.json() as { prompt?: unknown };
       } catch {
@@ -1894,11 +1900,17 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
         return Response.json({ error: "Prompt must not be empty" }, { status: 400 });
       }
+      const modeId = typeof body.modeId === "string" && body.modeId.trim() ? body.modeId.trim() : undefined;
+      const configOptions = parseRestoreConfigOptions(body.configOptions);
       active.promptPending = true;
       const promptController = new AbortController();
       active.promptController = promptController;
       try {
-        const result = await active.conversation.prompt(body.prompt, promptController.signal);
+        const result = await active.conversation.prompt({
+          prompt: body.prompt,
+          ...(modeId ? { modeId } : {}),
+          ...(configOptions && Object.keys(configOptions).length > 0 ? { configOptions } : {}),
+        }, promptController.signal);
         await active.waitForLogWrites();
         return Response.json(result);
       } catch (error) {
@@ -2115,6 +2127,16 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function parseRestoreConfigOptions(value: unknown): Record<string, string | boolean> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed: Record<string, string | boolean> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string" && typeof entry !== "boolean") continue;
+    parsed[key] = entry;
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
 }
 
 function safeAssetPath(name: string): string {

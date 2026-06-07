@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { prepareCanvasRun } from "./run-inputs";
-import type { AgentFlowDoc, AgentFlowStepNode } from "./canvas-doc";
+import { prepareCanvasRun } from "./agentflow/run-inputs";
+import type { AgentFlowDoc, AgentFlowStepNode } from "./agentflow/canvas-doc";
 
 const canvasDocument: AgentFlowDoc = {
   id: "simple",

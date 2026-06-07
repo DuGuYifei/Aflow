@@ -7,7 +7,7 @@ import {
   deleteRunLog,
   listRunLogEvents,
   runLogPath,
-} from "./run-log-store";
+} from "./agentflow/run-log-store";
 
 describe("run log store", () => {
   test("appends, lists, skips malformed lines, and deletes run logs", async () => {

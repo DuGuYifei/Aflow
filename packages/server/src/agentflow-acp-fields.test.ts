@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
+import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow/agentflow-source";
 
 const MCP_JSON = '[{"name":"fs","command":"uvx","args":["mcp-server-filesystem","/tmp"],"env":[]}]';
 

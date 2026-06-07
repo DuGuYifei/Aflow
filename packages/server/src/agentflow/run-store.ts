@@ -1,7 +1,6 @@
 import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
-import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 import type { NodeStatus } from "@specflow/shared";
 import type { WorkflowRunStatus } from "@specflow/workflow";
 import { appendRunLogEvent, listRunLogEvents } from "./run-log-store";
@@ -9,6 +8,7 @@ import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./canvas-doc";
 import { splitCanvasDoc } from "./canvas-store";
 import type { AgentInvocation } from "@specflow/workflow";
 import type { AgentSessionRecord } from "./agent-session-store";
+import { runsDir } from "../workspace-paths";
 
 export type RunState = "running" | "paused" | "success" | "error" | "pending" | "cancelled";
 
@@ -39,33 +39,28 @@ export interface RunRecord {
   resumedByRunId?: string;
 }
 
-function runsDir(root: string) {
-  return join(root, SPECFLOW_WORKSPACE_PATH, "runs");
-}
-
 function runPath(id: string, root: string) {
   return join(runsDir(root), `${id}.json`);
 }
 
-function legacyRunPath(id: string, root: string) {
+function runYamlPath(id: string, root: string) {
   return join(runsDir(root), `${id}.yaml`);
 }
 
 export async function listRuns(workflowId: string | undefined, root: string): Promise<RunRecord[]> {
-  const directory = runsDir(root);
+  const byId = new Map<string, RunRecord>();
   let files: string[];
   try {
-    files = await readdir(directory);
+    files = await readdir(runsDir(root));
   } catch {
     return [];
   }
   const runFiles = files
     .filter((file) => file.endsWith(".json") || file.endsWith(".yaml"))
     .sort((a, b) => Number(a.endsWith(".yaml")) - Number(b.endsWith(".yaml")));
-  const byId = new Map<string, RunRecord>();
   for (const file of runFiles) {
     try {
-      const rawValue = await readFile(join(directory, file), "utf8");
+      const rawValue = await readFile(join(runsDir(root), file), "utf8");
       const runRecord = parseRunRecord(rawValue, file);
       normalizeRunRecord(runRecord);
       if (!workflowId || runRecord.workflowId === workflowId) {
@@ -87,7 +82,7 @@ export async function loadRun(id: string, root: string): Promise<RunRecord> {
     rawValue = await readFile(path, "utf8");
   } catch (error) {
     if ((error as { code?: string }).code !== "ENOENT") throw error;
-    path = legacyRunPath(id, root);
+    path = runYamlPath(id, root);
     rawValue = await readFile(path, "utf8");
   }
   const runRecord = parseRunRecord(rawValue, path);
@@ -214,7 +209,7 @@ export async function deleteRun(id: string, root: string): Promise<void> {
     // already gone — ok
   }
   try {
-    await unlink(legacyRunPath(id, root));
+    await unlink(runYamlPath(id, root));
   } catch {
     // already gone — ok
   }

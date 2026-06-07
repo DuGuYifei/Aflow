@@ -9,10 +9,10 @@ import {
   listCanvases,
   loadCanvas,
   saveCanvas,
-} from "./canvas-store";
-import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
-import { assertCliRunnableAgentFlow, assertRunnableAgentFlow, assertServerRunnableAgentFlow } from "./agentflow-validation";
-import type { CanvasDoc } from "./canvas-doc";
+} from "./agentflow/canvas-store";
+import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow/agentflow-source";
+import { assertCliRunnableAgentFlow, assertRunnableAgentFlow, assertServerRunnableAgentFlow } from "./agentflow/agentflow-validation";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
 
 describe("agentflow/canvas storage", () => {
   it("resolves authored keys into internal workflow references", () => {
@@ -134,7 +134,7 @@ edges: []
     };
 
     await saveCanvas(canvasDocument.id, canvasDocument, root);
-    const rawValue = await readFile(join(root, ".aflow/.specflow", "agentflows", "draft-canvas.yaml"), "utf8");
+    const rawValue = await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows", "draft-canvas.yaml"), "utf8");
     expect(rawValue).toContain('alias: "01"');
     expect(rawValue).toContain('session: ""');
     const loaded = await loadCanvas(canvasDocument.id, root);
@@ -383,11 +383,12 @@ edges:
     await initWorkspace(root);
 
     const gitignore = await readFile(join(root, ".aflow/.specflow", ".gitignore"), "utf8");
-    expect(gitignore).toContain("runs/");
-    expect(gitignore).toContain("canvas/");
-    expect(gitignore).toContain("agentflows-local/");
+    expect(gitignore).toContain("agentflow/runs/");
+    expect(gitignore).toContain("agentflow/canvas/");
+    expect(gitignore).toContain("agentflow/agentflows-local/");
+    expect(gitignore).toContain("design/references/");
 
-    const agentflowRaw = await readFile(join(root, ".aflow/.specflow", "agentflows", "example-code-frontend-flow.yaml"), "utf8");
+    const agentflowRaw = await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", "example-code-frontend-flow.yaml"), "utf8");
     const agentflow = parseAgentFlowSource(agentflowRaw, "example-code-frontend-flow");
     expect(agentflow.nodes.some((node) => node.kind === "end")).toBe(true);
     expect("x" in agentflow.nodes[0]!).toBe(false);
@@ -397,25 +398,25 @@ edges:
     expect(agentflowRaw).not.toContain("sessionId:");
     expect(agentflowRaw).not.toContain("color:");
 
-    const canvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "canvas", "example-code-frontend-flow.json"), "utf8"));
+    const canvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "agentflow", "canvas", "example-code-frontend-flow.json"), "utf8"));
     expect(canvas.workflowId).toBe("example-code-frontend-flow");
     expect(canvas.nodes[0]).toHaveProperty("nodeId");
 
-    const docsFlowRaw = await readFile(join(root, ".aflow/.specflow", "agentflows", "example-create-specflow-doc-flow.yaml"), "utf8");
+    const docsFlowRaw = await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", "example-create-specflow-doc-flow.yaml"), "utf8");
     const docsFlow = parseAgentFlowSource(docsFlowRaw, "example-create-specflow-doc-flow");
     expect(docsFlow.nodes.find((node) => node.id === "discover-docs")?.kind).toBe("step");
     expect(docsFlow.nodes.find((node) => node.id === "documentation-basis")?.kind).toBe("gate");
     expect(docsFlowRaw).toContain(".aflow/.specflow/product/product.md");
     expect(docsFlowRaw).toContain("classification: undetermined");
 
-    const docsCanvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "canvas", "example-create-specflow-doc-flow.json"), "utf8"));
+    const docsCanvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "agentflow", "canvas", "example-create-specflow-doc-flow.json"), "utf8"));
     expect(docsCanvas.workflowId).toBe("example-create-specflow-doc-flow");
   });
 
   it("loads local agentflows from the gitignored local directory", async () => {
     const root = await tempProject();
     await initWorkspace(root);
-    const localDir = join(root, ".aflow/.specflow", "agentflows-local");
+    const localDir = join(root, ".aflow/.specflow", "agentflow", "agentflows-local");
     await mkdir(localDir, { recursive: true });
     await writeFile(join(localDir, "local-draft.yaml"), `
 version: 1
@@ -447,7 +448,7 @@ edges: []
 
     for (const workflowId of ["example-code-frontend-flow", "example-create-specflow-doc-flow"]) {
       const agentflow = parseAgentFlowSource(
-        await readFile(join(root, ".aflow/.specflow", "agentflows", `${workflowId}.yaml`), "utf8"),
+        await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", `${workflowId}.yaml`), "utf8"),
         workflowId,
       );
       expect(agentflow.sessions.map((session) => session.agentServerId)).toEqual([
@@ -458,28 +459,6 @@ edges: []
         "chosen-code-acp",
       ]);
     }
-  });
-
-  it("splits legacy canvas yaml into agentflow yaml and canvas json", async () => {
-    const root = await tempProject();
-    const specflow = join(root, ".aflow/.specflow");
-    const canvasDir = join(specflow, "canvas");
-    await mkdir(canvasDir, { recursive: true });
-    await writeFile(join(canvasDir, "legacy.yaml"), legacyCanvasYaml(), "utf8");
-
-    await initWorkspace(root);
-
-    const agentflowRaw = await readFile(join(specflow, "agentflows", "legacy.yaml"), "utf8");
-    const agentflow = parseAgentFlowSource(agentflowRaw, "legacy");
-    expect(agentflow.id).toBe("legacy");
-    expect("x" in agentflow.nodes[0]!).toBe(false);
-
-    const layout = JSON.parse(await readFile(join(canvasDir, "legacy.json"), "utf8"));
-    expect(layout.workflowId).toBe("legacy");
-    expect(layout.nodes.find((node: { nodeId: string }) => node.nodeId === "done")).toBeTruthy();
-
-    const legacyStillExists = await readFile(join(canvasDir, "legacy.yaml"), "utf8");
-    expect(legacyStillExists).toContain("Legacy flow");
   });
 
   it("regenerates missing or mismatched canvas layout from agentflow", async () => {
@@ -498,7 +477,7 @@ edges: []
     };
     await saveCanvas(canvasDocument.id, canvasDocument, root);
     await writeFile(
-      join(root, ".aflow/.specflow", "canvas", "regen.json"),
+      join(root, ".aflow/.specflow", "agentflow", "canvas", "regen.json"),
       `${JSON.stringify({ workflowId: "other", version: 1, nodes: [] })}\n`,
       "utf8",
     );

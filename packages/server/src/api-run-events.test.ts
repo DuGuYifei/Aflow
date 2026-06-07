@@ -5,11 +5,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { saveCanvas } from "./canvas-store";
+import { saveCanvas } from "./agentflow/canvas-store";
 import { upsertLocalAgentServer } from "./agent-server-config";
-import { appendRunLogEvent, listRunLogEvents } from "./run-log-store";
-import { loadRun } from "./run-store";
-import type { CanvasDoc } from "./canvas-doc";
+import { appendRunLogEvent, listRunLogEvents } from "./agentflow/run-log-store";
+import { loadRun } from "./agentflow/run-store";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
 
 describe("run event API", () => {
   test("replays terminal logs for the same persisted run id", async () => {

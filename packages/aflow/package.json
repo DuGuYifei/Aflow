@@ -18,7 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.78.0",
+    "@earendil-works/pi-coding-agent": "^0.78.1",
     "@specflow/agent-proxy": "workspace:*",
     "@specflow/server": "workspace:*",
     "@specflow/shared": "workspace:*",

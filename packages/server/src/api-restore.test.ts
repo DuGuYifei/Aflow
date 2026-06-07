@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { listAgentSessions, upsertAgentSessionsFromRun } from "./agent-session-store";
-import { listRunLogEvents } from "./run-log-store";
-import type { RunRecord } from "./run-store";
+import { listAgentSessions, upsertAgentSessionsFromRun } from "./agentflow/agent-session-store";
+import { listRunLogEvents } from "./agentflow/run-log-store";
+import type { RunRecord } from "./agentflow/run-store";
 
 describe("agent session restore API", () => {
   test("restores an indexed ACP session, streams updates, and records audit events", async () => {

@@ -38,17 +38,17 @@ Specflow is not limited to coding. It can connect to arbitrary custom agents for
 
 ```sh
 specflow
-specflow validate .aflow/.specflow/agentflows/example.yaml
-specflow run .aflow/.specflow/agentflows/example.yaml -Dtask="Review this change"
+specflow validate .aflow/.specflow/agentflow/agentflows/example.yaml
+specflow run .aflow/.specflow/agentflow/agentflows/example.yaml -Dtask="Review this change"
 ```
 
 See [Specflow Commands](docs/public/tutorial/en/specflow-command.md).
 
 ## Workspace Files
 
-Workflow-as-code files live in `.aflow/.specflow/agentflows/*.yaml`.
+Workflow-as-code files live in `.aflow/.specflow/agentflow/agentflows/*.yaml`.
 
-Browser canvas layout is generated into `.aflow/.specflow/canvas/*.json`.
+Browser canvas layout is generated into `.aflow/.specflow/agentflow/canvas/*.json`.
 
 Agent servers are configured under `.aflow/.specflow/agent-servers.json`. Local secrets and machine-specific overrides go in `.aflow/.specflow/agent-servers.local.json`.
 

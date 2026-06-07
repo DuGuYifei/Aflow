@@ -78,7 +78,7 @@ capabilities rather than through fork behavior.
   creation, reuse, fork capability checks, and fallback behavior.
 - `packages/bridge/src/execution/executor.ts` requests gate-derived sessions
   and records returned session metadata.
-- `packages/server/src/agent-session-store.ts` and
+- `packages/server/src/agentflow/agent-session-store.ts` and
   `packages/ui/src/components/sessions-bar.tsx` expose recorded capabilities
   and parent sessions.
 

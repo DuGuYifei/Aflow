@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { saveCanvas } from "./canvas-store";
+import { saveCanvas } from "./agentflow/canvas-store";
 import { loadLocalAgentServerConfig } from "./agent-server-config";
 
 describe("agent server API", () => {

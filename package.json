@@ -13,9 +13,9 @@
   },
   "scripts": {
     "aflow": "bun packages/aflow/src/cli.ts",
-    "dev": "SPECFLOW_SERVER_MODE=development NODE_ENV=development bun run aflow",
-    "dev:aflow": "SPECFLOW_SERVER_MODE=development NODE_ENV=development bun run aflow",
-    "dev:specflow": "SPECFLOW_SERVER_MODE=development NODE_ENV=development bun run specflow",
+    "dev": "bun run dev:aflow",
+    "dev:aflow": "bun run build:ui && bun packages/server/scripts/generate-static-ui-assets.ts && bun run aflow",
+    "dev:specflow": "bun run build:ui && bun packages/server/scripts/generate-static-ui-assets.ts && bun packages/cli/src/specflow.ts",
     "specflow": "bun packages/cli/src/specflow.ts",
     "build:ui": "bun run --cwd packages/ui build",
     "build:specflow": "bun packages/server/scripts/generate-static-ui-assets.ts && SPECFLOW_VERSION=$(bun packages/cli/src/version.ts package-version package.json) bun build --compile --target=bun --sourcemap=none --env=SPECFLOW_* packages/cli/src/specflow.ts --outfile specflow",
@@ -31,5 +31,8 @@
     "@vitejs/plugin-react": "^5.2.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.3"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.78.1"
   }
 }

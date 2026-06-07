@@ -1,14 +1,14 @@
 /// <reference path="./glob.d.ts" />
 export * from "./http";
-export * from "./canvas-doc";
-export { splitCanvasDoc } from "./canvas-store";
-export * from "./agentflow-source";
-export * from "./agentflow-validation";
-export * from "./canvas-to-workflow";
-export * from "./cli-runner";
-export * from "./run-inputs";
-export * from "./agent-session-store";
-export * from "./run-log-store";
+export * from "./agentflow/canvas-doc";
+export { splitCanvasDoc } from "./agentflow/canvas-store";
+export * from "./agentflow/agentflow-source";
+export * from "./agentflow/agentflow-validation";
+export * from "./agentflow/canvas-to-workflow";
+export * from "./agentflow/cli-runner";
+export * from "./agentflow/run-inputs";
+export * from "./agentflow/agent-session-store";
+export * from "./agentflow/run-log-store";
 export * from "./agent-server-config";
 export * from "./agent-server-runtime";
 export * from "./workspace";

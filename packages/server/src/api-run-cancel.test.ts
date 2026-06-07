@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { saveCanvas } from "./canvas-store";
+import { saveCanvas } from "./agentflow/canvas-store";
 import { upsertLocalAgentServer } from "./agent-server-config";
-import { loadRun } from "./run-store";
-import type { CanvasDoc } from "./canvas-doc";
+import { loadRun } from "./agentflow/run-store";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
 
 describe("run cancellation API", () => {
   test("cancels an active headless run and persists cancelled status", async () => {

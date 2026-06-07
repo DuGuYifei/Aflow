@@ -7,16 +7,16 @@ Purpose:
 - Do not rely on external docs while authoring. This embedded guide is the source of truth available to Aflow in packaged binaries.
 
 Storage and ids:
-- Shared/team workflows live in .aflow/.specflow/agentflows/<workflow-id>.yaml and are suitable for git.
-- Local drafts and fork/adapt outputs live in .aflow/.specflow/agentflows-local/<workflow-id>.yaml and are gitignored.
-- Canvas layout lives in .aflow/.specflow/canvas/<workflow-id>.json. Do not hand-author layout for YAML-only work.
+- Shared/team workflows live in .aflow/.specflow/agentflow/agentflows/<workflow-id>.yaml and are suitable for git.
+- Local drafts and fork/adapt outputs live in .aflow/.specflow/agentflow/agentflows-local/<workflow-id>.yaml and are gitignored.
+- Canvas layout lives in .aflow/.specflow/agentflow/canvas/<workflow-id>.json. Do not hand-author layout for YAML-only work.
 - The YAML filename without .yaml is the workflow id.
 - workflow id, session keys, node keys, and branch keys must match [a-z][a-z0-9-]*.
 - Use readable kebab-case ids such as code-review-flow, implement, review, verdict, needs-rework.
 - input variable names must match specflow_[A-Za-z0-9_]+ and must be unique.
 
 Fork/adapt rule:
-- When adapting an existing workflow for a new user, case, repository, or business problem, copy the source YAML to .aflow/.specflow/agentflows-local/<new-workflow-id>.yaml first.
+- When adapting an existing workflow for a new user, case, repository, or business problem, copy the source YAML to .aflow/.specflow/agentflow/agentflows-local/<new-workflow-id>.yaml first.
 - Modify the local copy. Do not mutate the source workflow in place unless the user explicitly asks to maintain that shared workflow.
 
 Minimal complete workflow example:
@@ -178,7 +178,7 @@ nodes:
     paths:
       - docs/
     images:
-      - path: .aflow/.specflow/assets/wireframe.png
+      - path: .aflow/.specflow/agentflow/assets/wireframe.png
         label: wireframe.png
         mimeType: image/png
     modeId: plan
@@ -309,8 +309,8 @@ Interaction rules:
 - When the user only wants a draft, conservative assumptions are acceptable, but state important assumptions briefly and keep the draft in agentflows-local unless the user wants a shared workflow.
 
 Workflow file rules:
-- Create reusable/team workflows in .aflow/.specflow/agentflows/.
-- Create local drafts and fork/adapt outputs in .aflow/.specflow/agentflows-local/.
+- Create reusable/team workflows in .aflow/.specflow/agentflow/agentflows/.
+- Create local drafts and fork/adapt outputs in .aflow/.specflow/agentflow/agentflows-local/.
 - For fork/adapt work, call specflow_fork_workflow_to_local first once the source is known. Edit the copied local workflow, not the source.
 - Do not mutate a source/shared workflow in place unless the user explicitly asks to maintain that exact workflow.
 - Use specflow_read_workflow before editing, validating a known draft, or adapting an existing workflow.
@@ -358,8 +358,8 @@ Ask for missing parameters only when they are required to make the workflow exec
 Use the embedded workflow YAML authoring guide below. It is available inside the Aflow binary.
 
 Default output path:
-- New reusable/team workflows should go under .aflow/.specflow/agentflows/<workflow-id>.yaml.
-- Exploratory or user-local drafts should go under .aflow/.specflow/agentflows-local/<workflow-id>.yaml, which is gitignored.
+- New reusable/team workflows should go under .aflow/.specflow/agentflow/agentflows/<workflow-id>.yaml.
+- Exploratory or user-local drafts should go under .aflow/.specflow/agentflow/agentflows-local/<workflow-id>.yaml, which is gitignored.
 - Persist the final YAML with specflow_write_workflow instead of only showing it in chat.
 
 Use concrete workflow structure:
@@ -380,7 +380,7 @@ ${WORKFLOW_YAML_AUTHORING_GUIDE}
 export const FORK_ADAPT_WORKFLOW_PROMPT = `
 Adapt an existing Specflow workflow to a new concrete problem.
 
-Do not edit the source workflow in place. First call specflow_fork_workflow_to_local to copy the source YAML to .aflow/.specflow/agentflows-local/<new-workflow-id>.yaml, then modify the copied file. agentflows-local/ is gitignored and is the default home for fork/adapt drafts.
+Do not edit the source workflow in place. First call specflow_fork_workflow_to_local to copy the source YAML to .aflow/.specflow/agentflow/agentflows-local/<new-workflow-id>.yaml, then modify the copied file. agentflow/agentflows-local/ is gitignored and is the default home for fork/adapt drafts.
 
 If the source workflow is missing or ambiguous, use specflow_list_workflows and ask_user to select it. Read the source workflow before deciding what to preserve or change.
 

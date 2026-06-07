@@ -1,6 +1,5 @@
 import { access, mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 import type {
   AgentFlowDoc,
   AgentFlowNode,
@@ -10,18 +9,11 @@ import type {
   CanvasNodeLayout,
 } from "./canvas-doc";
 import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
-
-function agentflowsDir(root: string) {
-  return join(root, SPECFLOW_WORKSPACE_PATH, "agentflows");
-}
-
-function localAgentflowsDir(root: string) {
-  return join(root, SPECFLOW_WORKSPACE_PATH, "agentflows-local");
-}
-
-function canvasDir(root: string) {
-  return join(root, SPECFLOW_WORKSPACE_PATH, "canvas");
-}
+import {
+  agentflowsDir,
+  canvasDir,
+  localAgentflowsDir,
+} from "../workspace-paths";
 
 function agentflowPath(id: string, root: string, local = false) {
   return join(local ? localAgentflowsDir(root) : agentflowsDir(root), `${id}.yaml`);
@@ -78,9 +70,13 @@ export async function loadOrCreateCanvasLayout(
   root: string,
 ): Promise<CanvasLayoutDoc> {
   try {
-    const rawValue = await readFile(canvasPath(agentflow.id, root), "utf8");
+    const rawValue = await readFile(await readableCanvasPath(agentflow.id, root), "utf8");
     const layout = JSON.parse(rawValue) as CanvasLayoutDoc;
-    if (layout.workflowId === agentflow.id) return normalizeCanvasLayout(agentflow, layout);
+    if (layout.workflowId === agentflow.id) {
+      const normalized = normalizeCanvasLayout(agentflow, layout);
+      await saveCanvasLayout(agentflow.id, normalized, root);
+      return normalized;
+    }
   } catch {
     // Missing or malformed layout is regenerated below.
   }
@@ -105,10 +101,12 @@ export async function saveAgentFlowAndLayout(
   agentflow: AgentFlowDoc,
   layout: CanvasLayoutDoc,
   root: string,
+  options: { local?: boolean } = {},
 ): Promise<void> {
   await mkdir(agentflowsDir(root), { recursive: true });
+  await mkdir(localAgentflowsDir(root), { recursive: true });
   await Promise.all([
-    writeFile(agentflowPath(id, root), stringifyAgentFlowSource({ ...agentflow, id }), "utf8"),
+    writeFile(agentflowPath(id, root, options.local === true), stringifyAgentFlowSource({ ...agentflow, id }), "utf8"),
     saveCanvasLayout(id, layout, root),
   ]);
 }
@@ -127,15 +125,25 @@ export async function deleteCanvas(id: string, root: string): Promise<void> {
 }
 
 async function readableAgentflowPath(id: string, root: string): Promise<string> {
-  const localPath = agentflowPath(id, root, true);
-  if (await pathExists(localPath)) return localPath;
+  const candidates = [
+    agentflowPath(id, root, true),
+    agentflowPath(id, root),
+  ];
+  for (const path of candidates) {
+    if (await pathExists(path)) return path;
+  }
   return agentflowPath(id, root);
 }
 
 async function writableAgentflowPath(id: string, root: string): Promise<string> {
-  const localPath = agentflowPath(id, root, true);
-  if (await pathExists(localPath)) return localPath;
+  if (await pathExists(agentflowPath(id, root, true))) {
+    return agentflowPath(id, root, true);
+  }
   return agentflowPath(id, root);
+}
+
+async function readableCanvasPath(id: string, root: string): Promise<string> {
+  return canvasPath(id, root);
 }
 
 async function pathExists(path: string): Promise<boolean> {

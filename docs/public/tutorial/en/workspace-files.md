@@ -18,40 +18,47 @@ Specflow workspace files live under `.aflow/.specflow/`.
 
 ```text
 .aflow/.specflow/
-  agentflows/
-  agentflows-local/
-  canvas/
   agent-servers.json
   agent-servers.local.json
-  assets/
-  runs/
-  run-logs/
   cache/
+  agentflow/
+    agentflows/
+    agentflows-local/
+    canvas/
+    assets/
+    runs/
+    run-logs/
+  design/
+    references/
+    conversations/
+    artifacts/
+  prd/
+    drafts/
 ```
 
 ## Workflow YAML
 
 ```text
-.aflow/.specflow/agentflows/*.yaml
+.aflow/.specflow/agentflow/agentflows/*.yaml
 ```
 
 These files are workflow-as-code and are suitable for version control.
 
 ```text
-.aflow/.specflow/agentflows-local/*.yaml
+.aflow/.specflow/agentflow/agentflows-local/*.yaml
 ```
 
-These files are local workflow drafts, suitable for Aflow fork/adapt output, personal experiments, and variants that should not be committed yet. During workspace initialization, Specflow adds `agentflows-local/` to `.aflow/.specflow/.gitignore`. The server treats YAML files in `agentflows-local/` as readable and runnable workflows, but local versions should not overwrite shared files in `agentflows/`.
+These files are local workflow drafts, suitable for Aflow fork/adapt output, personal experiments, and variants that should not be committed yet. During workspace initialization, Specflow adds `agentflow/agentflows-local/` to `.aflow/.specflow/.gitignore`. The server treats YAML files in `agentflow/agentflows-local/` as readable and runnable workflows, but local versions should not overwrite shared files in `agentflow/agentflows/`.
 
 ## Canvas Layout
 
 ```text
-.aflow/.specflow/canvas/*.json
+.aflow/.specflow/agentflow/canvas/*.json
 ```
 
 These files store browser canvas positions. Handwritten workflow YAML does not need to maintain them.
 
-During workspace initialization, Specflow adds `canvas/` to `.aflow/.specflow/.gitignore`.
+During workspace initialization, Specflow adds `agentflow/canvas/` to `.aflow/.specflow/.gitignore`.
 
 ## Agent Server Configuration
 
@@ -255,8 +262,8 @@ If an agent needs both an API key and a proxy, keep them in the same `env`:
 ## Workflow Assets
 
 ```text
-.aflow/.specflow/assets/<workflowId>/images/
-.aflow/.specflow/assets/<workflowId>/resources/
+.aflow/.specflow/agentflow/assets/<workflowId>/images/
+.aflow/.specflow/agentflow/assets/<workflowId>/resources/
 ```
 
 These files come from images, directories, and resource files uploaded or associated with a workflow in the UI.
@@ -266,7 +273,7 @@ If the workflow YAML references these assets and the team or CI needs to reprodu
 ## Run Records
 
 ```text
-.aflow/.specflow/runs/<runId>.json
+.aflow/.specflow/agentflow/runs/<runId>.json
 ```
 
 These files store each run's summary, status, node outputs, agent invocations, agent sessions, workflow snapshot, canvas snapshot, and runtime variable values.
@@ -274,17 +281,17 @@ These files store each run's summary, status, node outputs, agent invocations, a
 Older versions may contain:
 
 ```text
-.aflow/.specflow/runs/<runId>.yaml
+.aflow/.specflow/agentflow/runs/<runId>.yaml
 ```
 
 Specflow remains compatible with old YAML run records.
 
-During workspace initialization, Specflow adds `runs/` to `.aflow/.specflow/.gitignore`.
+During workspace initialization, Specflow adds `agentflow/runs/` to `.aflow/.specflow/.gitignore`.
 
 ## Run Logs
 
 ```text
-.aflow/.specflow/run-logs/<runId>.jsonl
+.aflow/.specflow/agentflow/run-logs/<runId>.jsonl
 ```
 
 These files are append-only run event logs, with one JSON event per line. They store terminal output, node status, run status, agent lifecycle, interactions, and restore attempts.

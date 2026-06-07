@@ -2,15 +2,15 @@ import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { splitCanvasDoc } from "./canvas-store";
-import type { CanvasDoc } from "./canvas-doc";
-import type { RunRecord } from "./run-store";
-import { deleteRun, loadRun } from "./run-store";
+import { splitCanvasDoc } from "./agentflow/canvas-store";
+import type { CanvasDoc } from "./agentflow/canvas-doc";
+import type { RunRecord } from "./agentflow/run-store";
+import { deleteRun, loadRun } from "./agentflow/run-store";
 import {
   listAgentSessions,
   recordAgentSessionRestoreAttempt,
   upsertAgentSessionsFromRun,
-} from "./agent-session-store";
+} from "./agentflow/agent-session-store";
 
 describe("agent session store", () => {
   it("indexes ACP sessions from run invocations", async () => {

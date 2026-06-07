@@ -53,7 +53,7 @@ Pi-compatible options:
   --help, -h                  Show this help
 
 Workflow files:
-  Shared workflows: .aflow/.specflow/agentflows/
-  Local drafts:     .aflow/.specflow/agentflows-local/
+  Shared workflows: .aflow/.specflow/agentflow/agentflows/
+  Local drafts:     .aflow/.specflow/agentflow/agentflows-local/
 `);
 }
