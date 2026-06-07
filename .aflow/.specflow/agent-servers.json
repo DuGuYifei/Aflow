@@ -1,14 +1,3 @@
 {
-  "agent_servers": {
-    "codex-acp": {
-      "type": "registry",
-      "registry_id": "codex-acp",
-      "env": {}
-    },
-    "claude-acp": {
-      "type": "registry",
-      "registry_id": "claude-acp",
-      "env": {}
-    }
-  }
+  "agent_servers": {}
 }
