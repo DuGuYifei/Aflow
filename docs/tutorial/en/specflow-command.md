@@ -23,7 +23,7 @@ With no arguments, Specflow starts the server and opens the browser UI.
 ## Validate A Workflow
 
 ```sh
-specflow validate .aflow/.specflow/agentflows/code-review-flow.yaml
+specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
 `validate` parses the YAML and checks whether the workflow is runnable. It does not start any agent.
@@ -35,7 +35,7 @@ If the workflow has required input nodes, `validate` still does not need `-D` va
 ## Run A Workflow
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
 `run` validates the workflow, checks required input values and agent authentication status, then executes the workflow.
@@ -62,7 +62,7 @@ nodes:
 Pass values with `-D`:
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
 ```
 
 The CLI recommends the short name without the `specflow_` prefix, such as `-Dtask=...`. Specflow maps it to the internal variable `specflow_task`.
@@ -70,25 +70,25 @@ The CLI recommends the short name without the `specflow_` prefix, such as `-Dtas
 The full variable name is also supported:
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dspecflow_task="Fix the failing login test"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dspecflow_task="Fix the failing login test"
 ```
 
 For multiple input nodes, pass multiple `-D` values:
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
 ```
 
 If the workflow has no input nodes, no input arguments are required:
 
 ```sh
-specflow run .aflow/.specflow/agentflows/nightly-review.yaml
+specflow run .aflow/.specflow/agentflow/agentflows/nightly-review.yaml
 ```
 
 ## Skip Confirmation
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix login" --yes
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" --yes
 ```
 
 `--yes` or `-y` skips the pre-run confirmation.

@@ -32,7 +32,7 @@ Aflow first understands your business goal, required agents, inputs and outputs,
 
 A more natural pattern is to chat first so Aflow can understand the business context, constraints, existing tools, team process, and any general workflow you want to reuse. Once the goal is clear, say "create this as a workflow", or ask Aflow to adapt an existing workflow into a local version for the current business case.
 
-Created workflows are written to `.aflow/.specflow/agentflows-local/`, which is suitable for local drafts for the current project or user. Once a workflow should become shared team workflow-as-code, move it into `.aflow/.specflow/agentflows/`.
+Created workflows are written to `.aflow/.specflow/agentflow/agentflows-local/`, which is suitable for local drafts for the current project or user. Once a workflow should become shared team workflow-as-code, move it into `.aflow/.specflow/agentflow/agentflows/`.
 
 ### Fork/Adapt Existing Workflows
 
@@ -42,7 +42,7 @@ In Aflow, enter:
 /specflow-fork-adapt
 ```
 
-Aflow reads an existing workflow, copies it into `.aflow/.specflow/agentflows-local/`, and edits the copy for the new goal. It should not overwrite the source workflow unless the user explicitly asks to maintain the shared team version.
+Aflow reads an existing workflow, copies it into `.aflow/.specflow/agentflow/agentflows-local/`, and edits the copy for the new goal. It should not overwrite the source workflow unless the user explicitly asks to maintain the shared team version.
 
 Good fork/adapt use cases include:
 

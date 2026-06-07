@@ -18,40 +18,47 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 
 ```text
 .aflow/.specflow/
-  agentflows/
-  agentflows-local/
-  canvas/
   agent-servers.json
   agent-servers.local.json
-  assets/
-  runs/
-  run-logs/
   cache/
+  agentflow/
+    agentflows/
+    agentflows-local/
+    canvas/
+    assets/
+    runs/
+    run-logs/
+  design/
+    references/
+    conversations/
+    artifacts/
+  prd/
+    drafts/
 ```
 
 ## Workflow YAML
 
 ```text
-.aflow/.specflow/agentflows/*.yaml
+.aflow/.specflow/agentflow/agentflows/*.yaml
 ```
 
 这些文件是 workflow-as-code，适合提交到版本控制中。
 
 ```text
-.aflow/.specflow/agentflows-local/*.yaml
+.aflow/.specflow/agentflow/agentflows-local/*.yaml
 ```
 
-这些文件是本地 workflow 草稿，适合 Aflow 的 fork/adapt 输出、个人实验和暂不希望提交的变体。初始化 workspace 时，Specflow 会把 `agentflows-local/` 加入 `.aflow/.specflow/.gitignore`。Server 会把 `agentflows-local/` 中的 YAML 当作可读取、可运行的 workflow，但本地版本不应覆盖团队共享的 `agentflows/` 文件。
+这些文件是本地 workflow 草稿，适合 Aflow 的 fork/adapt 输出、个人实验和暂不希望提交的变体。初始化 workspace 时，Specflow 会把 `agentflow/agentflows-local/` 加入 `.aflow/.specflow/.gitignore`。Server 会把 `agentflow/agentflows-local/` 中的 YAML 当作可读取、可运行的 workflow，但本地版本不应覆盖团队共享的 `agentflow/agentflows/` 文件。
 
 ## Canvas 布局
 
 ```text
-.aflow/.specflow/canvas/*.json
+.aflow/.specflow/agentflow/canvas/*.json
 ```
 
 这些文件保存浏览器画布位置。手写 workflow YAML 时不需要维护它们。
 
-初始化 workspace 时，Specflow 会把 `canvas/` 加入 `.aflow/.specflow/.gitignore`。
+初始化 workspace 时，Specflow 会把 `agentflow/canvas/` 加入 `.aflow/.specflow/.gitignore`。
 
 ## Agent server 配置
 
@@ -255,8 +262,8 @@ Specflow 预热或 UI 保存 registry agent 时可能会在本地配置里记录
 ## Workflow 资源
 
 ```text
-.aflow/.specflow/assets/<workflowId>/images/
-.aflow/.specflow/assets/<workflowId>/resources/
+.aflow/.specflow/agentflow/assets/<workflowId>/images/
+.aflow/.specflow/agentflow/assets/<workflowId>/resources/
 ```
 
 这些文件来自 UI 中上传或关联到 workflow 的图片、目录和资源文件。
@@ -266,7 +273,7 @@ Specflow 预热或 UI 保存 registry agent 时可能会在本地配置里记录
 ## Run 记录
 
 ```text
-.aflow/.specflow/runs/<runId>.json
+.aflow/.specflow/agentflow/runs/<runId>.json
 ```
 
 这些文件保存每次 run 的摘要、状态、节点输出、agent invocation、agent session、workflow snapshot、canvas snapshot 和运行时变量值。
@@ -274,17 +281,17 @@ Specflow 预热或 UI 保存 registry agent 时可能会在本地配置里记录
 旧版本可能存在：
 
 ```text
-.aflow/.specflow/runs/<runId>.yaml
+.aflow/.specflow/agentflow/runs/<runId>.yaml
 ```
 
 Specflow 会兼容读取旧的 YAML run record。
 
-初始化 workspace 时，Specflow 会把 `runs/` 加入 `.aflow/.specflow/.gitignore`。
+初始化 workspace 时，Specflow 会把 `agentflow/runs/` 加入 `.aflow/.specflow/.gitignore`。
 
 ## Run 日志
 
 ```text
-.aflow/.specflow/run-logs/<runId>.jsonl
+.aflow/.specflow/agentflow/run-logs/<runId>.jsonl
 ```
 
 这些文件是 append-only 的运行事件日志，每行一个 JSON event。它们保存 terminal output、node status、run status、agent lifecycle、interaction 和 restore attempt 等事件。

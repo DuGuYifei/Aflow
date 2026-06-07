@@ -23,7 +23,7 @@ specflow
 ## 校验 workflow
 
 ```sh
-specflow validate .aflow/.specflow/agentflows/code-review-flow.yaml
+specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
 `validate` 只解析 YAML 并检查 workflow 是否满足可运行规则，不会启动 agent。
@@ -35,7 +35,7 @@ specflow validate .aflow/.specflow/agentflows/code-review-flow.yaml
 ## 运行 workflow
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
 `run` 会先做 workflow 校验，再检查 required input 是否有值和 agent 认证状态，然后执行 workflow。
@@ -62,7 +62,7 @@ nodes:
 运行时用 `-D` 传值：
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
 ```
 
 CLI 推荐使用无前缀名字，例如 `-Dtask=...`。Specflow 会把它映射到内部变量 `specflow_task`。
@@ -70,25 +70,25 @@ CLI 推荐使用无前缀名字，例如 `-Dtask=...`。Specflow 会把它映射
 完整变量名也兼容：
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dspecflow_task="Fix the failing login test"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dspecflow_task="Fix the failing login test"
 ```
 
 多个 input node 就传多个 `-D`：
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
 ```
 
 如果 workflow 没有 input node，就不需要输入参数：
 
 ```sh
-specflow run .aflow/.specflow/agentflows/nightly-review.yaml
+specflow run .aflow/.specflow/agentflow/agentflows/nightly-review.yaml
 ```
 
 ## 跳过确认
 
 ```sh
-specflow run .aflow/.specflow/agentflows/code-review-flow.yaml -Dtask="Fix login" --yes
+specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" --yes
 ```
 
 `--yes` 或 `-y` 会跳过运行前确认。
