@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { SPECFLOW_WORKSPACE_PATH } from "@specflow/shared";
 import type {
@@ -13,6 +14,7 @@ import type {
 import { resolveCustomAcpCommand } from "../sources/custom-acp";
 import { resolveRegistryAcp } from "../sources/registry-acp";
 import { expandHome } from "../util";
+import { resolveAgentCacheDir } from "./cache-path";
 
 export interface AgentServerStoreOptions {
   root: string;
@@ -20,7 +22,7 @@ export interface AgentServerStoreOptions {
 }
 
 interface CapabilitiesCacheFile {
-  capabilities?: Record<AgentServerId, AgentServerCapabilitiesCache>;
+  capabilities?: Record<string, AgentServerCapabilitiesCache>;
 }
 
 export class AgentServerStore {
@@ -28,11 +30,11 @@ export class AgentServerStore {
   readonly #cacheDir: string;
   readonly #capabilitiesFile: string;
   #settings: Map<AgentServerId, AgentServerSettings> | undefined;
-  #capabilities: Map<AgentServerId, AgentServerCapabilitiesCache> | undefined;
+  #capabilities: Map<string, AgentServerCapabilitiesCache> | undefined;
 
   constructor(options: AgentServerStoreOptions) {
     this.#root = options.root;
-    this.#cacheDir = options.cacheDir ?? process.env.SPECFLOW_AGENT_CACHE_DIR ?? join(options.root, SPECFLOW_WORKSPACE_PATH, "cache", "agents");
+    this.#cacheDir = resolveAgentCacheDir({ cacheDir: options.cacheDir });
     this.#capabilitiesFile = join(this.#cacheDir, "capabilities.json");
   }
 
@@ -41,7 +43,7 @@ export class AgentServerStore {
     await this.#loadCapabilities();
     return [...this.#settings!.entries()].map(([id, settings]) => {
       const entry: AgentServerEntry = { id, settings };
-      const cached = this.#capabilities!.get(id);
+      const cached = this.#capabilities!.get(capabilityCacheKey(id, settings));
       if (cached && capabilityCacheStillValid(cached, settings)) {
         entry.capabilities = cached;
       }
@@ -81,7 +83,7 @@ export class AgentServerStore {
     await this.#loadCapabilities();
     const settings = this.#settings!.get(agentServerId);
     if (!settings) return undefined;
-    const cached = this.#capabilities!.get(agentServerId);
+    const cached = this.#capabilities!.get(capabilityCacheKey(agentServerId, settings));
     if (!cached) return undefined;
     if (!capabilityCacheStillValid(cached, settings)) return undefined;
     return cached;
@@ -107,13 +109,22 @@ export class AgentServerStore {
       configOptions: snapshot.configOptions,
       availableCommands: snapshot.availableCommands,
     };
-    this.#capabilities!.set(agentServerId, entry);
+    this.#capabilities!.set(capabilityCacheKey(agentServerId, settings), entry);
     await this.#writeCapabilities();
   }
 
   async clearCapabilities(agentServerId: AgentServerId): Promise<void> {
+    await this.#load();
     await this.#loadCapabilities();
-    if (!this.#capabilities!.delete(agentServerId)) return;
+    const settings = this.#settings!.get(agentServerId);
+    const keys = settings
+      ? [capabilityCacheKey(agentServerId, settings)]
+      : [...this.#capabilities!.keys()].filter((key) => key.startsWith(`${agentServerId}:`));
+    let changed = false;
+    for (const key of keys) {
+      changed = this.#capabilities!.delete(key) || changed;
+    }
+    if (!changed) return;
     await this.#writeCapabilities();
   }
 
@@ -163,6 +174,29 @@ function capabilityCacheStillValid(
   // Both undefined (custom/headless agents that don't pin a version) →
   // treat as still valid; user must hit refresh after changing command/env.
   return cached.installedVersion === current;
+}
+
+function capabilityCacheKey(
+  agentServerId: AgentServerId,
+  settings: AgentServerSettings | undefined,
+): string {
+  const fingerprint = createHash("sha256")
+    .update(stableStringify(settings ?? null))
+    .digest("hex")
+    .slice(0, 24);
+  return `${agentServerId}:${fingerprint}`;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(stableValue(value));
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!isPlainObject(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, stableValue(value[key])]),
+  );
 }
 
 function installedVersionOf(settings: AgentServerSettings | undefined): string | undefined {

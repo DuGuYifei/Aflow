@@ -10,9 +10,9 @@ export function normalizeEnv(input?: Record<string, string>): Record<string, str
   );
 }
 
-export function expandHome(path: string): string {
-  if (path === "~") return homedir();
-  if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2));
+export function expandHome(path: string, home: string = homedir()): string {
+  if (path === "~") return home;
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(home, path.slice(2));
   return path;
 }
 
