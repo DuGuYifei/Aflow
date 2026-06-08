@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T05:36:58.810Z",
+  "generatedAt": "2026-06-08T23:33:22.545Z",
   "sections": [
     {
       "id": "tutorial",
@@ -20,7 +20,7 @@
           "title": "Specflow Commands",
           "description": "Learn what specflow, specflow validate, and specflow run do, and how to pass workflow inputs.",
           "order": 2,
-          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/en/specflow-command.md"
         },
         {
@@ -29,7 +29,7 @@
           "title": "Workspace Files",
           "description": "Learn how workflows, canvas files, agent servers, run records, logs, caches, and assets are stored in a Specflow workspace.",
           "order": 3,
-          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/en/workspace-files.md"
         },
         {
@@ -38,8 +38,17 @@
           "title": "Aflow Agent Tutorial",
           "description": "Learn how to use Aflow Agent to create, adapt, validate, run, and resume Specflow workflows.",
           "order": 4,
-          "updatedAt": "2026-06-02 22:16:57 CEST",
+          "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/en/aflow-agent.md"
+        },
+        {
+          "id": "designer",
+          "locale": "en",
+          "title": "Designer Tutorial",
+          "description": "Learn how to use Designer mode to create UI design projects, preview HTML or React frames, attach references, and record versions.",
+          "order": 5,
+          "updatedAt": "2026-06-09 01:12:49 CEST",
+          "path": "docs/tutorial/en/designer.md"
         },
         {
           "id": "write-workflow-yaml",
@@ -56,7 +65,7 @@
           "title": "Specflow 命令",
           "description": "学习 specflow、specflow validate 和 specflow run 的用途与输入规则。",
           "order": 2,
-          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/zh/specflow-command.md"
         },
         {
@@ -65,7 +74,7 @@
           "title": "Workspace 文件",
           "description": "了解 Specflow workspace 中 workflow、canvas、agent server、运行记录、日志、缓存和资源文件的作用。",
           "order": 3,
-          "updatedAt": "2026-06-02 22:10:35 CEST",
+          "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/zh/workspace-files.md"
         },
         {
@@ -74,8 +83,17 @@
           "title": "Aflow Agent 使用教程",
           "description": "学习如何用 Aflow Agent 创建、改写、校验、运行和恢复 Specflow workflows。",
           "order": 4,
-          "updatedAt": "2026-06-02 22:16:57 CEST",
+          "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/zh/aflow-agent.md"
+        },
+        {
+          "id": "designer",
+          "locale": "zh",
+          "title": "Designer 使用教程",
+          "description": "学习如何使用 Designer 模式创建 UI 设计项目、预览 HTML 或 React frame、附加 reference 并记录版本。",
+          "order": 5,
+          "updatedAt": "2026-06-09 01:12:49 CEST",
+          "path": "docs/tutorial/zh/designer.md"
         }
       ]
     }

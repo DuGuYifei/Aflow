@@ -3,7 +3,7 @@ title: Aflow Agent Tutorial
 description: Learn how to use Aflow Agent to create, adapt, validate, run, and resume Specflow workflows.
 category: tutorial
 order: 4
-updatedAt: "2026-06-02 22:16:57 CEST"
+updatedAt: "2026-06-09 01:12:49 CEST"
 tags:
   - aflow
   - agent
@@ -17,6 +17,22 @@ Aflow Agent is Specflow's terminal workflow agent. It runs in your project direc
 Unlike direct `specflow run`, Aflow is designed for interactive collaboration. It asks when required information is missing, collects required input node values before a workflow run, and keeps node status, pause interaction, and session resume inside the same TUI.
 
 You do not have to memorize slash commands. If you say in chat that you want to turn a process into a workflow, run something with Specflow, or adapt a general workflow to a specific business case, Aflow can understand the intent and call workflow tools to create, copy, adapt, or validate the workflow.
+
+## Startup Modes
+
+Start Aflow with no arguments:
+
+```sh
+aflow
+```
+
+Aflow opens a small TUI mode picker:
+
+- `Native Aflow`: start the original Aflow agent TUI.
+- `Specflow`: start only the Specflow server and open the workspace UI.
+- `Designer`: start only the Specflow server and open the [Designer UI](designer.md) at `/design`.
+
+Specflow and Designer mode do not start the Aflow agent conversation. They prepare the workspace, start the local server, try to open the default browser, and keep the server running until the terminal process exits.
 
 ## Aflow-Specific Capabilities
 
