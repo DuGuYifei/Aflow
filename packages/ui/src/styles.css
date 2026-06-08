@@ -3746,6 +3746,8 @@ body.design-resizing-chat {
 
 .design-compose .rich-prompt-input {
   min-height: 76px;
+  max-height: min(30vh, 220px);
+  overflow-y: auto;
   border: 0;
   background: transparent;
   border-radius: 12px;
@@ -4121,6 +4123,12 @@ body.design-resizing-chat {
   border-bottom: 1px solid var(--line);
   display: grid;
   gap: 8px;
+}
+
+.design-reference-context .textarea {
+  max-height: 140px;
+  overflow-y: auto;
+  resize: vertical;
 }
 
 .design-reference-drawer {
