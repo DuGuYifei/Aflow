@@ -53,8 +53,8 @@ export function DesignCanvas({
   panRef.current = pan;
 
   const frames = useMemo(() => artifactFrames(artifact), [artifact]);
-  const hasHtml = frames.some((frame) => frame.designPath);
-  const hasWireframe = frames.some((frame) => frame.designPath || frame.wireframePath);
+  const hasHtml = frames.some((frame) => frame.designPath || frame.route);
+  const hasWireframe = frames.some((frame) => frame.designPath || frame.wireframePath || frame.route);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -196,21 +196,28 @@ export function DesignCanvas({
                 <span>{frame.title}</span>
                 <small>{frame.width}x{frame.height}</small>
               </div>
-              <iframe
-                ref={(node) => {
-                  if (node) iframeRefs.current.set(frame.id, node);
-                  else iframeRefs.current.delete(frame.id);
-                }}
-                className="design-frame-iframe"
-                title={`${frame.title} ${view}`}
-                sandbox="allow-scripts"
-                src={frameSource(artifact!, frame, view, artifactRevision)}
-                onLoad={(event) => {
-                  event.currentTarget.contentWindow?.postMessage({ type: 'design-style-drafts', drafts: styleDrafts }, '*');
-                  event.currentTarget.contentWindow?.postMessage({ type: 'design-selected-component', id: selectedComponentId }, '*');
-                  if (selectedComponentId) requestComponentHierarchy(iframeRefs.current, selectedComponentId);
-                }}
-              />
+              {framePreviewAvailable(artifact!, frame) ? (
+                <iframe
+                  ref={(node) => {
+                    if (node) iframeRefs.current.set(frame.id, node);
+                    else iframeRefs.current.delete(frame.id);
+                  }}
+                  className="design-frame-iframe"
+                  title={`${frame.title} ${view}`}
+                  sandbox={artifact?.kind === 'react' ? 'allow-scripts allow-same-origin' : 'allow-scripts'}
+                  src={frameSource(artifact!, frame, view, artifactRevision)}
+                  onLoad={(event) => {
+                    event.currentTarget.contentWindow?.postMessage({ type: 'design-style-drafts', drafts: styleDrafts }, '*');
+                    event.currentTarget.contentWindow?.postMessage({ type: 'design-selected-component', id: selectedComponentId }, '*');
+                    if (selectedComponentId) requestComponentHierarchy(iframeRefs.current, selectedComponentId);
+                  }}
+                />
+              ) : (
+                <div className="design-frame-runtime-empty">
+                  <Icon name="terminal" size={15} />
+                  <span>{artifact?.runtime?.status === 'failed' ? t('design.runtime.failed') : t('design.runtime.notRunning')}</span>
+                </div>
+              )}
               <div className="design-frame-actions">
                 <button type="button" onClick={() => onOpenPanel('description', frame)} disabled={!frame.descriptionPath}>
                   <Icon name="file" size={12} />{t('design.frame.description')}
@@ -284,6 +291,14 @@ function parseFrameComputedStyle(value: unknown): Record<string, string> | undef
 }
 
 function frameSource(artifact: DesignArtifact, frame: DesignArtifactFrame, view: DesignCanvasView, artifactRevision: number): string {
+  if (artifact.kind === 'react') {
+    if (!artifact.runtime?.url || !frame.route) return '';
+    const url = new URL(frame.route, artifact.runtime.url);
+    url.searchParams.set('frameId', frame.id);
+    if (view === 'wireframe') url.searchParams.set('view', 'wireframe');
+    if (artifactRevision > 0) url.searchParams.set('rev', String(artifactRevision));
+    return url.toString();
+  }
   const path = view === 'wireframe' ? frame.designPath ?? frame.wireframePath : frame.designPath;
   if (!path) return '';
   const params = new URLSearchParams();
@@ -292,6 +307,11 @@ function frameSource(artifact: DesignArtifact, frame: DesignArtifactFrame, view:
   if (artifactRevision > 0) params.set('rev', String(artifactRevision));
   const query = params.toString();
   return `/api/design/projects/${encodeURIComponent(artifact.projectName)}/files/${encodeURIComponent(path)}${query ? `?${query}` : ''}`;
+}
+
+function framePreviewAvailable(artifact: DesignArtifact, frame: DesignArtifactFrame): boolean {
+  if (artifact.kind !== 'react') return Boolean(frame.designPath || frame.wireframePath);
+  return Boolean(frame.route && artifact.runtime?.status === 'running' && artifact.runtime.url);
 }
 
 function postSelectedComponent(iframes: Map<string, HTMLIFrameElement>, id: string): void {

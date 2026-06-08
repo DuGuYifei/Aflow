@@ -5,6 +5,7 @@ import { serveStaticUi } from "./static-ui";
 import { SkillStore, resolveSlashCommands } from "./skills";
 import { createApiHandler } from "./api";
 import { createDesignApiHandler } from "./design/api";
+import { stopDesignRuntimeManagers } from "./design/runtime-manager";
 
 export interface SpecflowServerOptions {
   host?: string;
@@ -62,6 +63,7 @@ export async function startSpecflowServer(
   return {
     url,
     stop() {
+      void stopDesignRuntimeManagers(workingDirectory);
       server.stop();
     },
   };

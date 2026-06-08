@@ -2877,6 +2877,58 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   max-width: 150px;
 }
 
+.design-runtime-chip {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  border-radius: 7px;
+  color: var(--ink-2);
+  padding: 0 4px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.design-runtime-chip a {
+  width: 22px;
+  height: 22px;
+  color: var(--ink-3);
+  display: inline-grid;
+  place-items: center;
+}
+
+.design-runtime-chip a:hover {
+  color: var(--ink);
+}
+
+.design-runtime-chip .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+.design-runtime-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ink-3);
+  flex: 0 0 auto;
+}
+
+.design-runtime-chip.running .design-runtime-dot {
+  background: #1f9d55;
+}
+
+.design-runtime-chip.starting .design-runtime-dot {
+  background: #d99a1e;
+}
+
+.design-runtime-chip.failed .design-runtime-dot {
+  background: #d13f3f;
+}
+
 .design-back-icon {
   transform: rotate(180deg);
 }
@@ -2930,8 +2982,28 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-bottom: 1px solid var(--line);
   padding: 12px 14px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
+}
+
+.design-project-kind {
+  height: 32px;
+  align-self: stretch;
+}
+
+.design-project-kind-badge {
+  margin-left: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.design-project-kind-badge.react {
+  color: var(--accent-ink);
+  border-color: color-mix(in oklab, var(--accent), transparent 45%);
 }
 
 .design-project-list {
@@ -2972,6 +3044,9 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .design-project-item span {
   font-size: 12px;
   font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .design-project-item small {
@@ -3998,6 +4073,20 @@ body.design-resizing-chat {
   background: #fff;
   border-radius: 8px;
   display: block;
+}
+
+.design-frame-runtime-empty {
+  width: 100%;
+  height: 100%;
+  border: 1px dashed var(--line);
+  background: color-mix(in oklab, var(--bg-panel), var(--bg) 24%);
+  border-radius: 8px;
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  font-size: 12px;
 }
 
 .design-frame-canvas.mode-hand .design-frame-iframe {

@@ -30,7 +30,7 @@ describe("design api", () => {
       id: "session-1",
       createdAt: "2026-06-05T00:00:00.000Z",
       updatedAt: "2026-06-05T00:00:01.000Z",
-      project: { name: "demo", path: "/demo" },
+      project: { name: "demo", path: "/demo", kind: "html" },
       memoryInjected: true,
       messages: [],
       logs: [log],

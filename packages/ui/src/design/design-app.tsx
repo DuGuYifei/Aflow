@@ -33,8 +33,11 @@ import {
   fetchDesignReferences,
   importDesignReference,
   recordDesignProjectVersion,
+  restartDesignProjectRuntime,
   streamInitializeDesignSession,
   streamDesignMessage,
+  startDesignProjectRuntime,
+  stopDesignProjectRuntime,
   uploadDesignImages,
 } from './api';
 import { DesignCanvas } from './design-canvas';
@@ -45,8 +48,10 @@ import type {
   DesignChatMessage,
   DesignComponentNode,
   DesignMessageAttachment,
+  DesignProjectKind,
   DesignProjectSummary,
   DesignReferenceSummary,
+  DesignRuntimeState,
   DesignSession,
   DesignSessionSummary,
   DesignVersionCommit,
@@ -100,6 +105,7 @@ export function DesignApp() {
   const [projects, setProjects] = useState<DesignProjectSummary[]>([]);
   const [selectedProject, setSelectedProject] = useState<DesignProjectSummary | undefined>();
   const [projectNameInput, setProjectNameInput] = useState('');
+  const [projectKindInput, setProjectKindInput] = useState<DesignProjectKind>('html');
   const [projectArtifact, setProjectArtifact] = useState<DesignArtifact | undefined>();
   const [artifactRevision, setArtifactRevision] = useState(0);
   const [references, setReferences] = useState<DesignReferenceSummary[]>([]);
@@ -164,6 +170,7 @@ export function DesignApp() {
   const messageAbortRef = useRef<AbortController | null>(null);
   const artifactRefreshTimerRef = useRef<number | undefined>(undefined);
   const artifact = session?.latestArtifact ?? projectArtifact;
+  const projectRuntime = artifact?.runtime ?? selectedProject?.runtime;
   const chatPanelCompact = chatPanelWidth <= DESIGN_CHAT_COMPACT_WIDTH;
   const liveConfigSeedRef = useRef<{
     agentServerId: string;
@@ -234,6 +241,13 @@ export function DesignApp() {
       .catch((loadError) => showToast({ type: 'error', title: t('design.toast.sessionsLoadFailed'), message: errorMessage(loadError) }));
     fetchDesignProject(selectedProject.name)
       .then((project) => {
+        setSelectedProject((current) => current?.name === project.name ? {
+          name: project.name,
+          path: project.path,
+          kind: project.kind,
+          updatedAt: project.updatedAt,
+          runtime: project.runtime,
+        } : current);
         setProjectArtifact(project.artifact);
         setArtifactRevision((current) => current + 1);
       })
@@ -325,9 +339,66 @@ export function DesignApp() {
     if (!projectName) return undefined;
     const detail = await fetchDesignProject(projectName);
     setProjectArtifact(detail.artifact);
+    setSelectedProject((current) => current?.name === detail.name ? {
+      name: detail.name,
+      path: detail.path,
+      kind: detail.kind,
+      updatedAt: detail.updatedAt,
+      runtime: detail.runtime,
+    } : current);
     setSession((current) => current?.project.name === projectName ? { ...current, latestArtifact: detail.artifact } : current);
     setArtifactRevision((current) => current + 1);
     return detail.artifact;
+  };
+
+  const applyRuntimeState = (runtime: DesignRuntimeState) => {
+    setSelectedProject((current) => current ? { ...current, runtime } : current);
+    setProjectArtifact((current) => current ? { ...current, runtime } : current);
+    setSession((current) => current?.latestArtifact ? {
+      ...current,
+      latestArtifact: { ...current.latestArtifact, runtime },
+    } : current);
+  };
+
+  const runRuntimeAction = async (action: 'start' | 'restart' | 'stop') => {
+    if (!selectedProject || selectedProject.kind !== 'react') return undefined;
+    setBusy(`runtime-${action}`);
+    setError('');
+    try {
+      const runtime = action === 'start'
+        ? await startDesignProjectRuntime(selectedProject.name)
+        : action === 'restart'
+          ? await restartDesignProjectRuntime(selectedProject.name)
+          : await stopDesignProjectRuntime(selectedProject.name);
+      applyRuntimeState(runtime);
+      showToast({
+        type: runtime.status === 'failed' ? 'error' : 'success',
+        title: runtimeTitle(runtime, t),
+        message: runtimeMessage(runtime, t),
+      });
+      return runtime;
+    } catch (runtimeError) {
+      const message = errorMessage(runtimeError);
+      setError(message);
+      showToast({ type: 'error', title: t('design.runtime.failed'), message });
+      return undefined;
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const ensureReactRuntimeForSession = async () => {
+    if (!selectedProject || selectedProject.kind !== 'react') return;
+    if (projectRuntime?.status === 'running') return;
+    try {
+      const runtime = await startDesignProjectRuntime(selectedProject.name);
+      applyRuntimeState(runtime);
+      if (runtime.status === 'failed') {
+        showToast({ type: 'error', title: t('design.runtime.failed'), message: runtime.error ?? t('design.runtime.failedMessage') });
+      }
+    } catch (runtimeError) {
+      showToast({ type: 'error', title: t('design.runtime.failed'), message: errorMessage(runtimeError) });
+    }
   };
 
   const scheduleArtifactRefresh = (entry: AcpTimelineEvent) => {
@@ -557,9 +628,10 @@ export function DesignApp() {
     setBusy('project');
     setError('');
     try {
-      const project = await createDesignProject(name);
+      const project = await createDesignProject(name, projectKindInput);
       await refreshProjects();
       setProjectNameInput('');
+      setProjectKindInput('html');
       openProject(project);
       showToast({ type: 'success', title: t('design.toast.projectCreated'), message: project.name });
     } catch (createError) {
@@ -641,6 +713,7 @@ export function DesignApp() {
     setStartSessionOpen(false);
     setError('');
     try {
+      await ensureReactRuntimeForSession();
       const nextSession = await streamInitializeDesignSession({
         projectName: selectedProject.name,
         agentServerId: agent,
@@ -1010,6 +1083,29 @@ export function DesignApp() {
             <Icon name="folder" size={12} />{t('design.project.switch')}
           </button>
         )}
+        {selectedProject?.kind === 'react' && (
+          <div className={`design-runtime-chip ${projectRuntime?.status ?? 'stopped'}`} title={projectRuntime?.outputTail ?? projectRuntime?.error ?? runtimeMessage(projectRuntime, t)}>
+            <span className="design-runtime-dot" />
+            <span>{runtimeLabel(projectRuntime, t)}</span>
+            {projectRuntime?.status === 'running' && projectRuntime.url && (
+              <a href={projectRuntime.url} target="_blank" rel="noreferrer" title={projectRuntime.url}>
+                <Icon name="external" size={11} />
+              </a>
+            )}
+            {projectRuntime?.status === 'running' || projectRuntime?.status === 'starting' ? (
+              <button className="icon-btn" disabled={busy.startsWith('runtime')} onClick={() => void runRuntimeAction('stop')} title={t('design.runtime.stop')}>
+                <Icon name="pause" size={11} />
+              </button>
+            ) : (
+              <button className="icon-btn" disabled={busy.startsWith('runtime')} onClick={() => void runRuntimeAction('start')} title={t('design.runtime.start')}>
+                {busy === 'runtime-start' ? <Icon name="loader" size={11} style={{ animation: 'spin 1.4s linear infinite' }} /> : <Icon name="play" size={11} />}
+              </button>
+            )}
+            <button className="icon-btn" disabled={busy.startsWith('runtime')} onClick={() => void runRuntimeAction('restart')} title={t('design.runtime.restart')}>
+              {busy === 'runtime-restart' ? <Icon name="loader" size={11} style={{ animation: 'spin 1.4s linear infinite' }} /> : <Icon name="rotate" size={11} />}
+            </button>
+          </div>
+        )}
         <button className="btn sm agent-update-button" onClick={() => setAgentServerManagerOpen(true)} title={t('topbar.agentsTitle')}>
           <Icon name="settings" size={11} />{t('topbar.agents')}
         </button>
@@ -1063,6 +1159,14 @@ export function DesignApp() {
               </div>
             </div>
             <div className="design-project-create">
+              <div className="segmented design-project-kind">
+                <button className={projectKindInput === 'html' ? 'active' : ''} onClick={() => setProjectKindInput('html')}>
+                  {t('design.project.html')}
+                </button>
+                <button className={projectKindInput === 'react' ? 'active' : ''} onClick={() => setProjectKindInput('react')}>
+                  {t('design.project.react')}
+                </button>
+              </div>
               <input
                 className="input"
                 value={projectNameInput}
@@ -1082,7 +1186,10 @@ export function DesignApp() {
                 <div className="design-session-empty">{t('design.project.empty')}</div>
               ) : projects.map((project) => (
                 <button key={project.name} className="design-project-item" onClick={() => openProject(project)}>
-                  <span>{project.name}</span>
+                  <span>
+                    {project.name}
+                    <small className={`design-project-kind-badge ${project.kind}`}>{project.kind === 'react' ? t('design.project.react') : t('design.project.html')}</small>
+                  </span>
                   <small>{project.path}</small>
                 </button>
               ))}
@@ -2340,6 +2447,30 @@ function designProjectFileUrl(projectName: string, filePath: string): string {
   return `/api/design/projects/${encodeURIComponent(projectName)}/files/${encodeURIComponent(filePath)}`;
 }
 
+function runtimeLabel(runtime: DesignRuntimeState | undefined, t: (key: string, params?: Record<string, string | number>) => string): string {
+  if (!runtime) return t('design.runtime.stopped');
+  if (runtime.status === 'running') return runtime.port ? t('design.runtime.runningWithPort', { port: runtime.port }) : t('design.runtime.running');
+  if (runtime.status === 'starting') return t('design.runtime.starting');
+  if (runtime.status === 'failed') return t('design.runtime.failed');
+  return t('design.runtime.stopped');
+}
+
+function runtimeTitle(runtime: DesignRuntimeState, t: (key: string, params?: Record<string, string | number>) => string): string {
+  if (runtime.status === 'running') return t('design.runtime.running');
+  if (runtime.status === 'starting') return t('design.runtime.starting');
+  if (runtime.status === 'failed') return t('design.runtime.failed');
+  return t('design.runtime.stopped');
+}
+
+function runtimeMessage(runtime: DesignRuntimeState | undefined, t: (key: string, params?: Record<string, string | number>) => string): string {
+  if (!runtime) return t('design.runtime.notRunning');
+  if (runtime.error) return runtime.error;
+  if (runtime.status === 'running' && runtime.port) return t('design.runtime.runningMessage', { port: runtime.port });
+  if (runtime.status === 'starting') return t('design.runtime.startingMessage');
+  if (runtime.status === 'failed') return t('design.runtime.failedMessage');
+  return t('design.runtime.notRunning');
+}
+
 function designToolText(
   tool: Extract<TimelineItem, { kind: 'tool' }>,
   t: (key: string, params?: Record<string, string | number>) => string,
@@ -2525,7 +2656,9 @@ function pad2(value: number): string {
 
 function artifactHasView(artifact: DesignArtifact | undefined, tab: DesignArtifactTab): boolean {
   if (!artifact) return false;
-  return Boolean(artifact.frames?.some((frame) => tab === 'html' ? Boolean(frame.designPath) : Boolean(frame.designPath || frame.wireframePath)));
+  return Boolean(artifact.frames?.some((frame) => tab === 'html'
+    ? Boolean(frame.designPath || frame.route)
+    : Boolean(frame.designPath || frame.wireframePath || frame.route)));
 }
 
 function visibleSessionLogs(liveLogs: AcpTimelineEvent[], savedLogs: AcpTimelineEvent[] | undefined): AcpTimelineEvent[] {

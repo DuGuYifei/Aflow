@@ -9,6 +9,8 @@ import {
 import { initializeDesignSession, listDesignSessions, loadDesignSession, sendDesignMessage } from "./sessions";
 import { loadDesignProjectArtifact, safeProjectRelativePath } from "./artifacts";
 import { createDesignProject, designProjectPath, listDesignProjects, loadDesignProject, sanitizeDesignProjectName } from "./projects";
+import { sanitizeProjectKind } from "./project-config";
+import { designRuntimeManagerForRoot } from "./runtime-manager";
 import {
   branchDesignVersionFromCommit,
   loadDesignVersionState,
@@ -24,6 +26,7 @@ import type {
 } from "./types";
 
 export function createDesignApiHandler(root: string): (request: Request) => Promise<Response | null> {
+  const runtimeManager = designRuntimeManagerForRoot(root);
   return async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
     const { pathname } = url;
@@ -39,12 +42,16 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
       }
 
       if (request.method === "GET" && pathname === "/api/design/projects") {
-        return Response.json(await listDesignProjects(root));
+        return Response.json(await listDesignProjects(root, (project) => runtimeManager.runtimeState(project)));
       }
 
       if (request.method === "POST" && pathname === "/api/design/projects") {
-        const body = await request.json() as { name?: unknown };
-        return Response.json(await createDesignProject(root, typeof body.name === "string" ? body.name : ""));
+        const body = await request.json() as { name?: unknown; kind?: unknown };
+        return Response.json(await createDesignProject(
+          root,
+          typeof body.name === "string" ? body.name : "",
+          sanitizeProjectKind(body.kind),
+        ));
       }
 
       if (request.method === "POST" && pathname === "/api/design/references/import") {
@@ -120,6 +127,24 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
         }
       }
 
+      const projectRuntimeMatch = pathname.match(/^\/api\/design\/projects\/([^/]+)\/runtime(?:\/([^/]+))?$/);
+      if (projectRuntimeMatch) {
+        const projectName = decodeURIComponent(projectRuntimeMatch[1]!);
+        const action = projectRuntimeMatch[2];
+        if (request.method === "GET" && !action) {
+          return Response.json(await runtimeManager.status(projectName));
+        }
+        if (request.method === "POST" && action === "start") {
+          return Response.json(await runtimeManager.start(projectName));
+        }
+        if (request.method === "POST" && action === "restart") {
+          return Response.json(await runtimeManager.restart(projectName));
+        }
+        if (request.method === "POST" && action === "stop") {
+          return Response.json(await runtimeManager.stop(projectName));
+        }
+      }
+
       if (request.method === "GET" && pathname === "/api/design/sessions") {
         return Response.json(await listDesignSessions(root, url.searchParams.get("projectName") ?? undefined));
       }
@@ -142,11 +167,10 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
         const path = designProjectPath(root, name);
         const projectStat = await stat(path).catch(() => undefined);
         if (!projectStat?.isDirectory()) throw httpError(404, `Design project not found: ${name}`);
+        const project = await loadDesignProject(root, name, (entry) => runtimeManager.runtimeState(entry));
         return Response.json({
-          name,
-          path,
-          updatedAt: projectStat.mtime.toISOString(),
-          artifact: await loadDesignProjectArtifact(name, path),
+          ...project,
+          artifact: await loadDesignProjectArtifact(project),
         });
       }
 

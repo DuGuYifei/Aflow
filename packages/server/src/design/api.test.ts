@@ -125,6 +125,47 @@ describe("design API", () => {
     expect(html).toContain("__aflowDescribe");
   });
 
+  test("creates React projects with scaffolded route frames", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-design-"));
+    const handle = createDesignApiHandler(root);
+
+    const created = await handle(new Request("http://specflow.test/api/design/projects", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "React App", kind: "react" }),
+    }));
+    expect(created?.status).toBe(200);
+    const createdBody = await created!.json() as { name: string; path: string; kind: string };
+    expect(createdBody).toMatchObject({
+      name: "React-App",
+      kind: "react",
+      path: join(root, ".aflow/.specflow/design/projects/React-App"),
+    });
+    expect(await readFile(join(createdBody.path, ".aflow-design/project.json"), "utf8")).toContain("\"kind\": \"react\"");
+    expect(await readFile(join(createdBody.path, "src/aflow-design-bridge.ts"), "utf8")).toContain("initializeAflowDesignBridge");
+    expect(await readFile(join(createdBody.path, "package.json"), "utf8")).toContain("\"vite\"");
+
+    const detail = await handle(new Request("http://specflow.test/api/design/projects/React-App"));
+    expect(detail?.status).toBe(200);
+    expect(await detail!.json()).toMatchObject({
+      name: "React-App",
+      kind: "react",
+      runtime: { kind: "react", status: "stopped" },
+      artifact: {
+        kind: "react",
+        runtime: { kind: "react", status: "stopped" },
+        frames: [
+          expect.objectContaining({ id: "desktop", route: "/desktop", descriptionPath: "desktop.md" }),
+          expect.objectContaining({ id: "mobile", route: "/mobile", descriptionPath: "mobile.md" }),
+        ],
+      },
+    });
+
+    const runtime = await handle(new Request("http://specflow.test/api/design/projects/React-App/runtime"));
+    expect(runtime?.status).toBe(200);
+    expect(await runtime!.json()).toMatchObject({ kind: "react", status: "stopped" });
+  });
+
   test("uploads design chat images into cwd tmp", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-design-"));
     const handle = createDesignApiHandler(root);

@@ -19,6 +19,7 @@ import { buildDesignExecutionPrompt, loadDesignProjectArtifact } from "./artifac
 import { appendDesignSessionLogEntry, listDesignSessionLogEntries } from "./log-store";
 import { loadDesignProject } from "./projects";
 import { designReferencePath, sanitizeReferenceName } from "./references";
+import { designRuntimeManagerForRoot } from "./runtime-manager";
 import type {
   DesignChatMessage,
   DesignMessageAttachment,
@@ -49,7 +50,8 @@ export async function initializeDesignSession(
   if (!agentServerId) throw httpError(400, "agentServerId is required.");
 
   const runner = options.runner ?? pooledDesignAgentRunner(root);
-  const project = await loadDesignProject(root, request.projectName);
+  const runtimeManager = designRuntimeManagerForRoot(root);
+  const project = await loadDesignProject(root, request.projectName, (entry) => runtimeManager.runtimeState(entry));
   const session = createDesignSession(project);
   const reference = await resolveReferenceContext(root, request);
   if (reference) session.reference = reference;
@@ -58,7 +60,7 @@ export async function initializeDesignSession(
   const timeline = createDesignTimelinePipeline(root, session, options);
 
   await injectDesignerMemory(root, session, request, agentServerId, runner, timeline, options.signal);
-  session.latestArtifact = await loadDesignProjectArtifact(project.name, project.path);
+  session.latestArtifact = await loadDesignProjectArtifact(project);
   timeline.snapshot({ status: "success", metadata: { operation: "initialize" } });
   await timeline.flush();
   session.logs = timeline.events;
@@ -77,7 +79,8 @@ export async function sendDesignMessage(
   if (!message) throw httpError(400, "message is required.");
 
   const runner = options.runner ?? pooledDesignAgentRunner(root);
-  const project = await loadDesignProject(root, request.projectName);
+  const runtimeManager = designRuntimeManagerForRoot(root);
+  const project = await loadDesignProject(root, request.projectName, (entry) => runtimeManager.runtimeState(entry));
   const session = request.sessionId
     ? await loadDesignSession(root, request.sessionId)
     : createDesignSession(project);
@@ -153,7 +156,7 @@ export async function sendDesignMessage(
     throw httpError(502, `Designer message failed: ${result.output}`);
   }
   session.acpSessionId = result.sessionId ?? session.acpSessionId;
-  session.latestArtifact = await loadDesignProjectArtifact(project.name, project.path);
+  session.latestArtifact = await loadDesignProjectArtifact(project);
   timeline.snapshot({ status: "success", turnId });
   await timeline.flush();
   session.logs = timeline.events;
@@ -355,6 +358,12 @@ export async function loadDesignSession(root: string, id: string): Promise<Desig
   const path = designSessionPath(root, id);
   try {
     const session = JSON.parse(await readFile(path, "utf8")) as DesignSession;
+    if (session.project?.name) {
+      const runtimeManager = designRuntimeManagerForRoot(root);
+      const project = await loadDesignProject(root, session.project.name, (entry) => runtimeManager.runtimeState(entry));
+      session.project = project;
+      session.latestArtifact = await loadDesignProjectArtifact(project);
+    }
     session.logs = await listDesignSessionLogEntries(root, id);
     return session;
   } catch (error) {
@@ -381,7 +390,7 @@ async function resolveDesignSlashCommands(root: string, agentServerId: string, m
 async function saveDesignSession(root: string, session: DesignSession): Promise<void> {
   session.updatedAt = new Date().toISOString();
   await mkdir(designConversationsDir(root), { recursive: true });
-  const { logs: _logs, ...persisted } = session;
+  const { logs: _logs, ...persisted } = withoutRuntimeState(session);
   await writeFile(designSessionPath(root, session.id), `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
 }
 
@@ -394,6 +403,18 @@ function createDesignSession(project: DesignProjectSummary): DesignSession {
     project,
     memoryInjected: false,
     messages: [],
+  };
+}
+
+function withoutRuntimeState(session: DesignSession): DesignSession {
+  const { runtime: _projectRuntime, ...project } = session.project;
+  const latestArtifact = session.latestArtifact
+    ? (({ runtime: _artifactRuntime, ...artifact }) => artifact)(session.latestArtifact)
+    : undefined;
+  return {
+    ...session,
+    project,
+    ...(latestArtifact ? { latestArtifact } : {}),
   };
 }
 
@@ -422,18 +443,49 @@ function buildDesignerMemoryPrompt(
 ): string {
   const lines = [
     "请把以下设定放进 memory：",
-    "现在你是一个前端 UI 设计师。我们将以 HTML 的形式做产品界面设计。",
-    "当前对话只服务于一个 Designer project。你需要直接读写当前工作目录中的 HTML/CSS/JS/JSON 文件来完成设计工作。",
+    project.kind === "react"
+      ? "现在你是一个前端 UI 设计师。我们将以 React/Vite 的形式做产品界面设计。"
+      : "现在你是一个前端 UI 设计师。我们将以 HTML 的形式做产品界面设计。",
+    project.kind === "react"
+      ? "当前对话只服务于一个 Designer project。你需要直接读写当前工作目录中的 React/TypeScript/CSS/JSON/Markdown 文件来完成设计工作。"
+      : "当前对话只服务于一个 Designer project。你需要直接读写当前工作目录中的 HTML/CSS/JS/JSON 文件来完成设计工作。",
     "重要前提：用户可能先讨论、澄清、探索方案。只有当你判断用户是在要求生成、修改或更新设计画面时，才按下面的产物规则读写文件；如果用户只是在讨论，请自然回复并继续澄清，不要贸然创建或修改文件。",
     "",
     "当前 Designer project：",
     `- name: ${project.name}`,
+    `- kind: ${project.kind}`,
     `- working directory: ${project.path}`,
     "",
     "工作规则：",
     "- agent 进程的 cwd 可能是 workspace root；上面的 working directory 才是项目根目录。",
     "- 所有设计产物必须写入这个 working directory，不要写到其他位置。",
     "- 请直接编辑 Designer project 工作目录中的文件，不要用 markdown fenced blocks 作为主要产物。",
+    ...projectKindPromptRules(project.kind),
+    "不要把 reference 仓库代码原样复制到结果里；只读取和吸收其中的信息架构、布局、组件组织、交互和视觉规律。",
+  ];
+  if (reference) {
+    lines.push(
+      "",
+      "本次设计可使用以下 reference 仓库：",
+      `- name: ${reference.name}`,
+      `- path: ${reference.path}`,
+    );
+    if (reference.interfaceDescription) {
+      lines.push("- 该仓库的界面描述：", reference.interfaceDescription);
+    }
+    lines.push("当用户请求设计时，如果当前 agent 权限允许，请按需读取这个 reference 仓库里的相关文件来理解对应界面。");
+  }
+  lines.push("", "如果你已经把这些设定放入 memory 并理解了，只回复“知道了”。");
+  return lines.join("\n");
+}
+
+function projectKindPromptRules(kind: DesignProjectSummary["kind"]): string[] {
+  if (kind === "react") return reactProjectPromptRules();
+  return htmlProjectPromptRules();
+}
+
+function htmlProjectPromptRules(): string[] {
+  return [
     "- 所有 frame HTML 文件都直接放在项目根目录，命名为 xxx.html，不要创建 frames/<id>/ 分目录。",
     "- 你可以创建和修改 styles.css、interactions.js、manifest.json 等共享文件。",
     "- 优先把可调整视觉样式写入 styles.css，并给组件稳定 class 或 data-component-id selector。",
@@ -466,22 +518,39 @@ function buildDesignerMemoryPrompt(
     "    {\"id\":\"mobile\",\"title\":\"Mobile\",\"kind\":\"mobile\",\"width\":390,\"height\":844,\"x\":1520,\"y\":0,\"designPath\":\"mobile.html\",\"descriptionPath\":\"mobile.md\"}",
     "  ]",
     "}",
-    "不要把 reference 仓库代码原样复制到结果里；只读取和吸收其中的信息架构、布局、组件组织、交互和视觉规律。",
   ];
-  if (reference) {
-    lines.push(
-      "",
-      "本次设计可使用以下 reference 仓库：",
-      `- name: ${reference.name}`,
-      `- path: ${reference.path}`,
-    );
-    if (reference.interfaceDescription) {
-      lines.push("- 该仓库的界面描述：", reference.interfaceDescription);
-    }
-    lines.push("当用户请求设计时，如果当前 agent 权限允许，请按需读取这个 reference 仓库里的相关文件来理解对应界面。");
-  }
-  lines.push("", "如果你已经把这些设定放入 memory 并理解了，只回复“知道了”。");
-  return lines.join("\n");
+}
+
+function reactProjectPromptRules(): string[] {
+  return [
+    "- 这是一个由 Aflow 创建和预览的 React/Vite project；Aflow 会管理 dev server 和 iframe 预览端口，你不要要求用户手动提供端口。",
+    "- 你可以创建和修改 src/ 下的 React component、CSS、manifest.json 和同名 Markdown 说明文件。",
+    "- 不要删除、重命名或破坏 src/aflow-design-bridge.ts；React 入口必须初始化 initializeAflowDesignBridge()，这样 Designer 画布才能选择元素、读取层级和应用视觉 draft。",
+    "- 必须维护 manifest.json，让画布知道有哪些 frame、尺寸、位置和 route。",
+    "- React frame 使用 route 字段，例如 /desktop、/mobile；不要为 React frame 写 designPath。",
+    "- 每个 route 必须正常显示高保真设计稿，并根据 URL query ?view=wireframe 在同一 React route 内切换为线框图。",
+    "- 每个 frame 的设计说明写入同名 Markdown，例如 /desktop 对应 desktop.md，并在 manifest.json 中用 descriptionPath 指向它。",
+    "- 每次创建或修改某个 React route/component/CSS 后，都检查对应 Markdown 说明是否需要更新；如果设计目标、页面结构、组件关系、关键交互、状态或设计取舍变化了，必须同步更新；如果没有变化，不要为了更新而改动。",
+    "- data-component-id 是可选的稳定语义锚点，可用于标记主要区域或大组件；不要为了它维护额外 JSON。",
+    "- 优先把可调整视觉样式写入 CSS，并给组件稳定 class 或 data-component-id selector。",
+    "- manifest.json 中每个 frame 的 width/height 是该 frame 在画布中的预览 viewport 尺寸，x/y 是该 frame 在画布上的摆放位置；不要把 manifest 当作响应式断点自动推断结果。",
+    "- React frame 的最高层页面容器必须使用 width:100%、max-width:none、box-sizing:border-box；不要把 manifest width 写成根容器的 CSS width，也不要用固定 px 或 100vw 作为根容器宽度。",
+    "- 静态画板可以用 height 或 min-height 对齐 manifest height，并按设计需要裁剪溢出；长页面可以用 min-height 对齐 manifest height 并允许内容自然向下延展。",
+    "- 不要用 overflow-x:hidden 掩盖布局问题。页面级横向滚动只有在用户明确要求整页横向画布时才出现；carousel、表格等横向滚动应限制在局部容器内。",
+    "- 避免在根容器使用 100vw/100vh 与 padding、border、fixed 元素组合制造非设计意图的横向或纵向溢出。",
+    "- Markdown 说明应包含设计目标、页面结构、组件关系、关键交互、状态说明和设计取舍。",
+    "- 用户消息里可能包含 <html_element>、<element-comments>、<visual_changes>；这些会用 route:/desktop::xpath 或 route:/desktop::selector 指向具体 React 渲染元素，必须回到对应 React component/CSS 中自然实现。",
+    "- 对 <visual_changes> 不要机械复制 computed style 或临时 transform；请根据当前 React 代码结构实现用户希望达到的视觉变化。",
+    "- 默认在原 route 中实现动效和交互；只有当用户明确要求单独展示动效，或动效 demo 会干扰主页面默认状态时，才创建单独 route，例如 /animation-demo，并在 manifest.json 中列出。",
+    "",
+    "manifest.json 示例：",
+    "{",
+    "  \"frames\": [",
+    "    {\"id\":\"desktop\",\"title\":\"Desktop\",\"kind\":\"desktop\",\"width\":1440,\"height\":1024,\"x\":0,\"y\":0,\"route\":\"/desktop\",\"descriptionPath\":\"desktop.md\"},",
+    "    {\"id\":\"mobile\",\"title\":\"Mobile\",\"kind\":\"mobile\",\"width\":390,\"height\":844,\"x\":1520,\"y\":0,\"route\":\"/mobile\",\"descriptionPath\":\"mobile.md\"}",
+    "  ]",
+    "}",
+  ];
 }
 
 function designSessionPath(root: string, id: string): string {

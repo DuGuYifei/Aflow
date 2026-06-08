@@ -3,8 +3,10 @@ import type {
   DesignRecordVersionInput,
   DesignInitializeSessionInput,
   DesignProjectDetail,
+  DesignProjectKind,
   DesignProjectSummary,
   DesignReferenceSummary,
+  DesignRuntimeState,
   DesignSession,
   DesignSessionSummary,
   DesignVersionState,
@@ -82,11 +84,11 @@ export async function fetchDesignProjects(): Promise<DesignProjectSummary[]> {
   return response.json();
 }
 
-export async function createDesignProject(name: string): Promise<DesignProjectSummary> {
+export async function createDesignProject(name: string, kind: DesignProjectKind = 'html'): Promise<DesignProjectSummary> {
   const response = await fetch('/api/design/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, kind }),
   });
   if (!response.ok) throw await apiError(response, 'Failed to create design project');
   return response.json();
@@ -95,6 +97,30 @@ export async function createDesignProject(name: string): Promise<DesignProjectSu
 export async function fetchDesignProject(name: string): Promise<DesignProjectDetail> {
   const response = await fetch(`/api/design/projects/${encodeURIComponent(name)}`);
   if (!response.ok) throw await apiError(response, `Failed to fetch design project ${name}`);
+  return response.json();
+}
+
+export async function fetchDesignProjectRuntime(name: string): Promise<DesignRuntimeState> {
+  const response = await fetch(`/api/design/projects/${encodeURIComponent(name)}/runtime`);
+  if (!response.ok) throw await apiError(response, `Failed to fetch design project runtime ${name}`);
+  return response.json();
+}
+
+export async function startDesignProjectRuntime(name: string): Promise<DesignRuntimeState> {
+  return designProjectRuntimeAction(name, 'start');
+}
+
+export async function restartDesignProjectRuntime(name: string): Promise<DesignRuntimeState> {
+  return designProjectRuntimeAction(name, 'restart');
+}
+
+export async function stopDesignProjectRuntime(name: string): Promise<DesignRuntimeState> {
+  return designProjectRuntimeAction(name, 'stop');
+}
+
+async function designProjectRuntimeAction(name: string, action: 'start' | 'restart' | 'stop'): Promise<DesignRuntimeState> {
+  const response = await fetch(`/api/design/projects/${encodeURIComponent(name)}/runtime/${action}`, { method: 'POST' });
+  if (!response.ok) throw await apiError(response, `Failed to ${action} design project runtime ${name}`);
   return response.json();
 }
 

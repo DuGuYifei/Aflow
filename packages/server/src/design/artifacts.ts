@@ -1,22 +1,25 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, normalize } from "node:path";
-import type { DesignArtifact, DesignArtifactFrame, DesignProjectSummary } from "./types";
+import type { DesignArtifact, DesignArtifactFrame, DesignProjectKind, DesignProjectSummary } from "./types";
 
 interface DesignProjectManifest {
   frames?: unknown;
 }
 
 export async function loadDesignProjectArtifact(
-  projectName: string,
-  projectPath: string,
+  project: DesignProjectSummary,
 ): Promise<DesignArtifact> {
-  const manifest = await readProjectManifest(projectPath);
-  const frames = manifest ? sanitizeManifestFrames(manifest.frames) : await inferFramesFromProject(projectPath);
-  const projectStat = await stat(projectPath);
+  const manifest = await readProjectManifest(project.path);
+  const frames = manifest
+    ? sanitizeManifestFrames(manifest.frames, project.kind)
+    : project.kind === "html" ? await inferFramesFromProject(project.path) : [];
+  const projectStat = await stat(project.path);
   return {
-    id: projectName,
-    projectName,
-    projectPath,
+    id: project.name,
+    projectName: project.name,
+    projectPath: project.path,
+    kind: project.kind,
+    ...(project.runtime ? { runtime: project.runtime } : {}),
     createdAt: projectStat.mtime.toISOString(),
     ...(frames.length > 0 ? { frames } : {}),
   };
@@ -35,18 +38,21 @@ async function readProjectManifest(projectPath: string): Promise<DesignProjectMa
   }
 }
 
-function sanitizeManifestFrames(value: unknown): DesignArtifactFrame[] {
+function sanitizeManifestFrames(value: unknown, projectKind: DesignProjectKind): DesignArtifactFrame[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry, index) => sanitizeFrame(entry, index))
+    .map((entry, index) => sanitizeFrame(entry, index, projectKind))
     .filter((frame): frame is DesignArtifactFrame => Boolean(frame));
 }
 
-function sanitizeFrame(value: unknown, index: number): DesignArtifactFrame | undefined {
+function sanitizeFrame(value: unknown, index: number, projectKind: DesignProjectKind): DesignArtifactFrame | undefined {
   if (!value || typeof value !== "object") return undefined;
   const input = value as Record<string, unknown>;
   const id = typeof input.id === "string" && input.id.trim() ? slug(input.id, index) : `frame-${index + 1}`;
   const title = typeof input.title === "string" && input.title.trim() ? input.title.trim() : titleFromId(id);
+  const route = typeof input.route === "string" && input.route.trim()
+    ? safeFrameRoute(input.route)
+    : undefined;
   const designPath = typeof input.designPath === "string" && input.designPath.trim()
     ? safeFrameHtmlFile(input.designPath)
     : undefined;
@@ -56,7 +62,7 @@ function sanitizeFrame(value: unknown, index: number): DesignArtifactFrame | und
   const descriptionPath = typeof input.descriptionPath === "string" && input.descriptionPath.trim()
     ? safeFrameMarkdownFile(input.descriptionPath)
     : undefined;
-  if (!designPath && !wireframePath) return undefined;
+  if (!designPath && !wireframePath && !(projectKind === "react" && route)) return undefined;
   return {
     id,
     title,
@@ -65,6 +71,7 @@ function sanitizeFrame(value: unknown, index: number): DesignArtifactFrame | und
     height: positiveNumber(input.height, id.includes("mobile") ? 844 : 1024),
     x: numberValue(input.x, index * (id.includes("mobile") ? 470 : 1520)),
     y: numberValue(input.y, 0),
+    ...(route ? { route } : {}),
     ...(designPath ? { designPath } : {}),
     ...(wireframePath ? { wireframePath } : {}),
     ...(descriptionPath ? { descriptionPath } : {}),
@@ -117,6 +124,14 @@ function safeFrameMarkdownFile(path: string): string {
     throw new Error(`Design description path must be a root-level Markdown file: ${path}`);
   }
   return safePath;
+}
+
+function safeFrameRoute(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.includes("..") || trimmed.includes("\\") || /[\s]/.test(trimmed)) {
+    throw new Error(`Design frame route must be an absolute route path: ${path}`);
+  }
+  return trimmed;
 }
 
 function positiveNumber(value: unknown, fallback: number): number {

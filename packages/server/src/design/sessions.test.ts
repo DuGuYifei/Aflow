@@ -46,6 +46,36 @@ describe("design sessions", () => {
     expect(continued.logs?.filter((entry) => entry.kind === "user_message")).toHaveLength(1);
   });
 
+  test("uses React-specific memory prompt for React projects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-design-session-"));
+    const projectRoot = join(root, ".aflow/.specflow/design/projects/react-app");
+    await mkdir(join(projectRoot, ".aflow-design"), { recursive: true });
+    await writeFile(join(projectRoot, ".aflow-design/project.json"), JSON.stringify({ kind: "react" }), "utf8");
+    const prompts: string[] = [];
+    const runner: DesignAgentRunner = async (request: AgentCommandRequest): Promise<AgentCommandResult> => {
+      prompts.push(request.prompt);
+      return {
+        agentServerId: request.agentServerId,
+        exitCode: 0,
+        output: "知道了",
+        sessionId: "acp-react",
+      };
+    };
+
+    await initializeDesignSession(root, {
+      projectName: "react-app",
+      agentServerId: "codex-acp",
+    }, { runner });
+
+    expect(prompts[0]).toContain("React/Vite");
+    expect(prompts[0]).toContain("src/aflow-design-bridge.ts");
+    expect(prompts[0]).toContain("initializeAflowDesignBridge()");
+    expect(prompts[0]).toContain("\"route\":\"/desktop\"");
+    expect(prompts[0]).toContain("route:/desktop::xpath");
+    expect(prompts[0]).not.toContain("designPath 必须");
+    expect(prompts[0]).not.toContain("所有 frame HTML 文件都直接放在项目根目录");
+  });
+
   test("injects selected reference context before the first user message", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-design-session-"));
     const referenceRoot = join(root, ".aflow/.specflow/design/references/app-ref");
