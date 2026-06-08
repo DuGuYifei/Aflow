@@ -1,7 +1,10 @@
 import { prepareSpecflowWorkspace, startSpecflowServer } from "@specflow/server";
+import { openUrlInDefaultBrowser, type OpenBrowserResult } from "./open-browser";
 
 export interface LaunchSpecflowOnlyOptions {
   design?: boolean;
+  autoOpenBrowser?: boolean;
+  openBrowser?: (url: string) => Promise<OpenBrowserResult>;
 }
 
 export async function launchSpecflowOnly(options: LaunchSpecflowOnlyOptions = {}): Promise<void> {
@@ -12,8 +15,18 @@ export async function launchSpecflowOnly(options: LaunchSpecflowOnlyOptions = {}
   });
 
   const server = await startSpecflowServer();
-  if (options.design) {
-    console.log(`Aflow Designer UI: ${new URL("design", server.url).toString()}`);
+  const uiUrl = options.design ? new URL("design", server.url).toString() : server.url;
+  console.log(options.design ? `Aflow Designer UI: ${uiUrl}` : `Aflow Specflow UI: ${uiUrl}`);
+
+  if (options.autoOpenBrowser !== false) {
+    const openBrowser = options.openBrowser ?? openUrlInDefaultBrowser;
+    const result = await openBrowser(uiUrl);
+    if (result.ok) {
+      console.log("Opened in your default browser.");
+    } else {
+      console.warn(`Could not open the default browser${result.error ? `: ${result.error}` : ""}`);
+      console.warn(`Open this URL manually: ${uiUrl}`);
+    }
   }
 
   let stopping = false;

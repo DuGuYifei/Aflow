@@ -2,7 +2,6 @@ import { join } from "node:path";
 import {
   SPECFLOW_AGENTFLOW_PATH,
   SPECFLOW_DESIGN_PATH,
-  SPECFLOW_PRD_PATH,
   SPECFLOW_WORKSPACE_PATH,
 } from "@specflow/shared";
 
@@ -16,10 +15,6 @@ export function agentflowRoot(root: string): string {
 
 export function designRoot(root: string): string {
   return join(root, SPECFLOW_DESIGN_PATH);
-}
-
-export function prdRoot(root: string): string {
-  return join(root, SPECFLOW_PRD_PATH);
 }
 
 export function agentflowsDir(root: string): string {
@@ -60,8 +55,4 @@ export function designProjectsDir(root: string): string {
 
 export function designSettingsPath(root: string): string {
   return join(designRoot(root), "settings.json");
-}
-
-export function prdDraftsDir(root: string): string {
-  return join(prdRoot(root), "drafts");
 }
