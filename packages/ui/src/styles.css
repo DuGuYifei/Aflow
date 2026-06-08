@@ -3764,6 +3764,58 @@ body.design-resizing-chat {
   background: transparent;
 }
 
+.design-reference-chip-strip {
+  min-height: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.design-reference-chip {
+  max-width: 100%;
+  min-height: 24px;
+  border: 1px solid color-mix(in oklab, #0ea5e9 34%, var(--line));
+  background: color-mix(in oklab, #0ea5e9 10%, var(--bg-panel));
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 3px 5px 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.design-reference-chip-name {
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.design-reference-chip-note {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.design-reference-chip button {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+}
+
+.design-reference-chip button:hover {
+  background: color-mix(in oklab, var(--ink), transparent 92%);
+  color: var(--ink);
+}
+
 .design-slash-wrap {
   position: relative;
   min-width: 0;

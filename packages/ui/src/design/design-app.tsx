@@ -83,6 +83,12 @@ type DesignToast = {
   message: string;
 };
 
+type PendingReferenceContext = {
+  name: string;
+  path: string;
+  interfaceDescription?: string;
+};
+
 const DESIGN_CHAT_WIDTH_KEY = 'sf-design-chat-width';
 const DESIGN_CHAT_MIN_WIDTH = 300;
 const DESIGN_CHAT_MAX_WIDTH = 620;
@@ -105,6 +111,7 @@ export function DesignApp() {
   const [referenceImportOpen, setReferenceImportOpen] = useState(false);
   const [selectedReference, setSelectedReference] = useState('');
   const [referenceInterfaceDescription, setReferenceInterfaceDescription] = useState('');
+  const [pendingReferenceContext, setPendingReferenceContext] = useState<PendingReferenceContext | undefined>();
   const [importMode, setImportMode] = useState<ImportMode>('git');
   const [name, setName] = useState('');
   const [source, setSource] = useState('');
@@ -687,6 +694,7 @@ export function DesignApp() {
     setDescriptionText('');
     setChatAttachments([]);
     setReferenceImportOpen(false);
+    setPendingReferenceContext(undefined);
     setInitializingStep('idle');
   };
 
@@ -708,10 +716,11 @@ export function DesignApp() {
       setPanelFrameId('');
       setDescriptionText('');
       setChatAttachments([]);
+      setPendingReferenceContext(undefined);
       if (next.agentServerId) setAgentServerId(next.agentServerId);
       if (next.reference?.name) {
         setSelectedReference(next.reference.name);
-      setReferenceInterfaceDescription(next.reference.interfaceDescription ?? '');
+        setReferenceInterfaceDescription(next.reference.interfaceDescription ?? '');
       }
       setInitializingStep('idle');
     } catch (loadError) {
@@ -788,11 +797,25 @@ export function DesignApp() {
     void addChatImageFiles(files);
   };
 
+  const addReferenceToPrompt = () => {
+    if (!selectedSummary) return;
+    const description = referenceInterfaceDescription.trim();
+    setPendingReferenceContext({
+      name: selectedSummary.name,
+      path: selectedSummary.path,
+      ...(description ? { interfaceDescription: description } : {}),
+    });
+    setReferenceOpen(false);
+  };
+
   const submitMessage = async () => {
     const draftInput = chatInputRef.current?.getSerializedValue() ?? chatInput;
     const draftAttachments = chatAttachments;
+    const draftReference = pendingReferenceContext;
     const composedMessage = composeChatInput(draftInput, componentPromptContexts, componentStyleDrafts).trim();
-    const message = composedMessage || (draftAttachments.length ? t('design.chat.imageOnlyMessage') : '');
+    const message = composedMessage
+      || (draftAttachments.length ? t('design.chat.imageOnlyMessage') : '')
+      || (draftReference ? t('design.reference.referenceOnlyMessage', { name: draftReference.name }) : '');
     const agent = agentServerId.trim();
     if ((!message && draftAttachments.length === 0) || busy) return;
     if (!selectedProject) {
@@ -829,9 +852,9 @@ export function DesignApp() {
         agentServerId: agent,
         message,
         ...(draftAttachments.length ? { attachments: draftAttachments } : {}),
-        ...(selectedReference ? { referenceName: selectedReference } : {}),
-        ...(selectedReference && referenceInterfaceDescription.trim()
-          ? { referenceInterfaceDescription: referenceInterfaceDescription.trim() }
+        ...(draftReference ? { referenceName: draftReference.name } : {}),
+        ...(draftReference?.interfaceDescription
+          ? { referenceInterfaceDescription: draftReference.interfaceDescription }
           : {}),
         ...(modeId ? { modeId } : {}),
         ...(Object.keys(requestConfigOptions).length > 0 ? { configOptions: requestConfigOptions } : {}),
@@ -847,6 +870,7 @@ export function DesignApp() {
       setProjectArtifact(nextSession.latestArtifact);
       setArtifactRevision((current) => current + 1);
       setComponentStyleDrafts({});
+      setPendingReferenceContext(undefined);
       setHistoryMode(false);
       setPendingUserMessage(undefined);
       await refreshSessions(selectedProject.name);
@@ -1142,7 +1166,7 @@ export function DesignApp() {
                   <Icon name="folder" size={13} />
                 </button>
                 <span className="design-compose-reference-label">
-                  {selectedSummary ? selectedSummary.name : t('design.reference.optional')}
+                  {pendingReferenceContext ? pendingReferenceContext.name : t('design.reference.optional')}
                 </span>
               </div>
 
@@ -1200,12 +1224,32 @@ export function DesignApp() {
                         placeholder={t('design.reference.interfacePlaceholder')}
                       />
                       <div className="design-reference-context-path">{selectedSummary.path}</div>
+                      <button
+                        className="btn sm primary"
+                        type="button"
+                        disabled={Boolean(busy)}
+                        onClick={addReferenceToPrompt}
+                      >
+                        <Icon name="plus" size={11} />{t('design.reference.addToPrompt')}
+                      </button>
                     </div>
                   )}
                 </div>
               )}
 
               <div className="design-compose">
+                {pendingReferenceContext && (
+                  <div className="design-reference-chip-strip" aria-label={t('design.reference.attached')}>
+                    <div className="design-reference-chip" title={`${pendingReferenceContext.path}${pendingReferenceContext.interfaceDescription ? `\n${pendingReferenceContext.interfaceDescription}` : ''}`}>
+                      <Icon name="folder" size={11} />
+                      <span className="design-reference-chip-name">{pendingReferenceContext.name}</span>
+                      {pendingReferenceContext.interfaceDescription && <span className="design-reference-chip-note">{t('design.reference.withDescription')}</span>}
+                      <button type="button" disabled={Boolean(busy)} onClick={() => setPendingReferenceContext(undefined)} title={t('design.reference.removeFromPrompt')}>
+                        <Icon name="x" size={10} />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {chatAttachments.length > 0 && selectedProject && (
                   <div className="design-attachment-strip">
                     {chatAttachments.map((attachment) => (
@@ -1300,7 +1344,7 @@ export function DesignApp() {
                       <Icon name="x" size={14} />
                     </button>
                   ) : (
-                    <button className="icon-btn design-send-btn" disabled={(!composeChatInput(chatInput, componentPromptContexts, componentStyleDrafts).trim() && chatAttachments.length === 0) || Boolean(busy)} onClick={submitMessage} title={t('design.chat.send')}>
+                    <button className="icon-btn design-send-btn" disabled={(!composeChatInput(chatInput, componentPromptContexts, componentStyleDrafts).trim() && chatAttachments.length === 0 && !pendingReferenceContext) || Boolean(busy)} onClick={submitMessage} title={t('design.chat.send')}>
                       <Icon name="arrow-up" size={15} />
                     </button>
                   )}
