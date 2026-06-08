@@ -5,10 +5,11 @@ import type { DesignArtifact, DesignArtifactFrame, DesignComponentNode } from '.
 
 export type DesignCanvasView = 'html' | 'wireframe';
 type DesignCanvasMode = 'select' | 'hand';
-type CanvasPanelTarget = 'description' | 'tree';
+type CanvasPanelTarget = 'description';
 
 interface DesignCanvasProps {
   artifact?: DesignArtifact;
+  artifactRevision: number;
   view: DesignCanvasView;
   selectedComponentId: string;
   selectedComponent?: DesignComponentNode;
@@ -29,6 +30,7 @@ interface DragState {
 
 export function DesignCanvas({
   artifact,
+  artifactRevision,
   view,
   selectedComponentId,
   styleDrafts = {},
@@ -91,8 +93,8 @@ export function DesignCanvas({
   }, [styleDrafts, frames]);
 
   useEffect(() => {
-    if (!selectedComponentId) return;
-    requestComponentHierarchy(iframeRefs.current, selectedComponentId);
+    postSelectedComponent(iframeRefs.current, selectedComponentId);
+    if (selectedComponentId) requestComponentHierarchy(iframeRefs.current, selectedComponentId);
   }, [selectedComponentId, frames, view]);
 
   useEffect(() => {
@@ -202,18 +204,16 @@ export function DesignCanvas({
                 className="design-frame-iframe"
                 title={`${frame.title} ${view}`}
                 sandbox="allow-scripts"
-                src={frameSource(artifact!, frame, view, selectedComponentId)}
+                src={frameSource(artifact!, frame, view, artifactRevision)}
                 onLoad={(event) => {
                   event.currentTarget.contentWindow?.postMessage({ type: 'design-style-drafts', drafts: styleDrafts }, '*');
+                  event.currentTarget.contentWindow?.postMessage({ type: 'design-selected-component', id: selectedComponentId }, '*');
                   if (selectedComponentId) requestComponentHierarchy(iframeRefs.current, selectedComponentId);
                 }}
               />
               <div className="design-frame-actions">
                 <button type="button" onClick={() => onOpenPanel('description', frame)} disabled={!frame.descriptionPath}>
                   <Icon name="file" size={12} />{t('design.frame.description')}
-                </button>
-                <button type="button" onClick={() => onOpenPanel('tree', frame)} disabled={!artifact?.componentTree?.length}>
-                  <Icon name="list" size={12} />{t('design.properties.componentTree')}
                 </button>
               </div>
             </div>
@@ -240,6 +240,12 @@ function parseFrameComponent(value: unknown, fallbackId: string): DesignComponen
     name,
     type: typeof input.type === 'string' ? input.type : undefined,
     selector: typeof input.selector === 'string' ? input.selector : undefined,
+    filePath: typeof input.filePath === 'string' ? input.filePath : undefined,
+    xpath: typeof input.xpath === 'string' ? input.xpath : undefined,
+    tagName: typeof input.tagName === 'string' ? input.tagName : undefined,
+    textContent: typeof input.textContent === 'string' ? input.textContent : undefined,
+    selectionLevel: typeof input.selectionLevel === 'string' ? input.selectionLevel : undefined,
+    anchorKind: typeof input.anchorKind === 'string' ? input.anchorKind : undefined,
     description: typeof input.description === 'string' ? input.description : undefined,
     bounds: parseFrameBounds(input.bounds),
     computedStyle: parseFrameComputedStyle(input.computedStyle),
@@ -277,15 +283,21 @@ function parseFrameComputedStyle(value: unknown): Record<string, string> | undef
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-function frameSource(artifact: DesignArtifact, frame: DesignArtifactFrame, view: DesignCanvasView, selectedComponentId: string): string {
+function frameSource(artifact: DesignArtifact, frame: DesignArtifactFrame, view: DesignCanvasView, artifactRevision: number): string {
   const path = view === 'wireframe' ? frame.designPath ?? frame.wireframePath : frame.designPath;
   if (!path) return '';
   const params = new URLSearchParams();
   params.set('frameId', frame.id);
   if (view === 'wireframe') params.set('view', 'wireframe');
-  if (selectedComponentId) params.set('selected', selectedComponentId);
+  if (artifactRevision > 0) params.set('rev', String(artifactRevision));
   const query = params.toString();
   return `/api/design/projects/${encodeURIComponent(artifact.projectName)}/files/${encodeURIComponent(path)}${query ? `?${query}` : ''}`;
+}
+
+function postSelectedComponent(iframes: Map<string, HTMLIFrameElement>, id: string): void {
+  for (const iframe of iframes.values()) {
+    iframe.contentWindow?.postMessage({ type: 'design-selected-component', id }, '*');
+  }
 }
 
 function requestComponentHierarchy(iframes: Map<string, HTMLIFrameElement>, id: string): void {

@@ -4,7 +4,8 @@ import {
   recordDesignProjectVersion,
   streamDesignMessage,
 } from "./api";
-import type { DesignLogEntry, DesignSession } from "./types";
+import type { AcpTimelineEvent } from "@specflow/shared";
+import type { DesignSession } from "./types";
 
 declare function describe(name: string, callback: () => void): void;
 declare function test(name: string, callback: () => Promise<void> | void): void;
@@ -15,11 +16,14 @@ declare const expect: (value: unknown) => {
 
 describe("design api", () => {
   test("streams design logs and resolves the final session", async () => {
-    const log: DesignLogEntry = {
+    const log: AcpTimelineEvent = {
+      type: "acp_timeline",
       id: "log-1",
       at: "2026-06-05T00:00:00.000Z",
-      kind: "user",
-      title: "User message",
+      source: "design",
+      scopeId: "session-1",
+      designSessionId: "session-1",
+      kind: "user_message",
       text: "Design it",
     };
     const session: DesignSession = {
@@ -31,7 +35,7 @@ describe("design api", () => {
       messages: [],
       logs: [log],
     };
-    const streamedLogs: DesignLogEntry[] = [];
+    const streamedLogs: AcpTimelineEvent[] = [];
     const previousFetch = globalThis.fetch;
     globalThis.fetch = async () => new Response(sse([
       ["ready", { ok: true }],
@@ -51,7 +55,52 @@ describe("design api", () => {
 
       expect(streamedLogs).toEqual([log]);
       expect(result.id).toBe("session-1");
-      expect(result.logs?.[0]?.text).toBe("Design it");
+      expect(result.logs?.[0]?.kind).toBe("user_message");
+      expect(result.logs?.[0] && "text" in result.logs[0] ? result.logs[0].text : "").toBe("Design it");
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("aborts a streamed design message with the caller signal", async () => {
+    let fetchSignal: AbortSignal | undefined;
+    let streamCancelled = false;
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      fetchSignal = init?.signal ?? undefined;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          fetchSignal?.addEventListener("abort", () => {
+            streamCancelled = true;
+            controller.error(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        },
+      }), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    };
+    try {
+      const controller = new AbortController();
+      const pending = streamDesignMessage({
+        projectName: "demo",
+        agentServerId: "codex",
+        message: "Design it",
+      }, {
+        signal: controller.signal,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(fetchSignal).toBe(controller.signal);
+      controller.abort();
+
+      let rejectedName = "";
+      try {
+        await pending;
+      } catch (error) {
+        rejectedName = (error as { name?: string }).name ?? "";
+      }
+      expect(rejectedName).toBe("AbortError");
+      expect(streamCancelled).toBe(true);
     } finally {
       globalThis.fetch = previousFetch;
     }

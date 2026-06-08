@@ -1,5 +1,4 @@
 import type {
-  DesignLogEntry,
   DesignMessageAttachment,
   DesignRecordVersionInput,
   DesignInitializeSessionInput,
@@ -10,6 +9,7 @@ import type {
   DesignSessionSummary,
   DesignVersionState,
 } from './types';
+import type { AcpTimelineEvent } from '@specflow/shared';
 
 export interface DesignApiErrorPayload {
   error: string;
@@ -53,7 +53,7 @@ export async function uploadDesignImages(projectName: string, files: File[]): Pr
 
 export interface DesignMessageStreamHandlers {
   signal?: AbortSignal;
-  onLog?: (entry: DesignLogEntry) => void;
+  onLog?: (entry: AcpTimelineEvent) => void;
   onReady?: () => void;
 }
 
@@ -205,7 +205,7 @@ async function streamDesignSession(
     buffer += decoder.decode(value, { stream: true });
     buffer = consumeSseBuffer(buffer, (event, data) => {
       if (event === 'ready') handlers.onReady?.();
-      else if (event === 'log') handlers.onLog?.(data as DesignLogEntry);
+      else if (event === 'log') handlers.onLog?.(data as AcpTimelineEvent);
       else if (event === 'session') finalSession = data as DesignSession;
       else if (event === 'error') throw new DesignApiError(data as DesignApiErrorPayload);
     });
@@ -214,7 +214,7 @@ async function streamDesignSession(
   buffer += decoder.decode();
   consumeSseBuffer(`${buffer}\n\n`, (event, data) => {
     if (event === 'ready') handlers.onReady?.();
-    else if (event === 'log') handlers.onLog?.(data as DesignLogEntry);
+    else if (event === 'log') handlers.onLog?.(data as AcpTimelineEvent);
     else if (event === 'session') finalSession = data as DesignSession;
     else if (event === 'error') throw new DesignApiError(data as DesignApiErrorPayload);
   });

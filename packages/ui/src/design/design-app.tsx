@@ -16,8 +16,10 @@ import {
   designCommentTokenDefinition,
   designComponentTokenDefinition,
 } from '../components/rich-prompt-input';
+import { buildTimelineItems, type TimelineItem } from '../acp-timeline';
 import { useI18n } from '../i18n';
-import type { Theme } from '../types';
+import type { Theme, TimelineEvent } from '../types';
+import type { AcpTimelineEvent } from '@specflow/shared';
 import {
   DesignApiError,
   branchDesignProjectVersion,
@@ -42,7 +44,6 @@ import type {
   DesignArtifact,
   DesignChatMessage,
   DesignComponentNode,
-  DesignLogEntry,
   DesignMessageAttachment,
   DesignProjectSummary,
   DesignReferenceSummary,
@@ -54,7 +55,7 @@ import type {
 
 type ImportMode = 'git' | 'copy';
 type DesignArtifactTab = 'html' | 'wireframe';
-type DesignRightPanelMode = 'properties' | 'description' | 'tree';
+type DesignRightPanelMode = 'properties' | 'description';
 type DesignInspectorTab = 'properties' | 'hierarchy';
 type DesignInitializingStep = 'idle' | 'connecting' | 'negotiating' | 'ready';
 type VersionCommitIntent =
@@ -66,7 +67,15 @@ type VersionBranchTarget = {
 };
 type DesignThreadItem =
   | { type: 'message'; message: DesignChatMessage }
-  | { type: 'activity'; entry: DesignLogEntry; active: boolean };
+  | { type: 'status'; id: string; text: string; active: boolean }
+  | { type: 'tool'; tool: Extract<TimelineItem, { kind: 'tool' }>; active: boolean }
+  | { type: 'plan'; plan: Extract<TimelineItem, { kind: 'plan' }> };
+type VisualDraftItem = {
+  id: string;
+  label: string;
+  target: string;
+  count: number;
+};
 type DesignToast = {
   id: number;
   type: 'success' | 'error';
@@ -86,6 +95,7 @@ export function DesignApp() {
   const [selectedProject, setSelectedProject] = useState<DesignProjectSummary | undefined>();
   const [projectNameInput, setProjectNameInput] = useState('');
   const [projectArtifact, setProjectArtifact] = useState<DesignArtifact | undefined>();
+  const [artifactRevision, setArtifactRevision] = useState(0);
   const [references, setReferences] = useState<DesignReferenceSummary[]>([]);
   const [sessions, setSessions] = useState<DesignSessionSummary[]>([]);
   const [agentServers, setAgentServers] = useState<AgentServerEntry[]>([]);
@@ -111,8 +121,9 @@ export function DesignApp() {
   const [componentCommentOpen, setComponentCommentOpen] = useState(false);
   const [componentComment, setComponentComment] = useState('');
   const [componentStyleDrafts, setComponentStyleDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [componentPromptContexts, setComponentPromptContexts] = useState<Record<string, DesignComponentNode>>({});
   const [session, setSession] = useState<DesignSession | undefined>();
-  const [liveLogs, setLiveLogs] = useState<DesignLogEntry[]>([]);
+  const [liveLogs, setLiveLogs] = useState<AcpTimelineEvent[]>([]);
   const [pendingUserMessage, setPendingUserMessage] = useState<DesignChatMessage | undefined>();
   const [activeTab, setActiveTab] = useState<DesignArtifactTab>('html');
   const [selectedComponentId, setSelectedComponentId] = useState('');
@@ -144,6 +155,7 @@ export function DesignApp() {
   const [chatPanelWidth, setChatPanelWidth] = useState(readChatPanelWidth);
   const chatInputRef = useRef<RichPromptInputHandle>(null);
   const messageAbortRef = useRef<AbortController | null>(null);
+  const artifactRefreshTimerRef = useRef<number | undefined>(undefined);
   const artifact = session?.latestArtifact ?? projectArtifact;
   const chatPanelCompact = chatPanelWidth <= DESIGN_CHAT_COMPACT_WIDTH;
   const liveConfigSeedRef = useRef<{
@@ -161,8 +173,16 @@ export function DesignApp() {
     () => [designComponentTokenDefinition(), designCommentTokenDefinition()],
     [],
   );
-  const treeSelectedComponent = findComponentNode(artifact?.componentTree, selectedComponentId);
-  const selectedComponent = inlineSelectedComponent?.id === selectedComponentId ? inlineSelectedComponent : treeSelectedComponent;
+  const selectedComponent = inlineSelectedComponent?.id === selectedComponentId ? inlineSelectedComponent : undefined;
+  const visualDraftItems = useMemo(
+    () => visualDraftSummaries(componentStyleDrafts, componentPromptContexts),
+    [componentStyleDrafts, componentPromptContexts],
+  );
+
+  const rememberComponentContext = (component: DesignComponentNode | undefined) => {
+    if (!component?.id) return;
+    setComponentPromptContexts((current) => ({ ...current, [component.id]: component }));
+  };
 
   const showToast = (input: Omit<DesignToast, 'id'>) => {
     setToast({ ...input, id: Date.now() });
@@ -188,6 +208,10 @@ export function DesignApp() {
   useEffect(() => {
     return () => {
       messageAbortRef.current?.abort();
+      if (artifactRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(artifactRefreshTimerRef.current);
+        artifactRefreshTimerRef.current = undefined;
+      }
     };
   }, []);
 
@@ -202,7 +226,10 @@ export function DesignApp() {
     refreshSessions(selectedProject.name)
       .catch((loadError) => showToast({ type: 'error', title: t('design.toast.sessionsLoadFailed'), message: errorMessage(loadError) }));
     fetchDesignProject(selectedProject.name)
-      .then((project) => setProjectArtifact(project.artifact))
+      .then((project) => {
+        setProjectArtifact(project.artifact);
+        setArtifactRevision((current) => current + 1);
+      })
       .catch((loadError) => showToast({ type: 'error', title: t('design.toast.projectLoadFailed'), message: errorMessage(loadError) }));
   }, [selectedProject?.name]);
 
@@ -285,6 +312,24 @@ export function DesignApp() {
     const next = await fetchDesignSessions(projectName);
     setSessions(next);
     return next;
+  };
+
+  const refreshCurrentProjectArtifact = async (projectName = selectedProject?.name) => {
+    if (!projectName) return undefined;
+    const detail = await fetchDesignProject(projectName);
+    setProjectArtifact(detail.artifact);
+    setSession((current) => current?.project.name === projectName ? { ...current, latestArtifact: detail.artifact } : current);
+    setArtifactRevision((current) => current + 1);
+    return detail.artifact;
+  };
+
+  const scheduleArtifactRefresh = (entry: AcpTimelineEvent) => {
+    if (!selectedProject || !shouldRefreshArtifactForLog(entry)) return;
+    if (artifactRefreshTimerRef.current !== undefined) window.clearTimeout(artifactRefreshTimerRef.current);
+    artifactRefreshTimerRef.current = window.setTimeout(() => {
+      artifactRefreshTimerRef.current = undefined;
+      refreshCurrentProjectArtifact(selectedProject.name).catch(() => {});
+    }, 700);
   };
 
   const refreshVersionState = async (projectName = selectedProject?.name) => {
@@ -456,6 +501,7 @@ export function DesignApp() {
     setHistoryMode(true);
     setSelectedComponentId('');
     setComponentStyleDrafts({});
+    setComponentPromptContexts({});
     setRightPanelMode('properties');
     setPanelFrameId('');
     setDescriptionText('');
@@ -481,6 +527,7 @@ export function DesignApp() {
     setHistoryMode(true);
     setSelectedComponentId('');
     setComponentStyleDrafts({});
+    setComponentPromptContexts({});
     setRightPanelMode('properties');
     setPanelFrameId('');
     setDescriptionText('');
@@ -556,6 +603,7 @@ export function DesignApp() {
     setPendingUserMessage(undefined);
     setSelectedComponentId('');
     setComponentStyleDrafts({});
+    setComponentPromptContexts({});
     setRightPanelMode('properties');
     setPanelFrameId('');
     setDescriptionText('');
@@ -633,6 +681,7 @@ export function DesignApp() {
     setLiveLogs([]);
     setPendingUserMessage(undefined);
     setSelectedComponentId('');
+    setComponentPromptContexts({});
     setRightPanelMode('properties');
     setPanelFrameId('');
     setDescriptionText('');
@@ -654,6 +703,7 @@ export function DesignApp() {
       setHistoryMode(false);
       setSelectedComponentId('');
       setComponentStyleDrafts({});
+      setComponentPromptContexts({});
       setRightPanelMode('properties');
       setPanelFrameId('');
       setDescriptionText('');
@@ -739,10 +789,12 @@ export function DesignApp() {
   };
 
   const submitMessage = async () => {
-    const composedMessage = composeChatInput(chatInput, artifact?.componentTree, componentStyleDrafts).trim();
-    const message = composedMessage || (chatAttachments.length ? t('design.chat.imageOnlyMessage') : '');
+    const draftInput = chatInputRef.current?.getSerializedValue() ?? chatInput;
+    const draftAttachments = chatAttachments;
+    const composedMessage = composeChatInput(draftInput, componentPromptContexts, componentStyleDrafts).trim();
+    const message = composedMessage || (draftAttachments.length ? t('design.chat.imageOnlyMessage') : '');
     const agent = agentServerId.trim();
-    if ((!message && chatAttachments.length === 0) || busy) return;
+    if ((!message && draftAttachments.length === 0) || busy) return;
     if (!selectedProject) {
       showToast({ type: 'error', title: t('design.toast.messageBlocked'), message: t('design.project.required') });
       return;
@@ -760,20 +812,23 @@ export function DesignApp() {
       role: 'user',
       text: message,
       at: new Date().toISOString(),
-      ...(chatAttachments.length ? { attachments: chatAttachments } : {}),
+      ...(draftAttachments.length ? { attachments: draftAttachments } : {}),
     };
     const controller = new AbortController();
     messageAbortRef.current?.abort();
     messageAbortRef.current = controller;
     setPendingUserMessage(pendingMessage);
     setLiveLogs(session?.logs ?? []);
+    setChatInput('');
+    setChatAttachments([]);
+    let shouldRestoreDraft = true;
     try {
       const nextSession = await streamDesignMessage({
         sessionId: session?.id,
         projectName: selectedProject.name,
         agentServerId: agent,
         message,
-        ...(chatAttachments.length ? { attachments: chatAttachments } : {}),
+        ...(draftAttachments.length ? { attachments: draftAttachments } : {}),
         ...(selectedReference ? { referenceName: selectedReference } : {}),
         ...(selectedReference && referenceInterfaceDescription.trim()
           ? { referenceInterfaceDescription: referenceInterfaceDescription.trim() }
@@ -784,30 +839,40 @@ export function DesignApp() {
         signal: controller.signal,
         onLog: (entry) => {
           setLiveLogs((current) => current.some((item) => item.id === entry.id) ? current : [...current, entry]);
+          scheduleArtifactRefresh(entry);
         },
       });
+      shouldRestoreDraft = false;
       setSession(nextSession);
-      setLiveLogs(nextSession.logs ?? []);
       setProjectArtifact(nextSession.latestArtifact);
+      setArtifactRevision((current) => current + 1);
+      setComponentStyleDrafts({});
       setHistoryMode(false);
       setPendingUserMessage(undefined);
-      setChatInput('');
-      setChatAttachments([]);
       await refreshSessions(selectedProject.name);
       showToast({ type: 'success', title: t('design.toast.messageSent'), message: t('design.toast.agentResponded') });
     } catch (sendError) {
       if ((sendError as { name?: string }).name === 'AbortError' || controller.signal.aborted) {
+        setChatInput(draftInput);
+        setChatAttachments(draftAttachments);
+        setPendingUserMessage(undefined);
         return;
       }
       const payload = sendError instanceof DesignApiError ? sendError.payload : undefined;
       const messageText = payload?.error ?? errorMessage(sendError);
+      setChatInput(draftInput);
+      setChatAttachments(draftAttachments);
       setError(messageText);
       showToast({ type: 'error', title: t('design.toast.messageFailed'), message: messageText });
     } finally {
       if (messageAbortRef.current === controller) messageAbortRef.current = null;
-      if (!controller.signal.aborted) setPendingUserMessage(undefined);
+      if (!controller.signal.aborted || shouldRestoreDraft) setPendingUserMessage(undefined);
       setBusy('');
     }
+  };
+
+  const cancelDesignMessage = () => {
+    messageAbortRef.current?.abort();
   };
 
   const visibleLogs = visibleSessionLogs(liveLogs, session?.logs);
@@ -815,7 +880,8 @@ export function DesignApp() {
   const activeFrame = artifact?.frames?.find((frame) => frame.id === panelFrameId);
   const selectedStyleDraft = selectedComponentId ? componentStyleDrafts[selectedComponentId] ?? {} : {};
   const addComponentToken = (component: DesignComponentNode) => {
-    const marker = `<specflow_component id="${escapePromptAttr(component.id)}" name="${escapePromptAttr(component.name)}" />`;
+    rememberComponentContext(component);
+    const marker = htmlElementMarker(component);
     chatInputRef.current?.insertSerialized(marker);
   };
   const resetComponentComment = () => {
@@ -823,10 +889,11 @@ export function DesignApp() {
     setComponentComment('');
   };
   const queueComponentComment = (component: DesignComponentNode, comment: string) => {
+    rememberComponentContext(component);
     const marker = [
-      `<specflow_comment componentId="${escapePromptAttr(component.id)}" componentName="${escapePromptAttr(component.name)}">`,
+      `<specflow_element_comment ${htmlElementMarkerAttrs(component)}>`,
       comment,
-      '</specflow_comment>',
+      '</specflow_element_comment>',
     ].join('\n');
     chatInputRef.current?.insertSerialized(marker);
     resetComponentComment();
@@ -837,13 +904,24 @@ export function DesignApp() {
   };
   const updateSelectedStyle = (property: string, value: string) => {
     if (!selectedComponentId) return;
-    setComponentStyleDrafts((current) => ({
-      ...current,
-      [selectedComponentId]: {
-        ...(current[selectedComponentId] ?? {}),
-        [property]: value,
-      },
-    }));
+    rememberComponentContext(selectedComponent);
+    setComponentStyleDrafts((current) => {
+      const styles = { ...(current[selectedComponentId] ?? {}) };
+      if (value.trim()) styles[property] = value;
+      else delete styles[property];
+      const next = { ...current };
+      if (Object.values(styles).some((entry) => entry.trim())) next[selectedComponentId] = styles;
+      else delete next[selectedComponentId];
+      return next;
+    });
+  };
+  const removeVisualDraft = (id: string) => {
+    setComponentStyleDrafts((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
   };
   const openCanvasPanel = async (target: DesignRightPanelMode, frame: NonNullable<DesignArtifact['frames']>[number]) => {
     setRightPanelMode(target);
@@ -1030,11 +1108,21 @@ export function DesignApp() {
               <DesignInitializingView step={initializingStep} />
             ) : threadItems.length === 0 ? (
               <div className="design-message system">{t('design.chat.empty')}</div>
-            ) : threadItems.map((item) => item.type === 'message' ? (
-              <DesignMessageView key={item.message.id} message={item.message} projectName={selectedProject?.name} />
-            ) : (
-              <DesignActivityLine key={item.entry.id} entry={item.entry} active={item.active} />
-            ))}
+            ) : threadItems.map((item, index) => {
+              if (item.type === 'message') {
+                return <DesignMessageView key={item.message.id} message={item.message} projectName={selectedProject?.name} />;
+              }
+              if (item.type === 'tool') {
+                return <DesignToolLine key={`tool-${item.tool.toolCallId}-${index}`} tool={item.tool} active={item.active} />;
+              }
+              if (item.type === 'plan') {
+                return <DesignPlanLine key={`plan-${index}`} plan={item.plan} />;
+              }
+              if (item.type === 'status') {
+                return <DesignStatusLine key={item.id} text={item.text} active={item.active} />;
+              }
+              return null;
+            })}
           </div>
 
           {historyMode ? (
@@ -1134,6 +1222,20 @@ export function DesignApp() {
                     ))}
                   </div>
                 )}
+                {visualDraftItems.length > 0 && (
+                  <div className="design-visual-draft-strip" aria-label={t('design.visualDrafts.title')}>
+                    {visualDraftItems.map((item) => (
+                      <div className="design-visual-draft-chip" key={item.id} title={item.target}>
+                        <Icon name="edit" size={11} />
+                        <span className="design-visual-draft-name">{item.label}</span>
+                        <span className="design-visual-draft-count">{t('design.visualDrafts.count', { count: item.count })}</span>
+                        <button type="button" disabled={Boolean(busy)} onClick={() => removeVisualDraft(item.id)} title={t('design.visualDrafts.remove')}>
+                          <Icon name="x" size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <RichPromptInput
                   ref={chatInputRef}
                   rows={4}
@@ -1193,9 +1295,15 @@ export function DesignApp() {
                       });
                     }}
                   />
-                  <button className="icon-btn design-send-btn" disabled={(!composeChatInput(chatInput, artifact?.componentTree, componentStyleDrafts).trim() && chatAttachments.length === 0) || Boolean(busy)} onClick={submitMessage} title={t('design.chat.send')}>
-                    {busy === 'message' ? <Icon name="loader" size={14} style={{ animation: 'spin 1.4s linear infinite' }} /> : <Icon name="arrow-up" size={15} />}
-                  </button>
+                  {busy === 'message' ? (
+                    <button className="icon-btn design-send-btn" onClick={cancelDesignMessage} title={t('common.cancel')}>
+                      <Icon name="x" size={14} />
+                    </button>
+                  ) : (
+                    <button className="icon-btn design-send-btn" disabled={(!composeChatInput(chatInput, componentPromptContexts, componentStyleDrafts).trim() && chatAttachments.length === 0) || Boolean(busy)} onClick={submitMessage} title={t('design.chat.send')}>
+                      <Icon name="arrow-up" size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             </>
@@ -1212,6 +1320,7 @@ export function DesignApp() {
         <section className="design-canvas-panel">
           <DesignCanvas
             artifact={artifact}
+            artifactRevision={artifactRevision}
             view={activeTab}
             selectedComponentId={selectedComponentId}
             selectedComponent={selectedComponent}
@@ -1221,6 +1330,7 @@ export function DesignApp() {
             onComponentSelect={(id, component) => {
               setSelectedComponentId(id);
               setInlineSelectedComponent(component);
+              rememberComponentContext(component);
               setInlineHierarchyPath(component ? [component] : []);
               setRightPanelMode('properties');
               setInspectorTab('properties');
@@ -1229,6 +1339,8 @@ export function DesignApp() {
             onComponentHierarchy={(id, component, path) => {
               if (id !== selectedComponentId) return;
               setInlineSelectedComponent(component);
+              rememberComponentContext(component);
+              path.forEach(rememberComponentContext);
               setInlineHierarchyPath(path.length ? path : [component]);
             }}
             onOpenPanel={(target, frame) => {
@@ -1242,9 +1354,7 @@ export function DesignApp() {
             <div className="design-panel-head">
               <div>
                 <div className="design-panel-title">
-                  {rightPanelMode === 'description'
-                    ? t('design.properties.description')
-                    : t('design.properties.componentTree')}
+                  {t('design.properties.description')}
                 </div>
                 <div className="design-panel-meta">{t('design.properties.meta')}</div>
               </div>
@@ -1269,38 +1379,18 @@ export function DesignApp() {
                 )}
               </div>
             </div>
-          ) : rightPanelMode === 'tree' ? (
-            <div className="design-properties-content">
-              <div className="design-section-title">{activeFrame?.title ?? t('design.properties.componentTree')}</div>
-              {artifact?.componentTree?.length ? (
-                <div className="design-component-tree">
-                  {artifact.componentTree.map((node) => (
-                    <ComponentTreeNodeView
-                      key={node.id}
-                      node={node}
-                      selectedId={selectedComponentId}
-                      onSelect={(node) => {
-                        setSelectedComponentId(node.id);
-                        setInlineSelectedComponent(node);
-                        setRightPanelMode('properties');
-                        setInspectorTab('properties');
-                        resetComponentComment();
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="design-properties-empty">{t('design.properties.noComponentTree')}</div>
-              )}
-            </div>
           ) : selectedComponent ? (
             <div className="design-properties-content">
               <div className="design-inspector-stack">
                 <div className="design-inspector-card design-component-summary-card">
                   <div className="design-section-title">{t('design.properties.selected')}</div>
                   <div className="design-component-name">{selectedComponent.name}</div>
-                  <div className="design-component-meta">{selectedComponent.type ?? selectedComponent.id}</div>
-                  <p>{selectedComponent.description ?? t('design.properties.noDescription')}</p>
+                  <div className="design-component-meta">
+                    {componentSelectionLevel(selectedComponent)} · {componentAnchorKind(selectedComponent)}
+                  </div>
+                  <div className="design-component-target" title={htmlElementTarget(selectedComponent)}>
+                    {htmlElementTarget(selectedComponent)}
+                  </div>
                   <div className="design-component-actions">
                     <button className="btn sm ghost" type="button" onClick={() => addComponentToken(selectedComponent)}>
                       <Icon name="plus" size={11} />{t('design.properties.addToPrompt')}
@@ -1329,13 +1419,13 @@ export function DesignApp() {
                   <div className="design-inspector-card design-hierarchy-card">
                     <div className="design-section-title">{t('design.properties.hierarchy')}</div>
                     <FocusedComponentTreeView
-                      roots={artifact?.componentTree}
                       selectedComponent={selectedComponent}
                       selectedId={selectedComponentId}
                       path={inlineHierarchyPath}
                       onSelect={(node) => {
                         setSelectedComponentId(node.id);
                         setInlineSelectedComponent(node);
+                        rememberComponentContext(node);
                         setInlineHierarchyPath([node]);
                         setInspectorTab('hierarchy');
                         resetComponentComment();
@@ -1384,7 +1474,7 @@ export function DesignApp() {
           ) : (
             <div className="design-properties-empty">
               <Icon name="cursor" size={16} />
-              <span>{artifact?.componentTree?.length ? t('design.properties.selectFromPreview') : t('design.properties.empty')}</span>
+              <span>{t('design.properties.empty')}</span>
             </div>
           )}
         </aside>
@@ -2030,13 +2120,55 @@ function DesignMessageView({ message, projectName }: { message: DesignChatMessag
   );
 }
 
-function DesignActivityLine({ entry, active }: { entry: DesignLogEntry; active: boolean }) {
+function DesignStatusLine({ text, active }: { text: string; active: boolean }) {
   const { t } = useI18n();
   return (
     <div className="design-activity-line" aria-label={t('design.logs.title')}>
       <span className={`design-activity-pulse${active ? ' active' : ''}`} />
-      <span>{activityText(entry, t)}</span>
+      <span>{text}</span>
       {active && <span className="design-activity-dots" aria-hidden="true"><span /> <span /> <span /></span>}
+    </div>
+  );
+}
+
+function DesignToolLine({ tool, active }: { tool: Extract<TimelineItem, { kind: 'tool' }>; active: boolean }) {
+  const { t } = useI18n();
+  const details = designToolDetails(tool);
+  if (details.length > 0) {
+    return (
+      <details className="design-activity-line design-tool-line design-tool-details" aria-label={t('design.logs.title')}>
+        <summary>
+          <span className={`design-activity-pulse${active ? ' active' : ''}`} />
+          <span>{designToolText(tool, t)}</span>
+          {active && <span className="design-activity-dots" aria-hidden="true"><span /> <span /> <span /></span>}
+        </summary>
+        <div className="design-tool-detail-list">
+          {details.map((detail) => (
+            <div key={detail.label} className="design-tool-detail">
+              <span>{detail.label}</span>
+              <pre>{detail.value}</pre>
+            </div>
+          ))}
+        </div>
+      </details>
+    );
+  }
+  return (
+    <div className="design-activity-line design-tool-line" aria-label={t('design.logs.title')}>
+      <span className={`design-activity-pulse${active ? ' active' : ''}`} />
+      <span>{designToolText(tool, t)}</span>
+      {active && <span className="design-activity-dots" aria-hidden="true"><span /> <span /> <span /></span>}
+    </div>
+  );
+}
+
+function DesignPlanLine({ plan }: { plan: Extract<TimelineItem, { kind: 'plan' }> }) {
+  const { t } = useI18n();
+  const summary = plan.entries.map((entry) => entry.content).filter(Boolean).slice(0, 2).join(' · ');
+  return (
+    <div className="design-activity-line design-plan-line" aria-label={t('design.logs.title')}>
+      <span className="design-activity-pulse" />
+      <span>{summary ? t('design.logs.planUpdateWithSummary', { summary }) : t('design.logs.planUpdate')}</span>
     </div>
   );
 }
@@ -2164,25 +2296,41 @@ function designProjectFileUrl(projectName: string, filePath: string): string {
   return `/api/design/projects/${encodeURIComponent(projectName)}/files/${encodeURIComponent(filePath)}`;
 }
 
-function activityText(entry: DesignLogEntry, t: (key: string, params?: Record<string, string | number>) => string): string {
-  if (entry.kind === 'prompt') return t('design.logs.promptPublic');
-  if (entry.kind === 'terminal') return entry.stream === 'stderr' ? t('design.logs.terminalError') : t('design.logs.terminalPublic');
-  if (entry.kind === 'lifecycle') return lifecycleText(entry.eventType, t);
-  if (entry.kind === 'error') return entry.text ?? t('design.logs.error');
-  return entry.title ?? entry.eventType ?? entry.kind;
+function designToolText(
+  tool: Extract<TimelineItem, { kind: 'tool' }>,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const title = tool.title || tool.toolCallId;
+  if (tool.status === 'completed') return t('design.logs.toolNamedComplete', { title });
+  if (tool.status === 'failed') return t('design.logs.toolNamedFailed', { title });
+  if (tool.status === 'cancelled') return t('design.logs.toolNamedCancelled', { title });
+  return t('design.logs.toolNamedRunning', { title });
 }
 
-function lifecycleText(type: string | undefined, t: (key: string, params?: Record<string, string | number>) => string): string {
-  if (type === 'process_started') return t('design.init.connecting');
-  if (type === 'initialized') return t('design.init.initialized');
-  if (type === 'session_created' || type === 'session_forked') return t('design.init.sessionReady');
-  if (type === 'prompt_started') return t('design.init.negotiating');
-  if (type === 'prompt_stopped') return t('design.init.ready');
-  if (type === 'prompt_failed') return t('design.logs.error');
-  return type ?? t('design.logs.terminalPublic');
+function designToolDetails(tool: Extract<TimelineItem, { kind: 'tool' }>): Array<{ label: string; value: string }> {
+  return [
+    ['kind', tool.toolKind],
+    ['locations', tool.locations],
+    ['input', tool.rawInput],
+    ['output', tool.rawOutput],
+    ['content', tool.content],
+  ].flatMap(([label, value]) => {
+    const text = formatToolDetailValue(value);
+    return text ? [{ label: String(label), value: text }] : [];
+  });
 }
 
-function isHiddenMemoryEntry(entry: DesignLogEntry): boolean {
+function formatToolDetailValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function isHiddenMemoryEntry(entry: AcpTimelineEvent): boolean {
   return entry.phase === 'memory';
 }
 
@@ -2269,19 +2417,17 @@ function renderInlineMarkdown(text: string): ReactNode[] {
 }
 
 function FocusedComponentTreeView({
-  roots,
   selectedComponent,
   selectedId,
   path,
   onSelect,
 }: {
-  roots: DesignComponentNode[] | undefined;
   selectedComponent: DesignComponentNode;
   selectedId: string;
   path?: DesignComponentNode[];
   onSelect: (node: DesignComponentNode) => void;
 }) {
-  const rows = focusedComponentTreeRows(roots, selectedComponent, path);
+  const rows = focusedComponentTreeRows(selectedComponent, path);
   if (rows.length === 0) {
     return <div className="design-properties-empty">{selectedComponent.name}</div>;
   }
@@ -2301,42 +2447,6 @@ function FocusedComponentTreeView({
         </button>
       ))}
     </div>
-  );
-}
-
-function ComponentTreeNodeView({
-  node,
-  selectedId,
-  onSelect,
-  depth = 0,
-}: {
-  node: DesignComponentNode;
-  selectedId: string;
-  onSelect: (node: DesignComponentNode) => void;
-  depth?: number;
-}) {
-  return (
-    <>
-      <button
-        type="button"
-        className={`design-tree-node${node.id === selectedId ? ' active' : ''}`}
-        style={{ paddingLeft: 8 + depth * 12 }}
-        onClick={() => onSelect(node)}
-        title={node.selector ?? node.id}
-      >
-        <span>{node.name}</span>
-        <span>{node.type ?? node.id}</span>
-      </button>
-      {node.children?.map((child) => (
-        <ComponentTreeNodeView
-          key={child.id}
-          node={child}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          depth={depth + 1}
-        />
-      ))}
-    </>
   );
 }
 
@@ -2374,79 +2484,75 @@ function artifactHasView(artifact: DesignArtifact | undefined, tab: DesignArtifa
   return Boolean(artifact.frames?.some((frame) => tab === 'html' ? Boolean(frame.designPath) : Boolean(frame.designPath || frame.wireframePath)));
 }
 
-function visibleSessionLogs(liveLogs: DesignLogEntry[], savedLogs: DesignLogEntry[] | undefined): DesignLogEntry[] {
+function visibleSessionLogs(liveLogs: AcpTimelineEvent[], savedLogs: AcpTimelineEvent[] | undefined): AcpTimelineEvent[] {
   return liveLogs.length > 0 ? liveLogs : savedLogs ?? [];
 }
 
 function designThreadItems(
-  logs: DesignLogEntry[],
+  logs: AcpTimelineEvent[],
   pendingUserMessage: DesignChatMessage | undefined,
   busy: boolean,
 ): DesignThreadItem[] {
   const visibleLogs = logs.filter((entry) => !isHiddenMemoryEntry(entry));
-  const latestActivityId = [...visibleLogs].reverse()
-    .find((entry) => isActivityEntry(entry))?.id;
-  const items: DesignThreadItem[] = [];
-  for (const entry of visibleLogs) {
-    if ((entry.kind === 'user' || entry.kind === 'assistant') && entry.text?.trim()) {
-      items.push({
-        type: 'message',
-        message: {
-          id: entry.id,
-          role: entry.kind === 'user' ? 'user' : 'assistant',
-          text: entry.text,
-          at: entry.at,
-        },
-      });
-    } else if (isActivityEntry(entry)) {
-      items.push({ type: 'activity', entry, active: busy && entry.id === latestActivityId });
+  const timelineEvents: TimelineEvent[] = visibleLogs;
+  const timelineItems = buildTimelineItems(timelineEvents);
+  const latestPendingToolId = busy ? [...timelineItems].reverse()
+    .find((item): item is Extract<TimelineItem, { kind: 'tool' }> => item.kind === 'tool' && isPendingToolItem(item))
+    ?.toolCallId : undefined;
+  const items = timelineItems.map((item, index): DesignThreadItem => {
+    if (item.kind === 'message') {
+      if (item.role === 'agent' || item.role === 'user') {
+        return {
+          type: 'message',
+          message: {
+            id: `timeline-message-${index}`,
+            role: item.role === 'agent' ? 'assistant' : 'user',
+            text: item.text,
+            at: visibleLogs[Math.min(index, visibleLogs.length - 1)]?.at ?? new Date().toISOString(),
+          },
+        };
+      }
+      return { type: 'status', id: `timeline-status-${index}`, text: item.text, active: false };
     }
-  }
+    if (item.kind === 'tool') {
+      return { type: 'tool', tool: item, active: item.toolCallId === latestPendingToolId };
+    }
+    if (item.kind === 'plan') {
+      return { type: 'plan', plan: item };
+    }
+    return { type: 'status', id: `timeline-gate-${index}`, text: item.branchId, active: false };
+  });
   if (
     pendingUserMessage
-    && !items.some((item) => item.type === 'message' && item.message.role === 'user' && item.message.text === pendingUserMessage.text)
+    && !items.some((item) => item.type === 'message' && item.message.role === 'user' && (
+      item.message.text === pendingUserMessage.text
+      || item.message.text.startsWith(`${pendingUserMessage.text}\n\n[image]`)
+    ))
   ) {
     items.push({ type: 'message', message: pendingUserMessage });
   }
   return items;
 }
 
-function isActivityEntry(entry: DesignLogEntry): boolean {
-  if (entry.kind === 'terminal' || entry.kind === 'error') return true;
-  if (entry.kind !== 'lifecycle') return false;
-  return entry.eventType === 'prompt_failed' || entry.eventType === 'prompt_cancelled';
+function shouldRefreshArtifactForLog(entry: AcpTimelineEvent): boolean {
+  if (entry.phase === 'memory') return false;
+  if (entry.kind === 'lifecycle' && entry.eventType === 'prompt_stopped') return true;
+  if (entry.kind !== 'tool_call_update') return false;
+  return entry.status === 'completed' || entry.status === 'failed';
 }
 
-function findComponentNode(nodes: DesignComponentNode[] | undefined, id: string): DesignComponentNode | undefined {
-  if (!nodes || !id) return undefined;
-  for (const node of nodes) {
-    if (node.id === id) return node;
-    const child = findComponentNode(node.children, id);
-    if (child) return child;
-  }
-  return undefined;
-}
-
-function findComponentPath(nodes: DesignComponentNode[] | undefined, id: string): DesignComponentNode[] | undefined {
-  if (!nodes || !id) return undefined;
-  for (const node of nodes) {
-    if (node.id === id) return [node];
-    const childPath = findComponentPath(node.children, id);
-    if (childPath) return [node, ...childPath];
-  }
-  return undefined;
+function isPendingToolItem(tool: Extract<TimelineItem, { kind: 'tool' }>): boolean {
+  return tool.status !== 'completed' && tool.status !== 'failed' && tool.status !== 'cancelled';
 }
 
 function focusedComponentTreeRows(
-  roots: DesignComponentNode[] | undefined,
   selectedComponent: DesignComponentNode,
   dynamicPath: DesignComponentNode[] | undefined,
 ): Array<{ node: DesignComponentNode; depth: number; relation: 'ancestor' | 'selected' | 'child' }> {
   const usableDynamicPath = dynamicPath?.length && dynamicPath[dynamicPath.length - 1]?.id === selectedComponent.id
     ? dynamicPath
     : undefined;
-  const staticPath = findComponentPath(roots, selectedComponent.id);
-  const path = staticPath?.length ? staticPath : usableDynamicPath;
+  const path = usableDynamicPath;
   if (path?.length) {
     const selectedFromTree = path[path.length - 1]!.id === selectedComponent.id ? selectedComponent : path[path.length - 1]!;
     return [
@@ -2468,61 +2574,181 @@ function focusedComponentTreeRows(
   ];
 }
 
-function componentPromptReference(component: DesignComponentNode): string {
-  return [
-    `<component id="${escapePromptAttr(component.id)}" name="${escapePromptAttr(component.name)}">`,
-    component.description ?? component.type ?? component.id,
-    '</component>',
-  ].join('\n');
-}
-
 function composeChatInput(
   input: string,
-  componentTree: DesignComponentNode[] | undefined,
+  componentContexts: Record<string, DesignComponentNode>,
   styleDrafts: Record<string, Record<string, string>>,
 ): string {
-  const expandedInput = expandInlineMarkers(input.trim(), componentTree);
-  const styleBlock = styleDraftBlock(styleDrafts, componentTree);
+  const expandedInput = expandInlineMarkers(input.trim(), componentContexts);
+  const styleBlock = visualChangesBlock(styleDrafts, componentContexts);
   return [expandedInput, styleBlock].filter(Boolean).join('\n\n');
 }
 
-function expandInlineMarkers(input: string, componentTree: DesignComponentNode[] | undefined): string {
+function htmlElementMarker(component: DesignComponentNode): string {
+  return `<specflow_html_element ${htmlElementMarkerAttrs(component)} />`;
+}
+
+function htmlElementMarkerAttrs(component: DesignComponentNode): string {
+  const attrs: Array<[string, string | undefined]> = [
+    ['id', component.id],
+    ['name', component.name],
+    ['file', component.filePath],
+    ['xpath', component.xpath],
+    ['selector', component.selector],
+    ['tag', componentTagName(component)],
+    ['text', component.textContent],
+    ['selectionLevel', componentSelectionLevel(component)],
+    ['anchorKind', componentAnchorKind(component)],
+  ];
+  return attrs
+    .filter((entry): entry is [string, string] => Boolean(entry[1]?.trim()))
+    .map(([key, value]) => `${key}="${escapePromptAttr(value)}"`)
+    .join(' ');
+}
+
+function expandInlineMarkers(
+  input: string,
+  componentContexts: Record<string, DesignComponentNode>,
+): string {
   if (!input.includes('<specflow_')) return input;
   return input
-    .replace(/<specflow_component\s+id="([^"]+)"(?:\s+name="[^"]*")?\s*\/>/g, (match, id: string) => {
-      const component = findComponentNode(componentTree, unescapePromptAttr(id));
-      return component ? componentPromptReference(component) : match;
+    .replace(/<specflow_html_element\s+([^>]*)\/>/g, (_match, attrsText: string) => {
+      const component = componentFromElementAttrs(parsePromptAttrs(attrsText), componentContexts);
+      return htmlElementPromptReference(component);
     })
     .replace(
-      /<specflow_comment\s+componentId="([^"]+)"\s+componentName="([^"]*)">([\s\S]*?)<\/specflow_comment>/g,
-      (_match, id: string, name: string, comment: string) => [
-        '<component-comments>',
-        `  <comment componentId="${id}" componentName="${name}">`,
-        `    ${comment.trim()}`,
-        '  </comment>',
-        '</component-comments>',
-      ].join('\n'),
+      /<specflow_element_comment\s+([^>]*)>([\s\S]*?)<\/specflow_element_comment>/g,
+      (_match, attrsText: string, comment: string) => {
+        const component = componentFromElementAttrs(parsePromptAttrs(attrsText), componentContexts);
+        return elementCommentPrompt(component, comment);
+      },
     );
 }
 
-function styleDraftBlock(
+function componentFromElementAttrs(
+  attrs: Record<string, string>,
+  componentContexts: Record<string, DesignComponentNode>,
+): DesignComponentNode {
+  const id = attrs.id ?? '';
+  const known = id ? componentContexts[id] : undefined;
+  const fallbackName = attrs.name ?? attrs.text ?? attrs.tag ?? attrs.xpath ?? attrs.selector ?? (id || 'html element');
+  return {
+    id: id || known?.id || fallbackName,
+    name: attrs.name ?? known?.name ?? fallbackName,
+    type: known?.type,
+    selector: attrs.selector ?? known?.selector,
+    filePath: attrs.file ?? known?.filePath,
+    xpath: attrs.xpath ?? known?.xpath,
+    tagName: attrs.tag ?? known?.tagName,
+    textContent: attrs.text ?? known?.textContent,
+    selectionLevel: attrs.selectionLevel ?? known?.selectionLevel,
+    anchorKind: attrs.anchorKind ?? known?.anchorKind,
+    description: known?.description,
+    bounds: known?.bounds,
+    computedStyle: known?.computedStyle,
+    children: known?.children,
+  };
+}
+
+function htmlElementPromptReference(component: DesignComponentNode): string {
+  const target = htmlElementTarget(component);
+  const tag = componentTagName(component);
+  const selectionLevel = componentSelectionLevel(component);
+  const anchorKind = componentAnchorKind(component);
+  const lines = [
+    `<html_element${component.filePath ? ` file="${escapePromptAttr(component.filePath)}"` : ''}${component.xpath ? ` xpath="${escapePromptAttr(component.xpath)}"` : ''}>`,
+    `  <target>${escapePromptText(target)}</target>`,
+  ];
+  if (component.selector) lines.push(`  <selector>${escapePromptText(component.selector)}</selector>`);
+  if (tag) lines.push(`  <tag>${escapePromptText(tag)}</tag>`);
+  if (component.name) lines.push(`  <name>${escapePromptText(component.name)}</name>`);
+  if (component.textContent) lines.push(`  <text>${escapePromptText(component.textContent)}</text>`);
+  lines.push(`  <selection_level>${escapePromptText(selectionLevel)}</selection_level>`);
+  lines.push(`  <anchor_kind>${escapePromptText(anchorKind)}</anchor_kind>`);
+  lines.push('</html_element>');
+  return lines.join('\n');
+}
+
+function elementCommentPrompt(component: DesignComponentNode, comment: string): string {
+  const target = htmlElementTarget(component);
+  const attrs = [
+    `target="${escapePromptAttr(target)}"`,
+    component.filePath ? `file="${escapePromptAttr(component.filePath)}"` : '',
+    component.xpath ? `xpath="${escapePromptAttr(component.xpath)}"` : '',
+    component.name ? `name="${escapePromptAttr(component.name)}"` : '',
+  ].filter(Boolean).join(' ');
+  return [
+    '<element-comments>',
+    `  <comment ${attrs}>`,
+    `    ${escapePromptText(comment.trim())}`,
+    '  </comment>',
+    '</element-comments>',
+  ].join('\n');
+}
+
+function htmlElementTarget(component: DesignComponentNode): string {
+  if (component.filePath && component.xpath) return `${component.filePath}::${component.xpath}`;
+  if (component.filePath && component.selector) return `${component.filePath}::${component.selector}`;
+  return component.xpath ?? component.selector ?? component.id;
+}
+
+function componentTagName(component: DesignComponentNode): string | undefined {
+  if (component.tagName) return component.tagName;
+  if (component.type?.includes(':')) return component.type.split(':').pop();
+  return component.type;
+}
+
+function componentSelectionLevel(component: DesignComponentNode): string {
+  if (component.selectionLevel) return component.selectionLevel;
+  return component.type?.startsWith('component:') ? 'component' : 'dom-element';
+}
+
+function componentAnchorKind(component: DesignComponentNode): string {
+  if (component.anchorKind) return component.anchorKind;
+  if (component.selector?.startsWith('[data-component-id=')) return 'data-component-id';
+  if (component.xpath?.includes('[@id=')) return 'id';
+  return 'xpath';
+}
+
+function visualDraftSummaries(
   styleDrafts: Record<string, Record<string, string>>,
-  componentTree: DesignComponentNode[] | undefined,
+  componentContexts: Record<string, DesignComponentNode>,
+): VisualDraftItem[] {
+  return Object.entries(styleDrafts)
+    .map(([id, styles]) => {
+      const count = Object.values(styles).filter((value) => value.trim()).length;
+      if (count === 0) return undefined;
+      const component: DesignComponentNode = componentContexts[id] ?? { id, name: id };
+      return {
+        id,
+        label: component.name || component.textContent || componentTagName(component) || id,
+        target: htmlElementTarget(component),
+        count,
+      };
+    })
+    .filter((item): item is VisualDraftItem => Boolean(item));
+}
+
+function visualChangesBlock(
+  styleDrafts: Record<string, Record<string, string>>,
+  componentContexts: Record<string, DesignComponentNode>,
 ): string {
   const entries = Object.entries(styleDrafts)
     .map(([id, styles]) => {
       const styleEntries = Object.entries(styles).filter(([, value]) => value.trim());
       if (styleEntries.length === 0) return undefined;
-      const component = findComponentNode(componentTree, id);
+      const component: DesignComponentNode = componentContexts[id] ?? { id, name: id };
+      const target = htmlElementTarget(component);
       return [
-        `  <style componentId="${escapePromptAttr(id)}" componentName="${escapePromptAttr(component?.name ?? id)}">`,
-        ...styleEntries.map(([key, value]) => `    ${styleDraftPromptKey(key)}: ${value};`),
-        '  </style>',
+        `  <visual_change target="${escapePromptAttr(target)}" name="${escapePromptAttr(component.name)}"${component.filePath ? ` file="${escapePromptAttr(component.filePath)}"` : ''}${component.xpath ? ` xpath="${escapePromptAttr(component.xpath)}"` : ''}>`,
+        '    <instruction>用户在预览中做了视觉调整。请读取原始 HTML/CSS/JS，按当前代码结构自然实现这些设计意图；不要盲目复制 computed style 或临时 inline transform。</instruction>',
+        ...styleEntries.map(([key, value]) => `    <change property="${escapePromptAttr(styleDraftPromptKey(key))}" to="${escapePromptAttr(value)}"${styleDraftPromptMeaning(key) ? ` meaning="${escapePromptAttr(styleDraftPromptMeaning(key)!)}"` : ''} />`),
+        '  </visual_change>',
       ].join('\n');
     })
     .filter((entry): entry is string => Boolean(entry));
   if (entries.length === 0) return '';
-  return ['<component-style-drafts>', ...entries, '</component-style-drafts>'].join('\n');
+  return ['<visual_changes>', ...entries, '</visual_changes>'].join('\n');
 }
 
 function styleDraftPromptKey(key: string): string {
@@ -2531,12 +2757,32 @@ function styleDraftPromptKey(key: string): string {
   return key;
 }
 
+function styleDraftPromptMeaning(key: string): string | undefined {
+  if (key === '__aflowX') return '用户希望这个元素在 frame 中视觉上靠近该 x 位置；请根据原代码选择合适布局实现，不要机械写死 transform。';
+  if (key === '__aflowY') return '用户希望这个元素在 frame 中视觉上靠近该 y 位置；请根据原代码选择合适布局实现，不要机械写死 transform。';
+  return undefined;
+}
+
 function escapePromptAttr(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapePromptText(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function unescapePromptAttr(value: string): string {
-  return value.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+  return value.replace(/&quot;/g, '"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+}
+
+function parsePromptAttrs(input: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const regex = /([A-Za-z0-9_-]+)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(input)) !== null) {
+    attrs[match[1]!] = unescapePromptAttr(match[2] ?? '');
+  }
+  return attrs;
 }
 
 function readChatPanelWidth(): number {

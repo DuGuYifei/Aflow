@@ -62,24 +62,31 @@ export const DesignSlashTextarea = forwardRef<HTMLTextAreaElement, {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault();
-      props.onSubmit?.();
-      return;
+    if (active && candidates.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setHighlight((value) => (value + 1) % candidates.length);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setHighlight((value) => (value - 1 + candidates.length) % candidates.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        accept(candidates[Math.min(highlight, candidates.length - 1)]!);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setActive(null);
+        return;
+      }
     }
-    if (!active || candidates.length === 0) return;
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
       event.preventDefault();
-      setHighlight((value) => (value + 1) % candidates.length);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlight((value) => (value - 1 + candidates.length) % candidates.length);
-    } else if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault();
-      accept(candidates[Math.min(highlight, candidates.length - 1)]!);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      setActive(null);
+      props.onSubmit();
     }
   };
 
