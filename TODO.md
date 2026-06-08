@@ -60,7 +60,7 @@
 - [ ] specflow generate-spec 命令
 - [ ] specflow update-spec 命令
 - [x] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。(只是单纯server没反应，不是bug)
-- [ ] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界，清理 .specflow 下的文件 / 文件夹
+- [x] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界，清理 .specflow 下的文件 / 文件夹
 - [x] example yaml可能应该放入 agentflows-local
 - [ ] MCP系统接入
 - [ ] token计数
@@ -70,8 +70,7 @@
 - [ ] app
 - [ ] UI更新为和homepage一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
 - [ ] SKILL模式
-- [ ] Design 的 版本记录，可能直接用git，靠一个按钮。
-- [ ] PRD 是否应该直接本地保存，直接拿去给开发 specflow 作为可选输入
+- [x] Design 的 版本记录，可能直接用git，靠一个按钮。
 - [ ] i18n应当直接写入对应文件内，而不是统一分配，难以维护
 
 ## Resolved Bugs
