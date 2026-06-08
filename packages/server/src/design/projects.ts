@@ -1,8 +1,8 @@
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { designProjectsDir } from "../workspace-paths";
 import { loadDesignProjectConfig } from "./project-config";
-import { scaffoldDesignProject } from "./project-scaffold";
+import { scaffoldDesignProject, type ScaffoldDesignProjectOptions } from "./project-scaffold";
 import type { DesignProjectKind, DesignProjectSummary, DesignRuntimeState } from "./types";
 
 export async function listDesignProjects(
@@ -31,13 +31,19 @@ export async function createDesignProject(
   root: string,
   name: string,
   kind: DesignProjectKind = "html",
+  options: ScaffoldDesignProjectOptions = {},
 ): Promise<DesignProjectSummary> {
   const projectName = sanitizeDesignProjectName(name);
   const path = designProjectPath(root, projectName);
   if (await projectExists(path)) throw httpError(409, `Design project already exists: ${projectName}`);
   await mkdir(designProjectsDir(root), { recursive: true });
   await mkdir(path, { recursive: false });
-  await scaffoldDesignProject(path, kind);
+  try {
+    await scaffoldDesignProject(path, kind, options);
+  } catch (error) {
+    await rm(path, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
   return designProjectSummary(projectName, path);
 }
 

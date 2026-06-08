@@ -1,6 +1,7 @@
 import { access } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { assertSupportedReactNodeVersion, type NodeVersionReader } from "./node-version";
 import { defaultReactDevCommand, loadDesignProjectConfig, patchDesignProjectConfig } from "./project-config";
 import { loadDesignProject } from "./projects";
 import type { DesignProjectDevCommand, DesignProjectSummary, DesignRuntimeState } from "./types";
@@ -17,6 +18,10 @@ interface RuntimeRecord {
   stopping: boolean;
   output: string;
   state: DesignRuntimeState;
+}
+
+interface DesignRuntimeManagerOptions {
+  readNodeVersion?: NodeVersionReader;
 }
 
 const runtimeManagers = new Map<string, DesignRuntimeManager>();
@@ -42,9 +47,11 @@ export async function stopDesignRuntimeManagers(root?: string): Promise<void> {
 export class DesignRuntimeManager {
   readonly #root: string;
   readonly #records = new Map<string, RuntimeRecord>();
+  readonly #readNodeVersion?: NodeVersionReader;
 
-  constructor(root: string) {
+  constructor(root: string, options: DesignRuntimeManagerOptions = {}) {
     this.#root = root;
+    this.#readNodeVersion = options.readNodeVersion;
   }
 
   runtimeState(project: DesignProjectSummary): DesignRuntimeState | undefined {
@@ -66,11 +73,13 @@ export class DesignRuntimeManager {
   async start(projectName: string): Promise<DesignRuntimeState> {
     const project = await loadDesignProject(this.#root, projectName);
     this.#assertReactProject(project);
+    await assertSupportedReactNodeVersion(project.path, "run", this.#readNodeVersion);
     await this.stop(project.name);
-    await installReactDependenciesIfNeeded(project.path);
+    const configuredCommand = (await loadDesignProjectConfig(project.path)).devCommand ?? defaultReactDevCommand();
+    await installReactDependenciesIfNeeded(project.path, configuredCommand);
     const port = await findAvailablePort();
     const startedAt = new Date().toISOString();
-    const command = expandedCommand((await loadDesignProjectConfig(project.path)).devCommand ?? defaultReactDevCommand(), port);
+    const command = expandedCommand(configuredCommand, port);
     const record: RuntimeRecord = {
       projectName: project.name,
       stopping: false,
@@ -215,10 +224,11 @@ export class DesignRuntimeManager {
   }
 }
 
-async function installReactDependenciesIfNeeded(projectPath: string): Promise<void> {
+async function installReactDependenciesIfNeeded(projectPath: string, devCommand: DesignProjectDevCommand): Promise<void> {
   if (!await pathExists(join(projectPath, "package.json"))) return;
   if (await pathExists(join(projectPath, "node_modules"))) return;
-  const command = Bun.spawn(["bun", "install"], {
+  const installCommand = installCommandForDevCommand(devCommand);
+  const command = Bun.spawn([installCommand.command, ...installCommand.args], {
     cwd: projectPath,
     env: process.env,
     stdout: "pipe",
@@ -232,6 +242,13 @@ async function installReactDependenciesIfNeeded(projectPath: string): Promise<vo
   if (exitCode !== 0) {
     throw httpError(502, `Failed to install React preview dependencies.\n${outputTail(`${stdout}\n${stderr}`)}`);
   }
+}
+
+function installCommandForDevCommand(devCommand: DesignProjectDevCommand): DesignProjectDevCommand {
+  if (devCommand.command === "bun") return { command: "bun", args: ["install"] };
+  if (devCommand.command === "pnpm") return { command: "pnpm", args: ["install"] };
+  if (devCommand.command === "yarn") return { command: "yarn", args: ["install"] };
+  return { command: "npm", args: ["install"] };
 }
 
 async function findAvailablePort(): Promise<number> {

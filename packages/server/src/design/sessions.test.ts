@@ -16,7 +16,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: requests.length === 1 ? "知道了" : "Designed the page.",
+        output: requests.length === 1 ? "我准备好了" : "Designed the page.",
         sessionId: "acp-empty-start",
       };
     };
@@ -57,7 +57,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: "知道了",
+        output: "我准备好了",
         sessionId: "acp-react",
       };
     };
@@ -68,12 +68,48 @@ describe("design sessions", () => {
     }, { runner });
 
     expect(prompts[0]).toContain("React/Vite");
+    expect(prompts[0]).toContain("Designer project 工作目录中的 Node/npm 环境");
+    expect(prompts[0]).toContain("node --version");
+    expect(prompts[0]).toContain("npm --version");
+    expect(prompts[0]).toContain("package.json");
     expect(prompts[0]).toContain("src/aflow-design-bridge.ts");
     expect(prompts[0]).toContain("initializeAflowDesignBridge()");
-    expect(prompts[0]).toContain("\"route\":\"/desktop\"");
-    expect(prompts[0]).toContain("route:/desktop::xpath");
+    expect(prompts[0]).toContain("\"route\":\"/<route>\"");
+    expect(prompts[0]).toContain("route:/<route>::xpath");
+    expect(prompts[0]).toContain("根据用户需求决定需要哪些 route");
+    expect(prompts[0]).not.toContain("/desktop");
+    expect(prompts[0]).not.toContain("/mobile");
     expect(prompts[0]).not.toContain("designPath 必须");
     expect(prompts[0]).not.toContain("所有 frame HTML 文件都直接放在项目根目录");
+  });
+
+  test("adds React-specific reference guidance only for React projects", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-design-session-"));
+    const referenceRoot = join(root, ".aflow/.specflow/design/references/react-ref");
+    const projectRoot = join(root, ".aflow/.specflow/design/projects/react-reference");
+    await mkdir(referenceRoot, { recursive: true });
+    await mkdir(join(projectRoot, ".aflow-design"), { recursive: true });
+    await writeFile(join(projectRoot, ".aflow-design/project.json"), JSON.stringify({ kind: "react" }), "utf8");
+    const prompts: string[] = [];
+    const runner: DesignAgentRunner = async (request: AgentCommandRequest): Promise<AgentCommandResult> => {
+      prompts.push(request.prompt);
+      return {
+        agentServerId: request.agentServerId,
+        exitCode: 0,
+        output: "我准备好了",
+        sessionId: "acp-react-reference",
+      };
+    };
+
+    await initializeDesignSession(root, {
+      projectName: "react-reference",
+      agentServerId: "codex-acp",
+      referenceName: "react-ref",
+    }, { runner });
+
+    expect(prompts[0]).toContain("当前 Designer project 是 React/Vite");
+    expect(prompts[0]).toContain("组件拆分、命名习惯、样式组织、设计 token");
+    expect(prompts[0]).toContain("不要整段复制 reference 代码");
   });
 
   test("injects selected reference context before the first user message", async () => {
@@ -92,7 +128,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: prompts.length === 1 ? "知道了" : "Updated desktop.html, desktop.md, and manifest.json.",
+        output: prompts.length === 1 ? "我准备好了" : "Updated desktop.html, desktop.md, and manifest.json.",
         sessionId: "acp-design",
       };
     };
@@ -112,6 +148,7 @@ describe("design sessions", () => {
     expect(prompts[0]).toContain(referenceRoot);
     expect(prompts[0]).toContain("该仓库的界面描述：");
     expect(prompts[0]).toContain("Billing settings page");
+    expect(prompts[0]).not.toContain("当前 Designer project 是 React/Vite。若 reference 仓库来自前端框架项目");
     expect(prompts[0]).toContain(projectRoot);
     expect(prompts[0]).toContain("只有当你判断用户是在要求生成、修改或更新设计画面时");
     expect(prompts[0]).toContain("manifest.json");
@@ -190,7 +227,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: request.prompt.includes("只回复“知道了”") ? "知道了" : "<html>ok</html>",
+        output: request.prompt.includes("只回复“我准备好了”") ? "我准备好了" : "<html>ok</html>",
         sessionId: "acp-design",
       };
     };
@@ -236,7 +273,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: prompts.length === 1 ? "知道了" : "Updated project files.",
+        output: prompts.length === 1 ? "我准备好了" : "Updated project files.",
         sessionId: "acp-design",
       };
     };
@@ -264,7 +301,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: requests.length === 1 ? "知道了" : `response-${requests.length}`,
+        output: requests.length === 1 ? "我准备好了" : `response-${requests.length}`,
         sessionId: "acp-design-log-session",
       };
     };

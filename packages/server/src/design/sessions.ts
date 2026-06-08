@@ -474,8 +474,11 @@ function buildDesignerMemoryPrompt(
       lines.push("- 该仓库的界面描述：", reference.interfaceDescription);
     }
     lines.push("当用户请求设计时，如果当前 agent 权限允许，请按需读取这个 reference 仓库里的相关文件来理解对应界面。");
+    if (project.kind === "react") {
+      lines.push("当前 Designer project 是 React/Vite。若 reference 仓库来自前端框架项目，请优先参考其组件拆分、命名习惯、样式组织、设计 token、布局模式和交互实现方式，在当前 Designer project 中以一致风格自然实现；不要整段复制 reference 代码。");
+    }
   }
-  lines.push("", "如果你已经把这些设定放入 memory 并理解了，只回复“知道了”。");
+  lines.push("", "如果你已经把这些设定放入 memory 并理解了，只回复“我准备好了”。");
   return lines.join("\n");
 }
 
@@ -506,8 +509,8 @@ function htmlProjectPromptRules(): string[] {
     "- 不要用 overflow-x:hidden 掩盖布局问题。页面级横向滚动只有在用户明确要求整页横向画布时才出现；carousel、表格等横向滚动应限制在局部容器内。",
     "- 避免在根容器使用 100vw/100vh 与 padding、border、fixed 元素组合制造非设计意图的横向或纵向溢出。",
     "- 线框图必须由同一个 HTML 根据 location.search 中的 view=wireframe 切换 CSS/状态实现，确保组件和布局与高保真设计稿完全对应。",
+    "- 线框图模式只表达 component 级结构：优先显示 data-component-id 对应的大组件边界、布局、层级和必要标签；非 component 级的细节元素、正文、数字、图标和装饰应弱化为占位块或省略，不要完整呈现高保真文案。",
     "- Markdown 说明应包含设计目标、页面结构、组件关系、关键交互、状态说明和设计取舍。",
-    "- 线框图模式下可以根据父页面传入的 selected query 对 data-component-id 做高亮/灰化；高保真 HTML 模式不要做选中灰化效果。",
     "- 用户消息里可能包含 <html_element>、<element-comments>、<visual_changes>；这些会用 file::xpath / selector 指向具体 HTML 元素，必须落实到对应 HTML/CSS/JS 文件。",
     "- 默认在原 frame 中实现动效和交互；只有当用户明确要求单独展示动效，或动效 demo 会干扰主页面默认状态时，才创建单独 HTML frame，例如 animation-demo.html，并在 manifest.json 中列出。",
     "",
@@ -524,12 +527,16 @@ function htmlProjectPromptRules(): string[] {
 function reactProjectPromptRules(): string[] {
   return [
     "- 这是一个由 Aflow 创建和预览的 React/Vite project；Aflow 会管理 dev server 和 iframe 预览端口，你不要要求用户手动提供端口。",
+    "- 当前是 React/Vite project，请使用该 Designer project 工作目录中的 Node/npm 环境。",
+    "- 开始修改或运行前，先自行查看 node --version、npm --version 和项目 package.json。",
     "- 你可以创建和修改 src/ 下的 React component、CSS、manifest.json 和同名 Markdown 说明文件。",
     "- 不要删除、重命名或破坏 src/aflow-design-bridge.ts；React 入口必须初始化 initializeAflowDesignBridge()，这样 Designer 画布才能选择元素、读取层级和应用视觉 draft。",
     "- 必须维护 manifest.json，让画布知道有哪些 frame、尺寸、位置和 route。",
-    "- React frame 使用 route 字段，例如 /desktop、/mobile；不要为 React frame 写 designPath。",
+    "- React frame 使用 route 字段，route 必须是以 / 开头的页面路径；不要为 React frame 写 designPath。",
+    "- 不要提前固定任何 frame；根据用户需求决定需要哪些 route、frame 尺寸和画布摆放。",
     "- 每个 route 必须正常显示高保真设计稿，并根据 URL query ?view=wireframe 在同一 React route 内切换为线框图。",
-    "- 每个 frame 的设计说明写入同名 Markdown，例如 /desktop 对应 desktop.md，并在 manifest.json 中用 descriptionPath 指向它。",
+    "- 线框图模式只表达 component 级结构：优先显示 data-component-id 对应的大组件边界、布局、层级和必要标签；非 component 级的细节元素、正文、数字、图标和装饰应弱化为占位块或省略，不要完整呈现高保真文案。",
+    "- 每个 frame 的设计说明写入同名 Markdown，例如某个 <frame-id> 对应 <frame-id>.md，并在 manifest.json 中用 descriptionPath 指向它。",
     "- 每次创建或修改某个 React route/component/CSS 后，都检查对应 Markdown 说明是否需要更新；如果设计目标、页面结构、组件关系、关键交互、状态或设计取舍变化了，必须同步更新；如果没有变化，不要为了更新而改动。",
     "- data-component-id 是可选的稳定语义锚点，可用于标记主要区域或大组件；不要为了它维护额外 JSON。",
     "- 优先把可调整视觉样式写入 CSS，并给组件稳定 class 或 data-component-id selector。",
@@ -539,15 +546,14 @@ function reactProjectPromptRules(): string[] {
     "- 不要用 overflow-x:hidden 掩盖布局问题。页面级横向滚动只有在用户明确要求整页横向画布时才出现；carousel、表格等横向滚动应限制在局部容器内。",
     "- 避免在根容器使用 100vw/100vh 与 padding、border、fixed 元素组合制造非设计意图的横向或纵向溢出。",
     "- Markdown 说明应包含设计目标、页面结构、组件关系、关键交互、状态说明和设计取舍。",
-    "- 用户消息里可能包含 <html_element>、<element-comments>、<visual_changes>；这些会用 route:/desktop::xpath 或 route:/desktop::selector 指向具体 React 渲染元素，必须回到对应 React component/CSS 中自然实现。",
+    "- 用户消息里可能包含 <html_element>、<element-comments>、<visual_changes>；这些会用 route:/<route>::xpath 或 route:/<route>::selector 指向具体 React 渲染元素，必须回到对应 React component/CSS 中自然实现。",
     "- 对 <visual_changes> 不要机械复制 computed style 或临时 transform；请根据当前 React 代码结构实现用户希望达到的视觉变化。",
-    "- 默认在原 route 中实现动效和交互；只有当用户明确要求单独展示动效，或动效 demo 会干扰主页面默认状态时，才创建单独 route，例如 /animation-demo，并在 manifest.json 中列出。",
+    "- 默认在原 route 中实现动效和交互；只有当用户明确要求单独展示动效，或动效 demo 会干扰主页面默认状态时，才创建单独 route，并在 manifest.json 中列出。",
     "",
-    "manifest.json 示例：",
+    "manifest.json frame 字段模板：",
     "{",
     "  \"frames\": [",
-    "    {\"id\":\"desktop\",\"title\":\"Desktop\",\"kind\":\"desktop\",\"width\":1440,\"height\":1024,\"x\":0,\"y\":0,\"route\":\"/desktop\",\"descriptionPath\":\"desktop.md\"},",
-    "    {\"id\":\"mobile\",\"title\":\"Mobile\",\"kind\":\"mobile\",\"width\":390,\"height\":844,\"x\":1520,\"y\":0,\"route\":\"/mobile\",\"descriptionPath\":\"mobile.md\"}",
+    "    {\"id\":\"<frame-id>\",\"title\":\"<Frame title>\",\"kind\":\"<frame-kind>\",\"width\":1440,\"height\":1024,\"x\":0,\"y\":0,\"route\":\"/<route>\",\"descriptionPath\":\"<frame-id>.md\"}",
     "  ]",
     "}",
   ];

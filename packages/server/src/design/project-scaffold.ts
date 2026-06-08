@@ -1,17 +1,27 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defaultReactDevCommand, saveDesignProjectConfig } from "./project-config";
+import { REACT_NODE_VERSION_RANGE, assertSupportedReactNodeVersion, type NodeVersionReader } from "./node-version";
 import type { DesignProjectKind } from "./types";
 
-export async function scaffoldDesignProject(projectPath: string, kind: DesignProjectKind): Promise<void> {
+export interface ScaffoldDesignProjectOptions {
+  readNodeVersion?: NodeVersionReader;
+}
+
+export async function scaffoldDesignProject(
+  projectPath: string,
+  kind: DesignProjectKind,
+  options: ScaffoldDesignProjectOptions = {},
+): Promise<void> {
   if (kind === "react") {
-    await scaffoldReactProject(projectPath);
+    await scaffoldReactProject(projectPath, options);
     return;
   }
   await saveDesignProjectConfig(projectPath, { kind: "html" });
 }
 
-async function scaffoldReactProject(projectPath: string): Promise<void> {
+async function scaffoldReactProject(projectPath: string, options: ScaffoldDesignProjectOptions): Promise<void> {
+  await assertSupportedReactNodeVersion(projectPath, "create", options.readNodeVersion);
   await mkdir(join(projectPath, "src"), { recursive: true });
   await saveDesignProjectConfig(projectPath, {
     kind: "react",
@@ -25,14 +35,15 @@ async function scaffoldReactProject(projectPath: string): Promise<void> {
     writeFile(join(projectPath, "src", "aflow-design-bridge.ts"), reactBridgeSource(), "utf8"),
     writeFile(join(projectPath, "src", "style.css"), reactStyleSource(), "utf8"),
     writeFile(join(projectPath, "manifest.json"), reactManifestJson(), "utf8"),
-    writeFile(join(projectPath, "desktop.md"), reactDescriptionMarkdown("Desktop"), "utf8"),
-    writeFile(join(projectPath, "mobile.md"), reactDescriptionMarkdown("Mobile"), "utf8"),
   ]);
 }
 
 function reactPackageJson(): string {
   return `${JSON.stringify({
     type: "module",
+    engines: {
+      node: REACT_NODE_VERSION_RANGE,
+    },
     scripts: {
       dev: "vite",
     },
@@ -86,37 +97,13 @@ function reactMainSource(): string {
 
 function reactAppSource(): string {
   return [
-    "function currentFrame() {",
-    "  const route = window.location.pathname.replace(/^\\/+/, \"\") || \"desktop\";",
-    "  const view = new URLSearchParams(window.location.search).get(\"view\") || \"html\";",
-    "  return { route, wireframe: view === \"wireframe\" };",
-    "}",
-    "",
     "export function App() {",
-    "  const { route, wireframe } = currentFrame();",
-    "  if (route === \"mobile\") return <MobileFrame wireframe={wireframe} />;",
-    "  return <DesktopFrame wireframe={wireframe} />;",
-    "}",
-    "",
-    "function DesktopFrame({ wireframe }: { wireframe: boolean }) {",
     "  return (",
-    "    <main className={`design-frame desktop ${wireframe ? \"wireframe\" : \"\"}`} data-component-id=\"desktop.shell\" data-component-name=\"Desktop shell\">",
-    "      <section className=\"hero\" data-component-id=\"desktop.hero\" data-component-name=\"Hero\">",
+    "    <main className=\"design-frame\" data-component-id=\"project.shell\" data-component-name=\"Project shell\">",
+    "      <section className=\"empty-state\" data-component-id=\"project.empty-state\" data-component-name=\"Empty state\">",
     "        <p className=\"eyebrow\">React Designer Project</p>",
-    "        <h1>Start designing in React</h1>",
-    "        <p>Ask the Designer agent to replace this scaffold with your product interface.</p>",
-    "      </section>",
-    "    </main>",
-    "  );",
-    "}",
-    "",
-    "function MobileFrame({ wireframe }: { wireframe: boolean }) {",
-    "  return (",
-    "    <main className={`design-frame mobile ${wireframe ? \"wireframe\" : \"\"}`} data-component-id=\"mobile.shell\" data-component-name=\"Mobile shell\">",
-    "      <section className=\"mobile-card\" data-component-id=\"mobile.hero\" data-component-name=\"Mobile hero\">",
-    "        <p className=\"eyebrow\">Mobile</p>",
-    "        <h1>React frame</h1>",
-    "        <p>This route shares code with the desktop frame.</p>",
+    "        <h1>Ready for your first frame</h1>",
+    "        <p>Ask the Designer agent to create the routes and manifest frames for this project.</p>",
     "      </section>",
     "    </main>",
     "  );",
@@ -145,7 +132,7 @@ function reactStyleSource(): string {
     "  background: #f6f8f1;",
     "}",
     "",
-    ".hero, .mobile-card {",
+    ".empty-state {",
     "  border: 1px solid #d8dfcf;",
     "  background: #ffffff;",
     "  border-radius: 8px;",
@@ -155,9 +142,6 @@ function reactStyleSource(): string {
     ".eyebrow { margin: 0 0 12px; color: #54715f; font-size: 12px; font-weight: 700; text-transform: uppercase; }",
     "h1 { margin: 0 0 12px; font-size: 48px; line-height: 1.05; letter-spacing: 0; }",
     "p { margin: 0; color: #526057; font-size: 16px; line-height: 1.5; }",
-    "",
-    ".mobile { padding: 24px; }",
-    ".mobile h1 { font-size: 34px; }",
     "",
     ".wireframe * {",
     "  color: #263025 !important;",
@@ -171,40 +155,8 @@ function reactStyleSource(): string {
 
 function reactManifestJson(): string {
   return `${JSON.stringify({
-    frames: [
-      {
-        id: "desktop",
-        title: "Desktop",
-        kind: "desktop",
-        width: 1440,
-        height: 1024,
-        x: 0,
-        y: 0,
-        route: "/desktop",
-        descriptionPath: "desktop.md",
-      },
-      {
-        id: "mobile",
-        title: "Mobile",
-        kind: "mobile",
-        width: 390,
-        height: 844,
-        x: 1520,
-        y: 0,
-        route: "/mobile",
-        descriptionPath: "mobile.md",
-      },
-    ],
+    frames: [],
   }, null, 2)}\n`;
-}
-
-function reactDescriptionMarkdown(title: string): string {
-  return [
-    `# ${title}`,
-    "",
-    "Initial React frame scaffold. Update this file whenever the design intent, structure, interactions, states, or tradeoffs change.",
-    "",
-  ].join("\n");
 }
 
 function reactBridgeSource(): string {

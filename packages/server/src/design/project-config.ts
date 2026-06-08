@@ -7,7 +7,7 @@ export const DESIGN_PROJECT_CONFIG_FILE = "project.json";
 
 export function defaultReactDevCommand(): DesignProjectDevCommand {
   return {
-    command: "bun",
+    command: "npm",
     args: ["run", "dev", "--", "--host", "127.0.0.1", "--port", "{port}"],
   };
 }
