@@ -30,8 +30,8 @@ describe("design sessions", () => {
 
     expect(initialized.memoryInjected).toBe(true);
     expect(initialized.messages).toEqual([]);
-    expect(initialized.logs?.some((entry) => entry.kind === "user")).toBe(false);
-    expect(initialized.logs ?? []).toEqual([]);
+    expect(initialized.logs?.some((entry) => entry.kind === "user_message")).toBe(false);
+    expect(initialized.logs?.some((entry) => entry.kind === "timeline_snapshot")).toBe(true);
 
     const continued = await sendDesignMessage(root, {
       sessionId: initialized.id,
@@ -42,8 +42,8 @@ describe("design sessions", () => {
 
     expect(requests).toHaveLength(2);
     expect(requests[1]?.restoreFromAcpSessionId).toBe("acp-empty-start");
-    expect(continued.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
-    expect(continued.logs?.filter((entry) => entry.kind === "user")).toHaveLength(1);
+    expect(continued.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(continued.logs?.filter((entry) => entry.kind === "user_message")).toHaveLength(1);
   });
 
   test("injects selected reference context before the first user message", async () => {
@@ -62,7 +62,7 @@ describe("design sessions", () => {
       return {
         agentServerId: request.agentServerId,
         exitCode: 0,
-        output: prompts.length === 1 ? "知道了" : "Updated desktop.html, desktop.md, manifest.json and component-tree.json.",
+        output: prompts.length === 1 ? "知道了" : "Updated desktop.html, desktop.md, and manifest.json.",
         sessionId: "acp-design",
       };
     };
@@ -86,12 +86,19 @@ describe("design sessions", () => {
     expect(prompts[0]).toContain("只有当你判断用户是在要求生成、修改或更新设计画面时");
     expect(prompts[0]).toContain("manifest.json");
     expect(prompts[0]).toContain("desktop.html");
-    expect(prompts[0]).toContain("component-tree.json");
+    expect(prompts[0]).not.toContain("component-tree.json");
     expect(prompts[0]).toContain("带 ?view=wireframe 时显示同一结构的线框图视图");
     expect(prompts[0]).toContain("descriptionPath");
     expect(prompts[0]).toContain("desktop.md");
+    expect(prompts[0]).toContain("每次创建或修改某个 frame");
     expect(prompts[0]).toContain("优先把可调整视觉样式写入 styles.css");
-    expect(prompts[0]).toContain("<component-style-drafts>");
+    expect(prompts[0]).toContain("width/height 是该 frame 在画布中的预览 viewport 尺寸");
+    expect(prompts[0]).toContain("标准 viewport meta");
+    expect(prompts[0]).toContain("最高层页面容器必须使用 width:100%");
+    expect(prompts[0]).toContain("不要把 manifest width 写成根容器的 CSS width");
+    expect(prompts[0]).toContain("不要用 overflow-x:hidden 掩盖布局问题");
+    expect(prompts[0]).toContain("默认在原 frame 中实现动效和交互");
+    expect(prompts[0]).toContain("<visual_changes>");
     expect(prompts[1]).toContain("Design the settings page.");
     expect(prompts[1]).toContain("<reference-context>");
     expect(prompts[1]).toContain(referenceRoot);
@@ -113,12 +120,12 @@ describe("design sessions", () => {
       interfaceDescription: "Billing settings page",
     });
     expect(session.project).toMatchObject({ name: "billing", path: projectRoot });
-    expect(session.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(session.messages.map((message) => message.role)).toEqual(["user"]);
     expect(session.logs?.[0]).toMatchObject({
-      kind: "user",
-      title: "User message",
+      kind: "user_message",
       text: "Design the settings page.",
     });
+    expect(session.logs?.some((entry) => entry.kind === "assistant_delta")).toBe(false);
     expect(session.latestArtifact?.projectName).toBe("billing");
     expect(session.latestArtifact?.frames?.[0]).toMatchObject({
       id: "desktop",
@@ -126,7 +133,6 @@ describe("design sessions", () => {
       designPath: "desktop.html",
       descriptionPath: "desktop.md",
     });
-    expect(session.latestArtifact?.componentTree?.[0]).toMatchObject({ id: "root", name: "Page" });
     expect(await readFile(join(projectRoot, "desktop.html"), "utf8")).toContain("data-component-id=\"root\"");
     expect(await readFile(join(projectRoot, "desktop.md"), "utf8")).toContain("Design notes: A settings page.");
 
@@ -135,7 +141,7 @@ describe("design sessions", () => {
       agentServerId: "codex-acp",
       projectName: "billing",
       title: "Design the settings page.",
-      messageCount: 2,
+      messageCount: 1,
     })]);
     expect(await listDesignSessions(root, "billing")).toHaveLength(1);
   });
@@ -240,7 +246,7 @@ describe("design sessions", () => {
     }, {
       runner,
       signal: controller.signal,
-      onLog: (entry) => streamedLogs.push(`${entry.kind}:${entry.title ?? ""}`),
+      onLog: (entry) => streamedLogs.push(`${entry.kind}:${entry.kind === "terminal" ? entry.text : ""}`),
     });
 
     await sendDesignMessage(root, {
@@ -255,7 +261,7 @@ describe("design sessions", () => {
     expect(requests[1]?.signal).toBe(controller.signal);
     expect(requests[2]?.restoreFromAcpSessionId).toBe("acp-design-log-session");
     expect(first.logs?.some((entry) => entry.kind === "terminal" && entry.text === "terminal-2")).toBe(true);
-    expect(streamedLogs[0]).toBe("user:User message");
+    expect(streamedLogs[0]).toBe("user_message:");
     expect(streamedLogs.some((entry) => entry.startsWith("prompt:"))).toBe(false);
   });
 });
@@ -268,11 +274,6 @@ async function writeProjectArtifact(projectRoot: string): Promise<void> {
     "utf8",
   );
   await writeFile(join(projectRoot, "desktop.md"), "Design notes: A settings page.", "utf8");
-  await writeFile(
-    join(projectRoot, "component-tree.json"),
-    "[{\"id\":\"root\",\"name\":\"Page\",\"type\":\"page\",\"description\":\"Root page\"}]",
-    "utf8",
-  );
   await writeFile(
     join(projectRoot, "manifest.json"),
     JSON.stringify({
@@ -287,7 +288,6 @@ async function writeProjectArtifact(projectRoot: string): Promise<void> {
         designPath: "desktop.html",
         descriptionPath: "desktop.md",
       }],
-      componentTreePath: "component-tree.json",
     }),
     "utf8",
   );

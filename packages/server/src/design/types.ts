@@ -1,3 +1,5 @@
+import type { AcpTimelineEvent } from "@specflow/shared";
+
 export interface DesignReferenceSummary {
   name: string;
   path: string;
@@ -65,6 +67,12 @@ export interface DesignComponentNode {
   name: string;
   type?: string;
   selector?: string;
+  filePath?: string;
+  xpath?: string;
+  tagName?: string;
+  textContent?: string;
+  selectionLevel?: "component" | "dom-element" | string;
+  anchorKind?: "data-component-id" | "id" | "xpath" | string;
   description?: string;
   children?: DesignComponentNode[];
 }
@@ -75,7 +83,6 @@ export interface DesignArtifact {
   projectPath: string;
   createdAt: string;
   frames?: DesignArtifactFrame[];
-  componentTree?: DesignComponentNode[];
 }
 
 export interface DesignArtifactFrame {
@@ -101,7 +108,7 @@ export interface DesignSession {
   memoryInjected: boolean;
   reference?: DesignReferenceContext;
   messages: DesignChatMessage[];
-  logs?: DesignLogEntry[];
+  logs?: AcpTimelineEvent[];
   latestArtifact?: DesignArtifact;
 }
 

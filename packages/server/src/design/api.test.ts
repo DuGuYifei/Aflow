@@ -116,6 +116,11 @@ describe("design API", () => {
     expect(html).toContain("__aflowAncestors");
     expect(html).toContain("__aflowLayerColors");
     expect(html).toContain("__aflowComponentDepth");
+    expect(html).toContain("__aflowSourcePath");
+    expect(html).toContain("__aflowXPath");
+    expect(html).toContain("selectionLevel");
+    expect(html).toContain("anchorKind");
+    expect(html).toContain("__aflowRestoreDrafts");
     expect(html).toContain("data-aflow-dom-id");
     expect(html).toContain("__aflowDescribe");
   });
