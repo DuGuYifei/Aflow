@@ -9,7 +9,7 @@ import {
   fetchAgentSessions, fetchAgentServers, fetchAgentServerCapabilities, refreshAgentServerCapabilities, restoreAgentSession, subscribeToRestore,
   fetchAgentSession, fetchResumableSession, fetchRunLogsRange, resumeWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
-  apiRunToUiRun, apiRunLogToTimelineEvents, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
+  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
   AgentAuthenticationRequiredError,
   type SseEventType,
   type AgentAuthenticationStatus,
@@ -291,15 +291,21 @@ export function App() {
   const runUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
   const subscribedRunIdRef = useRef<string | undefined>(undefined);
   const restoreRequestTokenRef = useRef(0);
+  const conversationPromptAbortRef = useRef<AbortController | null>(null);
+  const pausedPromptAbortRef = useRef<AbortController | null>(null);
   const conversationRef = useRef(conversation);
+  const nodeCopyBufferRef = useRef<CanvasNodeCopy | null>(null);
   const pasteCountRef = useRef(0);
   useEffect(() => { nodesRef.current     = nodes;     }, [nodes]);
   useEffect(() => { edgesRef.current     = edges;     }, [edges]);
   useEffect(() => { sessionsRef.current  = sessions;  }, [sessions]);
   useEffect(() => { workflowsRef.current = workflows; }, [workflows]);
   useEffect(() => { conversationRef.current = conversation; }, [conversation]);
+  useEffect(() => { nodeCopyBufferRef.current = nodeCopyBuffer; }, [nodeCopyBuffer]);
 
   const terminateConversation = useCallback((active: typeof conversation) => {
+    conversationPromptAbortRef.current?.abort();
+    conversationPromptAbortRef.current = null;
     restoreUnsubscribeRef.current?.();
     restoreUnsubscribeRef.current = undefined;
     if (!active?.restoreId) return;
@@ -310,6 +316,8 @@ export function App() {
   }, []);
 
   useEffect(() => () => {
+    conversationPromptAbortRef.current?.abort();
+    pausedPromptAbortRef.current?.abort();
     terminateConversation(conversationRef.current);
     runUnsubscribeRef.current?.();
     runUnsubscribeRef.current = undefined;
@@ -780,20 +788,23 @@ export function App() {
     const selectedIdSet = new Set(selectedIds);
     const selectedNodes = nodesRef.current.filter((node) => selectedIdSet.has(node.id));
     if (selectedNodes.length === 0) return;
-    setNodeCopyBuffer(createCanvasNodeCopy({
+    const nextCopyBuffer = createCanvasNodeCopy({
       sourceWorkflowId: activeWorkflow,
       nodes: selectedNodes,
       edges: edgesRef.current,
-    }));
+    });
+    nodeCopyBufferRef.current = nextCopyBuffer;
+    setNodeCopyBuffer(nextCopyBuffer);
     pasteCountRef.current = 0;
   }, [activeWorkflow, loadedWorkflowId, selection, view]);
 
   const onPasteNode = useCallback((position: CanvasPastePosition) => {
-    if (view !== 'edit' || !nodeCopyBuffer || !activeWorkflow || loadedWorkflowId !== activeWorkflow) return;
+    const copyBuffer = nodeCopyBufferRef.current;
+    if (view !== 'edit' || !copyBuffer || !activeWorkflow || loadedWorkflowId !== activeWorkflow) return;
     const pasteIndex = pasteCountRef.current;
     const pasted = createPastedNodes({
-      copiedNodes: nodeCopyBuffer.nodes,
-      copiedEdges: nodeCopyBuffer.edges,
+      copiedNodes: copyBuffer.nodes,
+      copiedEdges: copyBuffer.edges,
       existingNodes: nodesRef.current,
       existingEdges: edgesRef.current,
       sessions: sessionsRef.current,
@@ -810,7 +821,7 @@ export function App() {
     setSelection(pasted.nodes.length === 1 ? { kind: 'node', id: pasted.nodes[0]!.id } : { kind: 'nodes', ids: pasted.nodes.map((node) => node.id) });
     pasteCountRef.current = pasteIndex + 1;
     scheduleSave();
-  }, [activeWorkflow, loadedWorkflowId, nodeCopyBuffer, scheduleSave, view]);
+  }, [activeWorkflow, loadedWorkflowId, scheduleSave, view]);
 
   const onDeleteSelection = useCallback(() => {
     if (view !== 'edit' || loadedWorkflowId !== activeWorkflow || !selection) return;
@@ -936,17 +947,14 @@ export function App() {
           setPausedNode((paused) => paused?.nodeId === event.nodeId ? null : paused);
         }
       } else if (type === 'terminal') {
-        const event = data as Extract<TimelineEvent, { type: 'terminal' }> & { specflowSessionId?: string };
-        setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { ...event, type: 'terminal' }]);
+        // New runs receive terminal output through ACP timeline events.
+      } else if (type === 'timeline') {
+        setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), data as TimelineEvent]);
       } else if (type === 'session-update') {
-        const event = data as { update: unknown; nodeId?: string; agentInvocationId?: string; sessionId?: string; specflowSessionId?: string };
-        setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { ...event, type: 'session-update' }]);
+        // ACP timeline is the live log source for new runs. Keep this legacy
+        // branch silent to avoid double-rendering session updates.
       } else if (type === 'agent-prompt' || type === 'agent-lifecycle') {
         const event = data as ApiRunLogEvent;
-        const events = apiRunLogToTimelineEvents(data as ApiRunLogEvent);
-        if (events.length > 0) {
-          setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), ...events]);
-        }
         if (event.type === 'agent_lifecycle') {
           const lifecycle = event.lifecycle && typeof event.lifecycle === 'object' ? event.lifecycle as { type?: string } : {};
           if (lifecycle.type === 'session_created' || lifecycle.type === 'session_forked') {
@@ -1327,7 +1335,7 @@ export function App() {
             const prompt = options.autoPrompt;
             const restoreId = started.restoreId;
             setConversation((current) => current?.session.id === session.id
-              ? { ...current, busy: true, events: [...current.events, { type: 'display-message', role: 'user', text: prompt }] }
+              ? { ...current, busy: true }
               : current);
             void promptRestoredSession(restoreId, prompt, conversationPromptOptions(conversationRef.current))
               .catch((promptError) => {
@@ -1383,16 +1391,25 @@ export function App() {
   const onPromptConversation = useCallback(async (prompt: string) => {
     const active = conversation;
     if (!active?.restoreId || !active.canPrompt || active.busy) return;
-    setConversation((current) => current ? { ...current, busy: true, events: [...current.events, { type: 'display-message', role: 'user', text: prompt }] } : current);
+    const controller = new AbortController();
+    conversationPromptAbortRef.current?.abort();
+    conversationPromptAbortRef.current = controller;
+    setConversation((current) => current ? { ...current, busy: true } : current);
     try {
-      await promptRestoredSession(active.restoreId, prompt, conversationPromptOptions(active));
+      await promptRestoredSession(active.restoreId, prompt, conversationPromptOptions(active), controller.signal);
     } catch (error) {
+      if (controller.signal.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
       setConversation((current) => current ? { ...current, events: [...current.events, { type: 'display-message', role: 'system', text: message }] } : current);
     } finally {
+      if (conversationPromptAbortRef.current === controller) conversationPromptAbortRef.current = null;
       setConversation((current) => current ? { ...current, busy: false } : current);
     }
   }, [conversation]);
+
+  const onCancelConversationPrompt = useCallback(() => {
+    conversationPromptAbortRef.current?.abort();
+  }, []);
 
   const refreshConversationCapabilities = useCallback(async () => {
     const active = conversation;
@@ -1434,17 +1451,24 @@ export function App() {
 
   const onPromptPausedNode = useCallback(async (prompt: string) => {
     if (!pausedNode || pausedPromptBusy) return;
+    const controller = new AbortController();
+    pausedPromptAbortRef.current?.abort();
+    pausedPromptAbortRef.current = controller;
     setPausedPromptBusy(true);
-    appendPausedDisplayMessage(pausedNode, 'user', prompt);
     try {
-      const result = await promptPausedNode(pausedNode.runId, pausedNode.nodeId, prompt);
-      appendPausedDisplayMessage(pausedNode, 'agent', result.output);
+      await promptPausedNode(pausedNode.runId, pausedNode.nodeId, prompt, controller.signal);
     } catch (error) {
+      if (controller.signal.aborted) return;
       appendPausedDisplayMessage(pausedNode, 'system', error instanceof Error ? error.message : String(error));
     } finally {
+      if (pausedPromptAbortRef.current === controller) pausedPromptAbortRef.current = null;
       setPausedPromptBusy(false);
     }
   }, [appendPausedDisplayMessage, pausedNode, pausedPromptBusy]);
+
+  const onCancelPausedPrompt = useCallback(() => {
+    pausedPromptAbortRef.current?.abort();
+  }, []);
 
   const onContinuePausedNode = useCallback(async () => {
     if (!pausedNode || pausedPromptBusy) return;
@@ -1778,6 +1802,7 @@ export function App() {
           pausedNode={pausedNode}
           pausedPromptBusy={pausedPromptBusy}
           onPromptPausedNode={onPromptPausedNode}
+          onCancelPausedPrompt={onCancelPausedPrompt}
           onContinuePausedNode={onContinuePausedNode}
           readonly={view === 'run'}
         />
@@ -1808,6 +1833,7 @@ export function App() {
             });
           }}
           onPrompt={onPromptConversation}
+          onCancelPrompt={onCancelConversationPrompt}
           onClose={onCloseConversation}
         />
       )}

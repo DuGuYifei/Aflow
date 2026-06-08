@@ -26,7 +26,7 @@ export function RunConfigPanel({
   const canStart = !busy && missingVariables.length === 0;
 
   const handleKeyDown = (element: React.KeyboardEvent) => {
-    if ((element.ctrlKey || element.metaKey) && element.key === 'Enter') {
+    if (element.key === 'Enter' && !element.shiftKey) {
       element.preventDefault();
       if (canStart) onStart();
     }

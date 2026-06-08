@@ -1,4 +1,5 @@
 import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent } from './types';
+import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
   id: string;
@@ -295,6 +296,7 @@ export interface RunInteraction {
 }
 
 export type ApiRunLogEvent =
+  | (AcpTimelineEvent & { runId: string })
   | {
       type: 'terminal';
       runId: string;
@@ -466,7 +468,7 @@ export async function fetchRunLogsRange(
 }
 
 export async function fetchRunLogs(id: string): Promise<ApiRunLogEvent[]> {
-  const response = await fetch(`/api/runs/${id}/logs`);
+  const response = await fetch(`/api/runs/${id}/logs?timeline=compact`);
   if (!response.ok) throw new Error(`Run logs ${id} not found`);
   return response.json();
 }
@@ -641,6 +643,7 @@ export async function promptRestoredSession(
   restoreId: string,
   prompt: string,
   options: { modeId?: string; configOptions?: Record<string, string | boolean> } = {},
+  signal?: AbortSignal,
 ): Promise<{ output: string }> {
   const response = await fetch(`/api/agent-session-restores/${restoreId}/prompt`, {
     method: 'POST',
@@ -650,6 +653,7 @@ export async function promptRestoredSession(
       ...(options.modeId ? { modeId: options.modeId } : {}),
       ...(options.configOptions && Object.keys(options.configOptions).length > 0 ? { configOptions: options.configOptions } : {}),
     }),
+    signal,
   });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to prompt restored session'));
   return response.json();
@@ -699,11 +703,12 @@ export async function resumeWorkflowRun(runId: string): Promise<{ runId: string 
   return response.json();
 }
 
-export async function promptPausedNode(runId: string, nodeId: string, prompt: string): Promise<{ output: string }> {
+export async function promptPausedNode(runId: string, nodeId: string, prompt: string, signal?: AbortSignal): Promise<{ output: string }> {
   const response = await fetch(`/api/runs/${runId}/paused-nodes/${nodeId}/prompt`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt }),
+    signal,
   });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to prompt paused node'));
   return response.json();
@@ -749,7 +754,7 @@ export async function respondToRunInteraction(
   if (!response.ok) throw new Error(`Failed to respond to interaction: ${response.status}`);
 }
 
-export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'agent-prompt' | 'agent-lifecycle' | 'run-status' | 'interaction-requested';
+export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'agent-prompt' | 'agent-lifecycle' | 'timeline' | 'run-status' | 'interaction-requested';
 
 export function subscribeToRun(
   runId: string,
@@ -771,6 +776,7 @@ export function subscribeToRun(
   source.addEventListener('session-update', handle('session-update'));
   source.addEventListener('agent-prompt', handle('agent-prompt'));
   source.addEventListener('agent-lifecycle', handle('agent-lifecycle'));
+  source.addEventListener('timeline', handle('timeline'));
   source.addEventListener('run-status',  handle('run-status'));
   source.addEventListener('interaction-requested', handle('interaction-requested'));
 
@@ -846,11 +852,28 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
 }
 
 export function apiRunLogsToTimelineEvents(events: ApiRunLogEvent[]): TimelineEvent[] {
+  const hasAcpTimeline = events.some(isAcpTimelineEvent);
+  if (hasAcpTimeline) {
+    return events.flatMap((event): TimelineEvent[] => {
+      if (isAcpTimelineEvent(event)) return [event];
+      if (event.type === 'node_status' && event.gateDecision) {
+        return [{
+          type: 'gate-decision',
+          nodeId: event.nodeId,
+          branchId: event.gateDecision.branchId,
+          reason: event.gateDecision.reason,
+          branches: event.gateBranches,
+        }];
+      }
+      return [];
+    });
+  }
   return events
     .flatMap((event): TimelineEvent[] => apiRunLogToTimelineEvents(event));
 }
 
 export function apiRunLogToTimelineEvents(event: ApiRunLogEvent): TimelineEvent[] {
+  if (isAcpTimelineEvent(event)) return [event];
   if (event.type === 'terminal') {
     return [{
       type: 'terminal',
@@ -877,6 +900,7 @@ export function apiRunLogToTimelineEvents(event: ApiRunLogEvent): TimelineEvent[
       role: 'user',
       text: event.prompt,
       nodeId: event.nodeId,
+      agentInvocationId: event.agentInvocationId,
       specflowSessionId: event.specflowSessionId,
     }];
   }

@@ -26,6 +26,7 @@ interface AgentConversationWindowProps {
   onChangeMode: (modeId: string | undefined) => void;
   onChangeConfigOption: (configId: string, value: string | boolean | undefined) => void;
   onPrompt: (prompt: string) => void;
+  onCancelPrompt: () => void;
   onClose: () => void;
 }
 
@@ -43,8 +44,8 @@ export function AgentConversationWindow(props: AgentConversationWindowProps) {
     return () => window.cancelAnimationFrame(frame);
   }, [props.events.length, props.status, props.session.id]);
 
-  const submit = () => {
-    const value = prompt.trim();
+  const submit = (override?: string) => {
+    const value = (override ?? prompt).trim();
     if (!value || props.busy || !props.canPrompt) return;
     props.onPrompt(value);
     setPrompt('');
@@ -85,7 +86,10 @@ export function AgentConversationWindow(props: AgentConversationWindowProps) {
               placeholder={props.canPrompt ? t('conversation.prompt') : t('conversation.restoring')}
               onInput={(event) => setPrompt(event.currentTarget.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit();
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  submit(event.currentTarget.value);
+                }
               }}
             />
             <div className="conversation-compose-footer">
@@ -117,9 +121,15 @@ export function AgentConversationWindow(props: AgentConversationWindowProps) {
                 onChangeMode={props.onChangeMode}
                 onChangeConfigOption={props.onChangeConfigOption}
               />
-              <button className="btn primary" disabled={!props.canPrompt || props.busy || !prompt.trim()} onClick={submit}>
-                {props.busy ? t('conversation.sending') : t('conversation.send')}
-              </button>
+              {props.busy ? (
+                <button className="btn" onClick={props.onCancelPrompt}>
+                  {t('common.cancel')}
+                </button>
+              ) : (
+                <button className="btn primary" disabled={!props.canPrompt || !prompt.trim()} onClick={() => submit()}>
+                  {t('conversation.send')}
+                </button>
+              )}
             </div>
           </footer>
         )}
