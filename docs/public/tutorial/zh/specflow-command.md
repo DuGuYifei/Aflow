@@ -3,7 +3,7 @@ title: Specflow 命令
 description: 学习 specflow、specflow validate 和 specflow run 的用途与输入规则。
 category: tutorial
 order: 2
-updatedAt: "2026-06-02 22:10:35 CEST"
+updatedAt: "2026-06-09 01:12:49 CEST"
 tags:
   - cli
   - command
@@ -18,7 +18,7 @@ tags:
 specflow
 ```
 
-不带参数时，Specflow 会启动 server 和浏览器 UI。
+不带参数时，Specflow 会启动 server，并打印浏览器 UI URL。
 
 ## 校验 workflow
 

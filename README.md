@@ -37,12 +37,13 @@ Specflow is not limited to coding. It can connect to arbitrary custom agents for
 ## Usage
 
 ```sh
+aflow
 specflow
 specflow validate .aflow/.specflow/agentflow/agentflows/example.yaml
 specflow run .aflow/.specflow/agentflow/agentflows/example.yaml -Dtask="Review this change"
 ```
 
-See [Specflow Commands](docs/public/tutorial/en/specflow-command.md).
+See [Aflow Agent Tutorial](docs/public/tutorial/en/aflow-agent.md), [Designer Tutorial](docs/public/tutorial/en/designer.md), and [Specflow Commands](docs/public/tutorial/en/specflow-command.md).
 
 ## Workspace Files
 
@@ -52,7 +53,9 @@ Browser canvas layout is generated into `.aflow/.specflow/agentflow/canvas/*.jso
 
 Agent servers are configured under `.aflow/.specflow/agent-servers.json`. Local secrets and machine-specific overrides go in `.aflow/.specflow/agent-servers.local.json`.
 
-Run records, run logs, caches, and workflow assets are also stored under `.aflow/.specflow/`.
+Run records, run logs, and workflow assets are stored under `.aflow/.specflow/`.
+
+Reusable ACP agent cache files live under `~/.aflow/.specflow/cache/agents/` by default, and can be moved with `SPECFLOW_AGENT_CACHE_DIR`.
 
 VPN or proxy users should add `http_proxy` and `https_proxy` under the agent server `env` keys.
 
@@ -124,24 +127,26 @@ Install dependencies:
 bun install
 ```
 
-Run the development server:
+Start the development entrypoint:
 
 ```sh
 bun run dev
 ```
 
-The command starts the Specflow server and prints the browser URL:
+The command builds the embedded UI assets and starts Aflow. With no arguments, Aflow opens a startup menu:
 
 ```text
-Specflow UI: http://localhost:5173/
+1. Native Aflow
+2. Specflow
+3. Designer
 ```
 
-In development, the server proxies UI requests to Vite so React updates stay fast. In production, the server serves the embedded static UI from the compiled binary.
+Choosing Specflow starts the local Specflow server and opens the workspace UI. Choosing Designer starts the same server and opens `/design`. In production, the server serves the embedded static UI from the compiled binary.
 
 ## Scripts
 
 ```sh
-bun run dev        # start server + Vite dev proxy
+bun run dev        # build UI assets, then start the Aflow mode picker
 bun run build      # build:ui then build:bin, producing ./specflow
 bun run typecheck  # type-check all packages
 ```

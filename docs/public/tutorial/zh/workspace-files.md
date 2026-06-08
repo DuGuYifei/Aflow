@@ -3,7 +3,7 @@ title: Workspace 文件
 description: 了解 Specflow workspace 中 workflow、canvas、agent server、运行记录、日志、缓存和资源文件的作用。
 category: tutorial
 order: 3
-updatedAt: "2026-06-02 22:10:35 CEST"
+updatedAt: "2026-06-09 01:12:49 CEST"
 tags:
   - workspace
   - config
@@ -20,7 +20,6 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 .aflow/.specflow/
   agent-servers.json
   agent-servers.local.json
-  cache/
   agentflow/
     agentflows/
     agentflows-local/
@@ -31,9 +30,8 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
   design/
     references/
     conversations/
-    artifacts/
-  prd/
-    drafts/
+    projects/
+    settings.json
 ```
 
 ## Workflow YAML
@@ -80,7 +78,7 @@ Specflow 支持三类 agent server：
 
 Registry agent 由 ACP registry 提供元数据和 distribution。Specflow 会保存、安装并尝试运行 registry 返回的 agent；当前支持的 distribution 类型包括 `binary`、`npx` 和 `uvx`。Registry 中存在某个 agent 不代表它一定能在当前机器运行，distribution、认证、协议和运行时错误仍可能由对应 agent 路径报告。
 
-CLI 启动时会先准备 workspace，并预热 `.aflow/.specflow/agent-servers.json` 中声明的 registry agent。对于 binary distribution，这会按需下载并解包到 agent cache；对于 `npx` 或 `uvx` distribution，Specflow 会解析出对应命令，具体包获取仍由 `npx` 或 `uvx` 在运行时处理。预热成功后，Specflow 会在本机的 `agent-servers.local.json` 中记录这次实际解析到的 registry version。
+CLI 启动时会先准备 workspace，并预热 `.aflow/.specflow/agent-servers.json` 中声明的 registry agent。对于 binary distribution，这会按需下载并解包到用户级 agent cache；对于 `npx` 或 `uvx` distribution，Specflow 会解析出对应命令，具体包获取仍由 `npx` 或 `uvx` 在运行时处理。预热成功后，Specflow 会在本机的 `agent-servers.local.json` 中记录这次实际解析到的 registry version。
 
 ```json
 {
@@ -298,18 +296,18 @@ Specflow 会兼容读取旧的 YAML run record。
 
 UI 的 run log、事件回放和部分恢复诊断会读取这里的内容。
 
-## Cache
+## Agent cache
 
 ```text
-.aflow/.specflow/cache/agents/
+~/.aflow/.specflow/cache/agents/
 ```
 
-这里保存 agent server 相关缓存，例如：
+Agent server 缓存保存在用户级目录，方便 registry agent 在多个项目之间复用。这里保存：
 
-- `capabilities.json`：agent capability probe 的缓存结果。
+- `capabilities.json`：agent capability probe 的缓存结果，按 agent id 和标准化后的 agent settings fingerprint 命中。
 - `registry.json`：registry agent 索引的 fallback 快照；正常情况下 Specflow 会优先读取 CDN 最新 registry。
 - `archives/`：registry agent distribution 下载和解包缓存。
 
 也可以通过 `SPECFLOW_AGENT_CACHE_DIR` 把 agent cache 放到其他目录。
 
-缓存文件可以删除；删除后 Specflow 会在启动预热或运行需要时重新 probe 或下载。Registry agent 的本地 `installedVersion` audit stamp 变化时，旧的 capability cache 会被视为过期。
+缓存文件可以删除；删除后 Specflow 会在启动预热或运行需要时重新 probe 或下载。Capability cache 只有在 agent id 和相关配置都匹配时才会复用，因此不同项目可以共享 cache，而不会共享不兼容的 capability snapshot。

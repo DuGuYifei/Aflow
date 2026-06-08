@@ -3,7 +3,7 @@ title: Workspace Files
 description: Learn how workflows, canvas files, agent servers, run records, logs, caches, and assets are stored in a Specflow workspace.
 category: tutorial
 order: 3
-updatedAt: "2026-06-02 22:10:35 CEST"
+updatedAt: "2026-06-09 01:12:49 CEST"
 tags:
   - workspace
   - config
@@ -20,7 +20,6 @@ Specflow workspace files live under `.aflow/.specflow/`.
 .aflow/.specflow/
   agent-servers.json
   agent-servers.local.json
-  cache/
   agentflow/
     agentflows/
     agentflows-local/
@@ -31,9 +30,8 @@ Specflow workspace files live under `.aflow/.specflow/`.
   design/
     references/
     conversations/
-    artifacts/
-  prd/
-    drafts/
+    projects/
+    settings.json
 ```
 
 ## Workflow YAML
@@ -80,7 +78,7 @@ The configuration file supports `agent_servers` and remains compatible with the 
 
 Registry agents provide metadata and distribution information through the ACP registry. Specflow saves, installs, and attempts to run agents returned by the registry. The currently supported distribution types include `binary`, `npx`, and `uvx`. The existence of an agent in the registry does not guarantee it can run on the current machine; distribution, authentication, protocol, and runtime errors may still be reported by that agent path.
 
-When the CLI starts, it prepares the workspace and prewarms registry agents declared in `.aflow/.specflow/agent-servers.json`. For binary distributions, this downloads and unpacks into the agent cache on demand. For `npx` or `uvx`, Specflow resolves the command, while the actual package retrieval still happens through `npx` or `uvx` at runtime. After prewarm succeeds, Specflow records the resolved registry version in the local `agent-servers.local.json`.
+When the CLI starts, it prepares the workspace and prewarms registry agents declared in `.aflow/.specflow/agent-servers.json`. For binary distributions, this downloads and unpacks into the user-level agent cache on demand. For `npx` or `uvx`, Specflow resolves the command, while the actual package retrieval still happens through `npx` or `uvx` at runtime. After prewarm succeeds, Specflow records the resolved registry version in the local `agent-servers.local.json`.
 
 ```json
 {
@@ -298,18 +296,18 @@ These files are append-only run event logs, with one JSON event per line. They s
 
 The UI run log, event replay, and some restore diagnostics read from this directory.
 
-## Cache
+## Agent Cache
 
 ```text
-.aflow/.specflow/cache/agents/
+~/.aflow/.specflow/cache/agents/
 ```
 
-This directory stores agent server related caches, such as:
+Agent server caches live in the user-level cache so registry agents can be reused across projects. This directory stores:
 
-- `capabilities.json`: cached agent capability probe results.
+- `capabilities.json`: cached agent capability probe results, keyed by agent id and the normalized agent settings fingerprint.
 - `registry.json`: fallback snapshot of the registry agent index; normally Specflow reads the latest registry from the CDN first.
 - `archives/`: download and unpack cache for registry agent distributions.
 
 You can also set `SPECFLOW_AGENT_CACHE_DIR` to put the agent cache somewhere else.
 
-Cache files can be deleted. Specflow probes or downloads again when startup prewarm or a run needs them. When a registry agent's local `installedVersion` audit stamp changes, the old capability cache is treated as stale.
+Cache files can be deleted. Specflow probes or downloads again when startup prewarm or a run needs them. Capability cache entries are only reused when the agent id and relevant settings match, so different projects can share the cache without sharing incompatible capability snapshots.

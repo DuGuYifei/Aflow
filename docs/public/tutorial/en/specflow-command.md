@@ -3,7 +3,7 @@ title: Specflow Commands
 description: Learn what specflow, specflow validate, and specflow run do, and how to pass workflow inputs.
 category: tutorial
 order: 2
-updatedAt: "2026-06-02 22:10:35 CEST"
+updatedAt: "2026-06-09 01:12:49 CEST"
 tags:
   - cli
   - command
@@ -18,7 +18,7 @@ tags:
 specflow
 ```
 
-With no arguments, Specflow starts the server and opens the browser UI.
+With no arguments, Specflow starts the server and prints the browser UI URL.
 
 ## Validate A Workflow
 
