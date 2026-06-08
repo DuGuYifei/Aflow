@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   fetchAgentServerCapabilities,
   fetchAgentServers,
@@ -99,6 +99,7 @@ const DESIGN_CHAT_MIN_WIDTH = 300;
 const DESIGN_CHAT_MAX_WIDTH = 620;
 const DESIGN_CHAT_DEFAULT_WIDTH = 390;
 const DESIGN_CHAT_COMPACT_WIDTH = 380;
+const DESIGN_THREAD_BOTTOM_THRESHOLD = 28;
 
 export function DesignApp() {
   const { language, setLanguage, t } = useI18n();
@@ -167,6 +168,8 @@ export function DesignApp() {
   const [versionPanelError, setVersionPanelError] = useState('');
   const [chatPanelWidth, setChatPanelWidth] = useState(readChatPanelWidth);
   const chatInputRef = useRef<RichPromptInputHandle>(null);
+  const designThreadRef = useRef<HTMLDivElement>(null);
+  const designThreadPinnedToBottomRef = useRef(true);
   const messageAbortRef = useRef<AbortController | null>(null);
   const artifactRefreshTimerRef = useRef<number | undefined>(undefined);
   const artifact = session?.latestArtifact ?? projectArtifact;
@@ -974,6 +977,24 @@ export function DesignApp() {
 
   const visibleLogs = visibleSessionLogs(liveLogs, session?.logs);
   const threadItems = designThreadItems(visibleLogs, pendingUserMessage, busy === 'message');
+  const threadScrollKey = `${historyMode ? 'history' : 'chat'}:${session?.id ?? ''}:${initializingStep}:${visibleLogs.length}:${pendingUserMessage?.id ?? ''}:${threadItems.length}:${threadItemScrollSignature(threadItems.at(-1))}`;
+
+  useEffect(() => {
+    if (!historyMode) designThreadPinnedToBottomRef.current = true;
+  }, [historyMode, session?.id]);
+
+  useLayoutEffect(() => {
+    const element = designThreadRef.current;
+    if (!element || historyMode || !designThreadPinnedToBottomRef.current) return;
+    element.scrollTop = element.scrollHeight;
+  }, [historyMode, threadScrollKey]);
+
+  const handleDesignThreadScroll = () => {
+    const element = designThreadRef.current;
+    if (!element) return;
+    designThreadPinnedToBottomRef.current = isScrollPinnedToBottom(element);
+  };
+
   const activeFrame = artifact?.frames?.find((frame) => frame.id === panelFrameId);
   const selectedStyleDraft = selectedComponentId ? componentStyleDrafts[selectedComponentId] ?? {} : {};
   const addComponentToken = (component: DesignComponentNode) => {
@@ -1180,6 +1201,11 @@ export function DesignApp() {
                 {busy === 'project' ? <Icon name="loader" size={12} style={{ animation: 'spin 1.4s linear infinite' }} /> : <Icon name="plus" size={12} />}
                 {t('design.project.create')}
               </button>
+              {projectKindInput === 'react' && (
+                <div className="design-project-kind-warning" role="note">
+                  {t('design.project.reactWarning')}
+                </div>
+              )}
             </div>
             <div className="design-project-list">
               {projects.length === 0 ? (
@@ -1218,7 +1244,7 @@ export function DesignApp() {
             </button>
           </div>
 
-          <div className="design-thread">
+          <div className="design-thread" ref={designThreadRef} onScroll={handleDesignThreadScroll}>
             {historyMode ? (
               <div className="design-session-list full">
                 {sessions.length === 0 ? (
@@ -2709,6 +2735,18 @@ function designThreadItems(
     items.push({ type: 'message', message: pendingUserMessage });
   }
   return items;
+}
+
+function isScrollPinnedToBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= DESIGN_THREAD_BOTTOM_THRESHOLD;
+}
+
+function threadItemScrollSignature(item: DesignThreadItem | undefined): string {
+  if (!item) return '';
+  if (item.type === 'message') return `message:${item.message.role}:${item.message.id}:${item.message.text.length}`;
+  if (item.type === 'tool') return `tool:${item.tool.toolCallId}:${item.tool.status}:${item.tool.title}`;
+  if (item.type === 'plan') return `plan:${item.plan.entries.length}:${item.plan.entries.map((entry) => entry.status).join(',')}`;
+  return `status:${item.id}:${item.text.length}:${item.active ? '1' : '0'}`;
 }
 
 function shouldRefreshArtifactForLog(entry: AcpTimelineEvent): boolean {

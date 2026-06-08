@@ -2991,6 +2991,17 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   align-self: stretch;
 }
 
+.design-project-kind-warning {
+  grid-column: 1 / -1;
+  border: 1px solid color-mix(in oklab, var(--err), transparent 62%);
+  background: color-mix(in oklab, var(--err), transparent 92%);
+  color: var(--err);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .design-project-kind-badge {
   margin-left: 8px;
   border: 1px solid var(--line);
