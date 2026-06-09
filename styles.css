@@ -1246,6 +1246,7 @@ button.decorative-action:hover {
 
 .value-card,
 .case-card,
+.phase-card,
 .product-card,
 .download-command,
 .release-card,
@@ -1256,6 +1257,7 @@ button.decorative-action:hover {
 
 .value-card:hover,
 .case-card:hover,
+.phase-card:hover,
 .product-card:hover,
 .download-command:hover,
 .release-card:hover {
@@ -1269,6 +1271,7 @@ button.decorative-action:hover {
 
 [data-theme="light"] .value-card:hover,
 [data-theme="light"] .case-card:hover,
+[data-theme="light"] .phase-card:hover,
 [data-theme="light"] .product-card:hover,
 [data-theme="light"] .download-command:hover,
 [data-theme="light"] .release-card:hover {
@@ -2526,6 +2529,7 @@ body::before {
 .workflow-preview,
 .value-card,
 .case-card,
+.phase-card,
 .command-card,
 .release-card,
 .download-command,
@@ -2541,6 +2545,7 @@ body::before {
 [data-theme="light"] .workflow-preview,
 [data-theme="light"] .value-card,
 [data-theme="light"] .case-card,
+[data-theme="light"] .phase-card,
 [data-theme="light"] .command-card,
 [data-theme="light"] .release-card,
 [data-theme="light"] .download-command,
@@ -2562,6 +2567,7 @@ body::before {
 .preview-title strong,
 .value-card h2,
 .case-card h3,
+.phase-card h3,
 .architecture h2,
 .closing h2,
 .download-hero h1,
@@ -2575,6 +2581,7 @@ body::before {
 [data-theme="light"] .preview-title strong,
 [data-theme="light"] .value-card h2,
 [data-theme="light"] .case-card h3,
+[data-theme="light"] .phase-card h3,
 [data-theme="light"] .architecture h2,
 [data-theme="light"] .closing h2,
 [data-theme="light"] .download-hero h1,
@@ -2764,6 +2771,7 @@ body::before {
 }
 
 .value-grid,
+.workflow-phases,
 .use-case,
 .architecture,
 .closing,
@@ -2778,7 +2786,8 @@ body::before {
 }
 
 .value-card,
-.case-card {
+.case-card,
+.phase-card {
   border-radius: 16px;
   padding: clamp(22px, 3vw, 30px);
 }
@@ -2809,6 +2818,59 @@ body::before {
   letter-spacing: 0;
   line-height: 1.02;
   margin-bottom: 18px;
+}
+
+.workflow-phases {
+  border-top: 1px solid rgba(145, 168, 190, 0.12);
+}
+
+.phase-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.phase-card {
+  min-height: 330px;
+}
+
+.phase-card > span {
+  align-items: center;
+  background: rgba(124, 255, 178, 0.10);
+  border: 1px solid rgba(124, 255, 178, 0.26);
+  border-radius: 999px;
+  color: var(--neon-green);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 760;
+  min-height: 32px;
+  padding: 5px 12px;
+}
+
+.phase-card h3 {
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 2vw, 2.15rem);
+  line-height: 1.08;
+  margin: 22px 0 14px;
+}
+
+.phase-card strong {
+  color: var(--neon-green);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 720;
+  margin-bottom: 18px;
+}
+
+.phase-card p {
+  color: var(--neon-muted);
+  line-height: 1.72;
+}
+
+[data-theme="light"] .phase-card p {
+  color: var(--ink-secondary);
 }
 
 [data-theme="light"] .section-heading h2 {
@@ -3030,6 +3092,7 @@ body::before {
   }
 
   .values-layout,
+  .phase-grid,
   .case-grid {
     grid-template-columns: 1fr;
   }
@@ -3079,6 +3142,10 @@ body::before {
     min-height: auto;
   }
 
+  .phase-card {
+    min-height: auto;
+  }
+
   .download-grid {
     grid-template-columns: 1fr;
   }
@@ -3121,7 +3188,7 @@ body::before {
   display: grid;
   gap: 4px;
   left: 0;
-  min-width: 240px;
+  min-width: 284px;
   opacity: 0;
   padding: 8px;
   pointer-events: none;
@@ -3180,11 +3247,62 @@ body::before {
 }
 
 .hero h1 {
-  font-size: clamp(3.25rem, 5.8vw, 6.2rem);
+  font-size: clamp(2.35rem, 4.25vw, 4.7rem);
 }
 
 :lang(zh-CN) .hero h1 {
-  font-size: clamp(2.7rem, 4.7vw, 5.05rem);
+  font-size: clamp(3.15rem, 5.7vw, 6rem);
+}
+
+.hero-title-line {
+  display: block;
+}
+
+.hero-title-kicker {
+  color: var(--neon-green);
+  font-family: var(--font-mono);
+  font-size: 0.22em;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  margin: 0.1em 0 0.02em;
+  text-transform: uppercase;
+}
+
+.hero-title-main {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.18em;
+  line-height: 0.94;
+  margin-bottom: 0.06em;
+}
+
+.hero-title-main small {
+  color: var(--neon-muted);
+  font-family: var(--font-mono);
+  font-size: 0.18em;
+  font-weight: 680;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+:lang(zh-CN) .hero-title-kicker {
+  font-size: 0.28em;
+  letter-spacing: 0.08em;
+  text-transform: none;
+}
+
+:lang(zh-CN) .hero-title-main {
+  gap: 0.22em;
+  line-height: 0.98;
+}
+
+:lang(zh-CN) .hero-title-main small {
+  font-size: 0.18em;
+  letter-spacing: 0.01em;
 }
 
 .product-pill {
@@ -3232,7 +3350,7 @@ body::before {
 .product-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .product-card {
@@ -3242,6 +3360,10 @@ body::before {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 30px 90px rgba(0, 0, 0, 0.34);
   min-height: 360px;
   padding: clamp(24px, 3.2vw, 38px);
+}
+
+.product-card .technical-stack {
+  margin-top: var(--space-5);
 }
 
 [data-theme="light"] .product-card {

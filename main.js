@@ -23,14 +23,14 @@
   const copy = {
     "zh-CN": {
       meta: {
-        homeTitle: "Aflow - Agentic Workflow Agent",
-        homeDescription: "Aflow Agent 构建在 Specflow 之上，是一个靠工作流生存的 Agent：辅助设计、优化并运行可复用的 Agent 工作流。",
+        homeTitle: "Aflow - Agent, Specflow, Designer",
+        homeDescription: "Aflow 将 Agent 工作流、Aflow Specflow runtime 和产品设计工作台放进同一个本地系统。",
         downloadTitle: "下载 Aflow",
         downloadDescription: "从 GitHub Releases 下载 Aflow 二进制文件，或使用 README 中的安装命令。",
         docsTitle: "Aflow 文档",
-        docsDescription: "阅读 Aflow 与 Specflow 的教程、命令和 workspace 文档。",
+        docsDescription: "阅读 Aflow Agent、Aflow Specflow 与 Aflow Designer 的教程、命令和 workspace 文档。",
         productsTitle: "Aflow 产品",
-        productsDescription: "了解 Aflow Agent 与 Specflow：一个是即将到来的工作流 Agent，一个是支撑它的工作流基础设施。",
+        productsDescription: "了解 Aflow Agent、Aflow Specflow 与 Aflow Designer：工作流 Agent、runtime 基础层和产品设计工作台。",
         siteName: "Aflow",
       },
       accessibility: {
@@ -40,12 +40,13 @@
         skipToContent: "跳到主要内容",
         mobileMenuOpen: "打开导航菜单",
         mobileMenuClose: "关闭导航菜单",
-        previewSummary: "Aflow 工作流星图，展示 Intake、Research、Execute、Review Gate、Deliver 节点，以及上下文交接和运行追踪。",
+        previewSummary: "Aflow 产品星图，展示 Aflow Agent、Aflow Specflow、Aflow Designer、References 和 Versions 节点。",
       },
       navigation: {
         product: "产品",
-        aflowSoon: "Aflow Agent · 已上线",
-        specflow: "Specflow",
+        aflowSoon: "工作流 Agent",
+        specflow: "Runtime foundation",
+        designer: "产品设计工作台",
         useCases: "场景",
         technical: "技术",
         docs: "文档",
@@ -54,55 +55,85 @@
         primaryCta: "下载",
       },
       hero: {
-        badge: "Agentic Workflow Agent",
-        title: "让 Agent 学会在流程中生长。",
+        badge: "Design workspace + Agent workflows",
+        titleRows: [
+          { kind: "kicker", text: "从" },
+          { kind: "statement", text: "工作流前" },
+          { kind: "kicker", text: "到" },
+          { kind: "statement", text: "工作流后" },
+        ],
         body: "Aflow Agent 构建在 Specflow 之上。它不是又一个聊天窗口，而是一个靠工作流生存的 Agent：帮助团队设计、运行、维护并优化那些稳定而复杂的业务流程。流程给它骨架，反馈给它记忆，行业 Agent 给它真正的判断力。",
         primaryCta: "下载 Aflow",
-        secondaryCta: "查看场景",
-        supportLine: "Built on Specflow · Workflow-native agent · Human gates · Persistent sessions · Workflow as Code",
-        monoLabel: "Specflow gives the workflow foundation. Aflow Agent learns to operate on top of it.",
+        secondaryCta: "查看产品",
+        supportLine: "Aflow Agent · Aflow Specflow · Aflow Designer",
+        monoLabel: "Before: scattered agent work. After: workflow-native design, runtime, and execution.",
       },
       preview: {
-        eyebrow: "agentic workflow",
-        title: "Aflow operating on Specflow",
-        startRun: "run workflow",
-        caption: "流程不再散落在聊天里。每一步都有职责，每一次交接都有形状，每一次判断都留下痕迹。",
+        eyebrow: "product workspace",
+        title: "Design, workflow, runtime",
+        startRun: "preview loop",
+        caption: "Aflow Agent、Aflow Specflow 和 Aflow Designer 组成同一个本地工作台：从 Agentic Workflow 的执行，到 runtime 轨迹，再到产品设计产物。",
         nodes: [
-          ["01", "Intake", "agent: aflow-planner", "done"],
-          ["02", "Research", "session: persisted", "running"],
-          ["03", "Optimize", "prompt + branch update", "ready"],
-          ["G1", "Review Gate", "human approval", "waiting"],
-          ["04", "Run", "specflow workflow", "queued"],
+          ["A1", "Aflow Agent", "workflow planning", "done"],
+          ["S1", "Aflow Specflow", "runtime + logs", "running"],
+          ["D1", "Aflow Designer", "HTML / React frames", "ready"],
+          ["R1", "References", "repo + interface notes", "waiting"],
+          ["V1", "Versions", "artifact history", "queued"],
         ],
-        trace: ["workflow drafted", "domain agent assigned", "review gate waiting"],
+        trace: ["workflow captured", "runtime trace recorded", "design frame versioned"],
+      },
+      workflowPhases: {
+        label: "工作流前 / 中 / 后",
+        title: "工作流前、中、后分别解决不同问题。",
+        body: "Aflow 不是把所有事情塞进一个按钮。它把 Agentic Workflow 拆成三个自然阶段：先形成设计和输入，再编排运行，最后回到真实 agent session 里继续打磨结果。",
+        items: [
+          {
+            step: "前",
+            title: "工作流前：设计和准备",
+            product: "Aflow Designer",
+            body: "用 reference、HTML/React frame、线框图、元素评论和版本记录，把 PM 或前端 Designer 的想法变成可预览的界面产物。",
+          },
+          {
+            step: "中",
+            title: "工作流中：编排和运行",
+            product: "Aflow Agent + Aflow Specflow",
+            body: "把任务拆进节点、session、human gate 和 run log。Agent 不再只是在聊天里自由发挥，而是在可审查的 workflow 中协作。",
+          },
+          {
+            step: "后",
+            title: "工作流后：恢复和手动优化",
+            product: "Native agent session",
+            body: "运行结束后，可以 resume 到原生 agent 的 session 里继续工作，手动优化结果、补充判断，并把上下文带回后续流程。",
+          },
+        ],
       },
       values: [
         {
           label: "01",
-          title: "先有流程，再有进化。",
-          body: "Aflow Agent 不把任务揉成一团长对话。它把工作拆进 Specflow 的节点、关卡和交接里，让复杂协作有可以生长的骨架。",
+          title: "Aflow Agent 把复杂任务变成可运行的工作流。",
+          body: "需求、设计、实现、审查和返工不再揉成一段长对话，而是进入可视节点、human gate、跨 session 上下文和可复用 workflow-as-code。",
         },
         {
           label: "02",
-          title: "企业构建 Agent，Aflow 编排它们。",
-          body: "行业团队专注候选人判断、代码实现、研究核验等专业能力；Aflow 负责让这些能力按稳定顺序运行、返工、审查和沉淀。",
+          title: "Aflow Specflow 保持底层运行可审查、可恢复。",
+          body: "Agent server、ACP session、run log、artifact、版本和 workflow 文件都有明确位置，让团队能复盘运行，也能从旧状态继续推进。",
         },
         {
           label: "03",
-          title: "反馈不是噪音，是下一版工作流。",
-          body: "当人类修改 prompt、替换 Agent、调整分支或补充约束，Aflow 将这些痕迹变成后续 workflow 的改进线索。",
+          title: "Aflow Designer 给非工程角色一个真正可用的设计入口。",
+          body: "PM 和前端 Designer 可以创建 HTML 或 React project，在画布中查看多 frame 设计稿、线框图、元素层级、局部评论和 reference 上下文。",
         },
       ],
       useCases: {
         label: "Use cases",
-        title: "Aflow 面向的不是某个行业，而是所有需要秩序的 Agent 工作。",
-        body: "不同企业会拥有不同的行业 Agent。Aflow 的使命，是让它们进入同一张可运行、可审查、可迭代的工作流图。",
+        title: "从设计稿到 Agent 流程，Aflow 让产物和过程都能继续生长。",
+        body: "同一套 workspace 可以承载产品设计、软件交付和业务 Agent 编排。设计师看到画布，工程团队看到 workflow，团队看到可追踪的过程。",
         items: [
           {
-            title: "Executive Search / 猎头",
-            flow: "Role Intake -> Market Map -> Candidate Fit -> Outreach -> Human Review -> Client Brief",
-            body: "猎头公司的壁垒不是“下一步做什么”，而是候选人判断、行业 mapping、触达质量和客户沟通。Aflow 固定流程，让招聘 Agent 专注判断。",
-            stats: ["128 profiles mapped", "23 high-fit candidates", "7 shortlisted"],
+            title: "Product Design / 产品设计",
+            flow: "Reference -> Prompt -> HTML/React Frames -> Wireframe -> Comment -> Version",
+            body: "Designer 让产品想法直接变成可预览的多 frame 设计稿。用户可以选择 reference、点击元素提修改、记录版本，再把结果交给后续实现流程。",
+            stats: ["HTML/React project", "wireframe mode", "version history"],
           },
           {
             title: "Software Delivery / 代码交付",
@@ -111,37 +142,41 @@
             stats: ["spec generated", "tests passed", "review approved"],
           },
           {
-            title: "Research / 行业研究",
-            flow: "Question -> Sources -> Cross-check -> Synthesis -> Review -> Report",
-            body: "把资料收集、交叉验证、综合判断和报告输出拆给不同 Agent。结论不再只是一段漂亮文字，而是有来源、有路径。",
-            stats: ["sources checked", "claims reviewed", "report ready"],
+            title: "Agent Operations / 业务 Agent 编排",
+            flow: "Intake -> Specialist Agent -> Gate -> Rework -> Deliver -> Resume",
+            body: "不同团队可以把行业 Agent 接进同一张可运行图。Aflow 负责流程顺序、人工判断、上下文交接和恢复入口。",
+            stats: ["persistent sessions", "human gates", "run traces"],
           },
         ],
       },
       technical: {
-        label: "Built on Specflow",
-        title: "Aflow 站在工作流基础设施之上。",
-        body: "Specflow 提供 workflow-as-code、持久 session、结构化交接、human gate 和 run log。Aflow Agent 将使用这些能力辅助创建、优化和运行工作流，让工作流不只是被执行，也能被照看、被修订、被继承。",
-        tags: ["Workflow as Code", "Aflow Agent", "Specflow runtime", "Persistent sessions", "Human review gates"],
-        command: ["$ aflow run hiring-pipeline.yaml", "✓ workflow inspected", "✓ agent handoff refined", "⧗ human gate: shortlist review"],
+        label: "Built on Aflow Specflow",
+        title: "三种入口，共用同一个本地运行底座。",
+        body: "Aflow Agent 面向工作流创建和运行；Aflow Specflow 面向可视化 workflow、run log 和 session 恢复；Aflow Designer 面向产品界面设计。它们共享 agent 配置、ACP 连接、workspace 文件和可追踪运行记录。",
+        tags: ["Aflow Agent", "Aflow Specflow runtime", "Aflow Designer projects", "ACP timeline", "Local versioning"],
+        command: ["$ aflow", "1. Aflow Agent", "2. Aflow Specflow", "3. Aflow Designer"],
       },
       closing: {
-        title: "让每一次 Agent 协作，都成为组织可以再次运行的能力。",
-        body: "不是把流程藏进提示词里，而是让流程长出形状。Aflow Agent 将在形状之上工作：设计它、运行它、维护它，并让它随业务一起变得更好。",
+        title: "让设计稿、工作流和 Agent 记忆都留下形状。",
+        body: "产品设计不再只是一次对话截图，Agent 协作也不再藏在临时 prompt 里。Aflow 把它们放回文件、画布、版本和运行轨迹中。",
         primaryCta: "下载 Aflow",
         secondaryCta: "查看技术层",
       },
       products: {
         label: "Products",
-        title: "Aflow Agent 与 Specflow，是上下两层产品。",
-        body: "Specflow 是工作流基础设施；Aflow Agent 是构建在其上的 Agentic Workflow Agent。一个提供可运行的流程骨架，一个在骨架上协助设计、优化和运行。",
+        title: "Aflow 分为 Aflow Agent、Aflow Specflow、Aflow Designer 三个产品。",
+        body: "Aflow Agent 服务流程创建和运行；Aflow Specflow 是 workflow runtime 与可视化基础层；Aflow Designer 服务 PM 和前端 Designer 的产品设计工作。",
         aflowTitle: "Aflow Agent",
         aflowStatus: "已上线",
-        aflowBody: "一个靠工作流生存的 Agent。它辅助团队搭建 Specflow workflow，维护 prompt 与分支，观察运行反馈，并把经验转化为下一版流程。",
-        specflowTitle: "Specflow",
-        specflowStatus: "Available foundation",
+        aflowBody: "一个靠工作流生存的 Agent。它辅助团队搭建 Aflow Specflow workflow，维护 prompt 与分支，观察运行反馈，并把经验转化为下一版流程。",
+        specflowTitle: "Aflow Specflow",
+        specflowStatus: "Runtime foundation",
         specflowBody: "面向 Agent 工作的 workflow-as-code 基础设施：可视化图、节点、关卡、跨 session 上下文、运行日志和可审查的流程定义。",
         specflowPoints: ["Workflow as Code", "Agent handoffs", "Human gates", "Persistent sessions", "Run traces"],
+        designerTitle: "Aflow Designer",
+        designerStatus: "Design workspace",
+        designerBody: "面向 PM 和前端 Designer 的产品设计工作台：创建 HTML 或 React project，预览多 frame 设计稿和线框图，附加 reference，点击元素提修改，并记录设计版本。",
+        designerPoints: ["HTML / React projects", "Canvas preview", "Reference chips", "Element comments", "Git versions"],
         cta: "下载 Aflow",
       },
       download: {
@@ -163,7 +198,7 @@
       },
       docs: {
         title: "文档",
-        body: "阅读 Aflow Agent 与 Specflow 的教程。左侧按公开文档目录分组；未来新增的文档目录也会自动出现在这里。",
+        body: "阅读 Aflow Agent、Aflow Specflow 与 Aflow Designer 的教程。左侧按公开文档目录分组；未来新增的文档目录也会自动出现在这里。",
         loading: "正在加载文档...",
         error: "文档加载失败。",
         noDocs: "当前语言暂无文档。",
@@ -173,20 +208,20 @@
         openSource: "查看 Markdown",
       },
       footer: {
-        descriptor: "Agentic Workflow Agent built on Specflow.",
-        note: "Specflow gives the workflow foundation. Aflow Agent learns to operate on top of it.",
+        descriptor: "Agent workflow, runtime, and design workspace built on Aflow Specflow.",
+        note: "Aflow Agent runs workflows. Aflow Specflow keeps the trace. Aflow Designer creates frames.",
       },
     },
     "en-US": {
       meta: {
-        homeTitle: "Aflow - Agentic Workflow Agent",
-        homeDescription: "Aflow Agent is built on Specflow: a workflow-native agent that helps design, optimize, and run durable agent workflows.",
+        homeTitle: "Aflow - Agent, Specflow, Designer",
+        homeDescription: "Aflow brings agent workflows, the Aflow Specflow runtime, and product design into one local system.",
         downloadTitle: "Download Aflow",
         downloadDescription: "Download Aflow binaries from GitHub Releases or install from the command line.",
         docsTitle: "Aflow Docs",
-        docsDescription: "Read tutorials and reference docs for Aflow and Specflow.",
+        docsDescription: "Read tutorials and reference docs for Aflow Agent, Aflow Specflow, and Aflow Designer.",
         productsTitle: "Aflow Products",
-        productsDescription: "Learn how Aflow Agent and Specflow fit together: the agentic workflow agent and the workflow infrastructure beneath it.",
+        productsDescription: "Explore Aflow Agent, Aflow Specflow, and Aflow Designer: the workflow agent, runtime foundation, and product design workspace.",
         siteName: "Aflow",
       },
       accessibility: {
@@ -196,12 +231,13 @@
         skipToContent: "Skip to content",
         mobileMenuOpen: "Open navigation menu",
         mobileMenuClose: "Close navigation menu",
-        previewSummary: "Aflow workflow map with Intake, Research, Optimize, Review Gate, and Run nodes plus handoff and trace states.",
+        previewSummary: "Aflow product map with Aflow Agent, Aflow Specflow, Aflow Designer, References, and Versions nodes.",
       },
       navigation: {
         product: "Product",
-        aflowSoon: "Aflow Agent · Available now",
-        specflow: "Specflow",
+        aflowSoon: "Workflow agent",
+        specflow: "Runtime foundation",
+        designer: "Product design workspace",
         useCases: "Use cases",
         technical: "Technical",
         docs: "Docs",
@@ -210,55 +246,85 @@
         primaryCta: "Download",
       },
       hero: {
-        badge: "Agentic Workflow Agent",
-        title: "Give agents a workflow to live in.",
+        badge: "Design workspace + Agent workflows",
+        titleRows: [
+          { kind: "kicker", text: "From" },
+          { kind: "statement", text: "Before Workflow" },
+          { kind: "kicker", text: "to" },
+          { kind: "statement", text: "After Workflow" },
+        ],
         body: "Aflow Agent is built on Specflow. It is not another chat window; it is a workflow-native agent that helps teams design, run, maintain, and improve durable agent processes. Workflows give it bones, feedback gives it memory, and domain agents give it judgment.",
         primaryCta: "Download Aflow",
-        secondaryCta: "Explore use cases",
-        supportLine: "Built on Specflow · Workflow-native agent · Human gates · Persistent sessions · Workflow as Code",
-        monoLabel: "Specflow gives the workflow foundation. Aflow Agent learns to operate on top of it.",
+        secondaryCta: "Explore products",
+        supportLine: "Aflow Agent · Aflow Specflow · Aflow Designer",
+        monoLabel: "Before: scattered agent work. After: workflow-native design, runtime, and execution.",
       },
       preview: {
-        eyebrow: "agentic workflow",
-        title: "Aflow operating on Specflow",
-        startRun: "run workflow",
-        caption: "The process no longer vanishes inside a chat. Every step has a role, every handoff has a shape, every judgment leaves a trace.",
+        eyebrow: "product workspace",
+        title: "Design, workflow, runtime",
+        startRun: "preview loop",
+        caption: "Aflow Agent, Aflow Specflow, and Aflow Designer form one local workspace: agentic execution, runtime traces, and product design artifacts evolve together.",
         nodes: [
-          ["01", "Intake", "agent: aflow-planner", "done"],
-          ["02", "Research", "session: persisted", "running"],
-          ["03", "Optimize", "prompt + branch update", "ready"],
-          ["G1", "Review Gate", "human approval", "waiting"],
-          ["04", "Run", "specflow workflow", "queued"],
+          ["A1", "Aflow Agent", "workflow planning", "done"],
+          ["S1", "Aflow Specflow", "runtime + logs", "running"],
+          ["D1", "Aflow Designer", "HTML / React frames", "ready"],
+          ["R1", "References", "repo + interface notes", "waiting"],
+          ["V1", "Versions", "artifact history", "queued"],
         ],
-        trace: ["workflow drafted", "domain agent assigned", "review gate waiting"],
+        trace: ["workflow captured", "runtime trace recorded", "design frame versioned"],
+      },
+      workflowPhases: {
+        label: "Before / During / After",
+        title: "Before, during, and after the workflow are different jobs.",
+        body: "Aflow does not compress the whole lifecycle into one button. It gives agentic work three natural stages: prepare design and inputs, orchestrate execution, then resume the real agent session to refine the result.",
+        items: [
+          {
+            step: "Before",
+            title: "Before: design and prepare",
+            product: "Aflow Designer",
+            body: "Use references, HTML/React frames, wireframes, element comments, and version history to turn PM or frontend design intent into previewable interface artifacts.",
+          },
+          {
+            step: "During",
+            title: "During: orchestrate and run",
+            product: "Aflow Agent + Aflow Specflow",
+            body: "Break work into nodes, sessions, human gates, and run logs. Agents stop improvising inside a chat and collaborate inside a reviewable workflow.",
+          },
+          {
+            step: "After",
+            title: "After: resume and refine",
+            product: "Native agent session",
+            body: "After the run, resume into the native agent session to continue manually, improve the output, add judgment, and carry context back into later work.",
+          },
+        ],
       },
       values: [
         {
           label: "01",
-          title: "First the workflow. Then the evolution.",
-          body: "Aflow Agent does not compress work into one long conversation. It places work inside Specflow nodes, gates, and handoffs so complex collaboration has a skeleton to grow on.",
+          title: "Aflow Agent turns complex work into runnable workflows.",
+          body: "Requirements, design, implementation, review, and rework stop living in one long chat. They become visible nodes, human gates, cross-session context, and reusable workflow-as-code.",
         },
         {
           label: "02",
-          title: "You build agents. Aflow conducts them.",
-          body: "Teams focus on talent judgment, code delivery, research verification, and other domain skills; Aflow helps those skills run, review, rework, and accumulate inside stable workflows.",
+          title: "Aflow Specflow keeps the runtime reviewable and recoverable.",
+          body: "Agent servers, ACP sessions, run logs, artifacts, versions, and workflow files have clear homes, so teams can inspect what happened and continue from older states.",
         },
         {
           label: "03",
-          title: "Feedback becomes the next workflow.",
-          body: "When humans revise prompts, replace agents, edit branches, or add constraints, Aflow turns those traces into material for the next version of the workflow.",
+          title: "Aflow Designer gives non-engineering roles a real design surface.",
+          body: "PMs and frontend designers can create HTML or React projects, review multi-frame designs, switch to wireframes, inspect hierarchy, attach reference context, and comment on exact elements.",
         },
       ],
       useCases: {
         label: "Use cases",
-        title: "Aflow is for agent work that needs order.",
-        body: "Different companies will build different domain agents. Aflow gives them one shared place to work: a runnable, reviewable, evolving workflow graph.",
+        title: "From design frames to agent workflows, Aflow keeps both artifacts and process alive.",
+        body: "The same workspace can carry product design, software delivery, and business agent orchestration. Designers see a canvas, engineers see workflows, and teams see a traceable process.",
         items: [
           {
-            title: "Executive Search",
-            flow: "Role Intake -> Market Map -> Candidate Fit -> Outreach -> Human Review -> Client Brief",
-            body: "A recruiting firm's edge is not the next step in the process. It is talent judgment, market mapping, outreach quality, and client trust. Aflow fixes the process so recruiting agents can sharpen the judgment.",
-            stats: ["128 profiles mapped", "23 high-fit candidates", "7 shortlisted"],
+            title: "Product Design",
+            flow: "Reference -> Prompt -> HTML/React Frames -> Wireframe -> Comment -> Version",
+            body: "Designer turns product ideas into previewable multi-frame artifacts. Users can attach references, click elements for changes, record versions, and hand results into implementation workflows.",
+            stats: ["HTML/React project", "wireframe mode", "version history"],
           },
           {
             title: "Software Delivery",
@@ -267,37 +333,41 @@
             stats: ["spec generated", "tests passed", "review approved"],
           },
           {
-            title: "Research",
-            flow: "Question -> Sources -> Cross-check -> Synthesis -> Review -> Report",
-            body: "Split collection, verification, synthesis, and review across specialized agents. The final report carries a path, not just polish.",
-            stats: ["sources checked", "claims reviewed", "report ready"],
+            title: "Agent Operations",
+            flow: "Intake -> Specialist Agent -> Gate -> Rework -> Deliver -> Resume",
+            body: "Teams can connect domain agents to the same runnable graph. Aflow manages order, human judgment, handoffs, and session recovery.",
+            stats: ["persistent sessions", "human gates", "run traces"],
           },
         ],
       },
       technical: {
-        label: "Built on Specflow",
-        title: "Aflow stands on workflow infrastructure.",
-        body: "Specflow provides workflow-as-code, persistent sessions, structured handoffs, human gates, and run logs. Aflow Agent will use those capabilities to help create, optimize, and run workflows, so workflows are not only executed, but tended and improved.",
-        tags: ["Workflow as Code", "Aflow Agent", "Specflow runtime", "Persistent sessions", "Human review gates"],
-        command: ["$ aflow run hiring-pipeline.yaml", "✓ workflow inspected", "✓ agent handoff refined", "⧗ human gate: shortlist review"],
+        label: "Built on Aflow Specflow",
+        title: "Three entrypoints, one local runtime foundation.",
+        body: "Aflow Agent is for workflow creation and execution. Aflow Specflow is for visual workflows, run logs, and session recovery. Aflow Designer is for product interface design. They share agent configuration, ACP connections, workspace files, and traceable runtime history.",
+        tags: ["Aflow Agent", "Aflow Specflow runtime", "Aflow Designer projects", "ACP timeline", "Local versioning"],
+        command: ["$ aflow", "1. Aflow Agent", "2. Aflow Specflow", "3. Aflow Designer"],
       },
       closing: {
-        title: "Make every agent collaboration something the organization can run again.",
-        body: "Do not hide process inside prompts. Give it a shape. Aflow Agent works on that shape: designing it, running it, maintaining it, and helping it improve with the business.",
+        title: "Give design artifacts, workflows, and agent memory a durable shape.",
+        body: "Product design should not end as a chat screenshot, and agent collaboration should not disappear into temporary prompts. Aflow brings both back into files, canvases, versions, and run traces.",
         primaryCta: "Download Aflow",
         secondaryCta: "View technical layer",
       },
       products: {
         label: "Products",
-        title: "Aflow Agent and Specflow are two layers of the same idea.",
-        body: "Specflow is workflow infrastructure. Aflow Agent is the agentic workflow agent built on top of it: one gives the runnable skeleton, the other helps operate and improve it.",
+        title: "Aflow is split into Aflow Agent, Aflow Specflow, and Aflow Designer.",
+        body: "Aflow Agent handles workflow creation and execution. Aflow Specflow is the workflow runtime and visual foundation. Aflow Designer serves PMs and frontend designers working on product interfaces.",
         aflowTitle: "Aflow Agent",
         aflowStatus: "Available now",
-        aflowBody: "A workflow-native agent that helps teams build Specflow workflows, maintain prompts and branches, watch run feedback, and turn experience into the next workflow revision.",
-        specflowTitle: "Specflow",
-        specflowStatus: "Available foundation",
+        aflowBody: "A workflow-native agent that helps teams build Aflow Specflow workflows, maintain prompts and branches, watch run feedback, and turn experience into the next workflow revision.",
+        specflowTitle: "Aflow Specflow",
+        specflowStatus: "Runtime foundation",
         specflowBody: "Workflow-as-code infrastructure for agent work: visual graphs, nodes, gates, cross-session context, run logs, and reviewable process definitions.",
         specflowPoints: ["Workflow as Code", "Agent handoffs", "Human gates", "Persistent sessions", "Run traces"],
+        designerTitle: "Aflow Designer",
+        designerStatus: "Design workspace",
+        designerBody: "A product design workspace for PMs and frontend designers: create HTML or React projects, preview multi-frame designs and wireframes, attach references, comment on elements, and record versions.",
+        designerPoints: ["HTML / React projects", "Canvas preview", "Reference chips", "Element comments", "Git versions"],
         cta: "Download Aflow",
       },
       download: {
@@ -319,7 +389,7 @@
       },
       docs: {
         title: "Docs",
-        body: "Read tutorials for Aflow Agent and Specflow. The left sidebar is grouped by public docs directory; future documentation sections will appear here automatically.",
+        body: "Read tutorials for Aflow Agent, Aflow Specflow, and Aflow Designer. The left sidebar is grouped by public docs directory; future documentation sections will appear here automatically.",
         loading: "Loading docs...",
         error: "Could not load this document.",
         noDocs: "No docs are available for this language yet.",
@@ -329,8 +399,8 @@
         openSource: "View Markdown",
       },
       footer: {
-        descriptor: "Agentic Workflow Agent built on Specflow.",
-        note: "Specflow gives the workflow foundation. Aflow Agent learns to operate on top of it.",
+        descriptor: "Agent workflow, runtime, and design workspace built on Aflow Specflow.",
+        note: "Aflow Agent runs workflows. Aflow Specflow keeps the trace. Aflow Designer creates frames.",
       },
     },
   };
@@ -605,7 +675,7 @@
   }
 
   function productMenu(t) {
-    return `<div class="product-menu"><button type="button" aria-haspopup="true">${t.navigation.product}${icon("chevron")}</button><div class="product-menu-panel"><a class="product-menu-item" href="product.html#aflow-agent"><strong>Aflow Agent</strong><em>${t.navigation.aflowSoon}</em></a><a class="product-menu-item" href="product.html#specflow"><strong>Specflow</strong><em>${t.navigation.specflow}</em></a></div></div>`;
+    return `<div class="product-menu"><button type="button" aria-haspopup="true">${t.navigation.product}${icon("chevron")}</button><div class="product-menu-panel"><a class="product-menu-item" href="product.html#aflow-agent"><strong>Aflow Agent</strong><em>${t.navigation.aflowSoon}</em></a><a class="product-menu-item" href="product.html#specflow"><strong>Aflow Specflow</strong><em>${t.navigation.specflow}</em></a><a class="product-menu-item" href="product.html#designer"><strong>Aflow Designer</strong><em>${t.navigation.designer}</em></a></div></div>`;
   }
 
   function header(t) {
@@ -619,8 +689,24 @@
     return `<figure class="workflow-preview preview reveal" aria-describedby="preview-summary preview-caption"><p id="preview-summary" class="sr-only">${t.accessibility.previewSummary}</p><div class="preview-toolbar"><div class="preview-title">${brandMark()}<div><span class="micro">${t.preview.eyebrow}</span><strong>${t.preview.title}</strong></div></div><button class="decorative-action" type="button" data-run-preview>${icon("play")}${t.preview.startRun}</button></div><div class="preview-canvas hero-canvas"><div class="neo-orbit" aria-hidden="true"></div><svg class="connections" viewBox="0 0 660 360" aria-hidden="true" focusable="false"><path d="M104 186 C170 86 260 86 326 150" class="connector neon animated-connector"/><path d="M332 178 C408 238 492 228 566 158" class="connector cyan animated-connector"/><path d="M352 185 C390 260 468 292 552 268" class="connector warning animated-connector"/></svg>${nodes}</div><div class="session-dock neo-trace"><div class="dock-tabs"><span class="active">Run trace</span><span>Agent sessions</span></div>${trace}</div><figcaption id="preview-caption">${t.preview.caption}</figcaption></figure>`;
   }
 
+  function heroTitle(t) {
+    const rows = Array.isArray(t.hero.titleRows)
+      ? t.hero.titleRows
+      : [{ kind: "statement", text: t.hero.title || "" }];
+    return rows.map((row) => {
+      const kind = row.kind === "kicker" ? "hero-title-kicker" : "hero-title-main";
+      const note = row.note ? `<small>${row.note}</small>` : "";
+      return `<span class="hero-title-line ${kind}"><span>${row.text}</span>${note}</span>`;
+    }).join("");
+  }
+
   function hero(t) {
-    return `<section id="hero" class="hero section" aria-labelledby="hero-title"><div class="hero-orbit" aria-hidden="true">A</div><div class="container hero-layout"><div class="hero-copy reveal"><div class="product-pill">${brandMark()}<strong>Aflow</strong><span>${t.hero.badge}</span></div><h1 id="hero-title">${t.hero.title}</h1><p class="hero-body">${t.hero.body}</p><div class="cta-row"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.hero.primaryCta}</span></a><a class="button secondary" href="#use-cases">${icon("branch")}<span>${t.hero.secondaryCta}</span></a></div><p class="support-line">${t.hero.supportLine}</p><p class="agent-stack">${t.hero.monoLabel}</p></div>${workflowPreview(t)}</div></section>`;
+    return `<section id="hero" class="hero section" aria-labelledby="hero-title"><div class="hero-orbit" aria-hidden="true">A</div><div class="container hero-layout"><div class="hero-copy reveal"><div class="product-pill">${brandMark()}<strong>Aflow</strong><span>${t.hero.badge}</span></div><h1 id="hero-title">${heroTitle(t)}</h1><p class="hero-body">${t.hero.body}</p><div class="cta-row"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.hero.primaryCta}</span></a><a class="button secondary" href="product.html">${icon("branch")}<span>${t.hero.secondaryCta}</span></a></div><p class="support-line">${t.hero.supportLine}</p><p class="agent-stack">${t.hero.monoLabel}</p></div>${workflowPreview(t)}</div></section>`;
+  }
+
+  function workflowPhases(t) {
+    const items = t.workflowPhases.items.map((item) => `<article class="phase-card reveal"><span>${item.step}</span><h3>${item.title}</h3><strong>${item.product}</strong><p>${item.body}</p></article>`).join("");
+    return `<section id="agentic-workflow" class="workflow-phases section" aria-labelledby="workflow-phases-title"><div class="container"><div class="section-heading reveal"><p class="section-label">${t.workflowPhases.label}</p><h2 id="workflow-phases-title">${t.workflowPhases.title}</h2><p>${t.workflowPhases.body}</p></div><div class="phase-grid">${items}</div></div></section>`;
   }
 
   function values(t) {
@@ -640,8 +726,9 @@
   }
 
   function productsPage(t) {
+    const designerPoints = t.products.designerPoints.map((point) => `<span>${point}</span>`).join("");
     const points = t.products.specflowPoints.map((point) => `<span>${point}</span>`).join("");
-    return `<main id="main-content" class="products-page" tabindex="-1"><section class="products-hero section"><div class="container reveal"><p class="section-label">${t.products.label}</p><h1>${t.products.title}</h1><p>${t.products.body}</p></div></section><section class="products-section section"><div class="container product-grid"><article id="aflow-agent" class="product-card reveal"><span>${t.products.aflowStatus}</span><h2>${t.products.aflowTitle}</h2><p>${t.products.aflowBody}</p></article><article id="specflow" class="product-card reveal"><span>${t.products.specflowStatus}</span><h2>${t.products.specflowTitle}</h2><p>${t.products.specflowBody}</p><div class="technical-stack">${points}</div></article></div><div class="container product-cta reveal"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.products.cta}</span></a></div></section></main>`;
+    return `<main id="main-content" class="products-page" tabindex="-1"><section class="products-hero section"><div class="container reveal"><p class="section-label">${t.products.label}</p><h1>${t.products.title}</h1><p>${t.products.body}</p></div></section><section class="products-section section"><div class="container product-grid"><article id="aflow-agent" class="product-card reveal"><span>${t.products.aflowStatus}</span><h2>${t.products.aflowTitle}</h2><p>${t.products.aflowBody}</p></article><article id="specflow" class="product-card reveal"><span>${t.products.specflowStatus}</span><h2>${t.products.specflowTitle}</h2><p>${t.products.specflowBody}</p><div class="technical-stack">${points}</div></article><article id="designer" class="product-card reveal"><span>${t.products.designerStatus}</span><h2>${t.products.designerTitle}</h2><p>${t.products.designerBody}</p><div class="technical-stack">${designerPoints}</div></article></div><div class="container product-cta reveal"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.products.cta}</span></a></div></section></main>`;
   }
 
   function commandGroup(group) {
@@ -747,7 +834,7 @@
         ? productsPage(t)
         : page === "docs"
           ? docsPage(t)
-          : `<main id="main-content" tabindex="-1">${hero(t)}${values(t)}${useCases(t)}${technical(t)}${closing(t)}</main>`;
+          : `<main id="main-content" tabindex="-1">${hero(t)}${workflowPhases(t)}${values(t)}${useCases(t)}${technical(t)}${closing(t)}</main>`;
     app.innerHTML = `<a class="skip-link" href="#main-content">${t.accessibility.skipToContent}</a>${header(t)}${main}${footer(t)}`;
     bindControls();
     bindMotion();
