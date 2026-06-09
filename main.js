@@ -67,6 +67,24 @@
         secondaryCta: "查看产品",
         supportLine: "Aflow Agent · Aflow Specflow · Aflow Designer",
         monoLabel: "Before: scattered agent work. After: workflow-native design, runtime, and execution.",
+        terminalPrompt: "帮我把 CRM 后端新增功能的 DDD 研发流程沉淀成 Specflow workflow：从任务输入、领域建模、实现到不同 session 的 reviewer 审查。",
+      },
+      screenshots: {
+        agent: {
+          label: "Aflow Agent",
+          title: "原生 Agent 会话",
+          alt: "Aflow Agent 终端界面，展示启动后的原生 Agent 会话。",
+        },
+        specflow: {
+          label: "Aflow Specflow",
+          title: "工作流画布与运行日志",
+          alt: "Aflow Specflow 工作流画布，包含节点图、属性面板和运行日志。",
+        },
+        designer: {
+          label: "Aflow Designer",
+          title: "产品设计画布",
+          alt: "Aflow Designer 设计界面，展示桌面和移动端 frame。",
+        },
       },
       preview: {
         eyebrow: "product workspace",
@@ -91,18 +109,21 @@
             step: "前",
             title: "工作流前：设计和准备",
             product: "Aflow Designer",
+            shot: "designer",
             body: "用 reference、HTML/React frame、线框图、元素评论和版本记录，把 PM 或前端 Designer 的想法变成可预览的界面产物。",
           },
           {
             step: "中",
             title: "工作流中：编排和运行",
             product: "Aflow Agent + Aflow Specflow",
+            shot: "specflow",
             body: "把任务拆进节点、session、human gate 和 run log。Agent 不再只是在聊天里自由发挥，而是在可审查的 workflow 中协作。",
           },
           {
             step: "后",
             title: "工作流后：恢复和手动优化",
             product: "Native agent session",
+            shot: "agent",
             body: "运行结束后，可以 resume 到原生 agent 的 session 里继续工作，手动优化结果、补充判断，并把上下文带回后续流程。",
           },
         ],
@@ -258,6 +279,24 @@
         secondaryCta: "Explore products",
         supportLine: "Aflow Agent · Aflow Specflow · Aflow Designer",
         monoLabel: "Before: scattered agent work. After: workflow-native design, runtime, and execution.",
+        terminalPrompt: "Turn the CRM backend feature-development process into a Specflow workflow: intake, domain modeling, implementation, and reviewer checks across separate sessions.",
+      },
+      screenshots: {
+        agent: {
+          label: "Aflow Agent",
+          title: "Native agent session",
+          alt: "Aflow Agent terminal interface showing the native agent session after launch.",
+        },
+        specflow: {
+          label: "Aflow Specflow",
+          title: "Workflow canvas and run logs",
+          alt: "Aflow Specflow workflow canvas with node graph, property panel, and run log.",
+        },
+        designer: {
+          label: "Aflow Designer",
+          title: "Product design canvas",
+          alt: "Aflow Designer interface showing desktop and mobile design frames.",
+        },
       },
       preview: {
         eyebrow: "product workspace",
@@ -282,18 +321,21 @@
             step: "Before",
             title: "Before: design and prepare",
             product: "Aflow Designer",
+            shot: "designer",
             body: "Use references, HTML/React frames, wireframes, element comments, and version history to turn PM or frontend design intent into previewable interface artifacts.",
           },
           {
             step: "During",
             title: "During: orchestrate and run",
             product: "Aflow Agent + Aflow Specflow",
+            shot: "specflow",
             body: "Break work into nodes, sessions, human gates, and run logs. Agents stop improvising inside a chat and collaborate inside a reviewable workflow.",
           },
           {
             step: "After",
             title: "After: resume and refine",
             product: "Native agent session",
+            shot: "agent",
             body: "After the run, resume into the native agent session to continue manually, improve the output, add judgment, and carry context back into later work.",
           },
         ],
@@ -414,7 +456,7 @@
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (LOCALES.includes(stored)) return stored;
-    } catch (_error) {}
+    } catch (_error) { }
     return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
   }
 
@@ -422,14 +464,14 @@
     try {
       const stored = localStorage.getItem(THEME_STORAGE_KEY);
       if (THEMES.includes(stored)) return stored;
-    } catch (_error) {}
+    } catch (_error) { }
     return "dark";
   }
 
   function persist(key, value) {
     try {
       localStorage.setItem(key, value);
-    } catch (_error) {}
+    } catch (_error) { }
   }
 
   function setMeta(selector, attribute, value) {
@@ -689,6 +731,68 @@
     return `<figure class="workflow-preview preview reveal" aria-describedby="preview-summary preview-caption"><p id="preview-summary" class="sr-only">${t.accessibility.previewSummary}</p><div class="preview-toolbar"><div class="preview-title">${brandMark()}<div><span class="micro">${t.preview.eyebrow}</span><strong>${t.preview.title}</strong></div></div><button class="decorative-action" type="button" data-run-preview>${icon("play")}${t.preview.startRun}</button></div><div class="preview-canvas hero-canvas"><div class="neo-orbit" aria-hidden="true"></div><svg class="connections" viewBox="0 0 660 360" aria-hidden="true" focusable="false"><path d="M104 186 C170 86 260 86 326 150" class="connector neon animated-connector"/><path d="M332 178 C408 238 492 228 566 158" class="connector cyan animated-connector"/><path d="M352 185 C390 260 468 292 552 268" class="connector warning animated-connector"/></svg>${nodes}</div><div class="session-dock neo-trace"><div class="dock-tabs"><span class="active">Run trace</span><span>Agent sessions</span></div>${trace}</div><figcaption id="preview-caption">${t.preview.caption}</figcaption></figure>`;
   }
 
+  const screenshotAssets = {
+    agent: "assets/screenshots/aflow-agent.png",
+    specflow: "assets/screenshots/specflow.png",
+    designer: "assets/screenshots/designer.png",
+  };
+
+  function screenshotFallback(kind) {
+    if (kind === "agent") {
+      return `<div class="shot-terminal"><pre><code><span>AFLOW AGENT</span>
+AFLOW!
+Agentic Workflow Agent
+<b>Aflow Agent</b> is built on Specflow.
+- create, adapt, validate, run, resume
+- workflow-native memory and judgment</code></pre><i></i></div>`;
+    }
+    if (kind === "specflow") {
+      return `<div class="shot-canvas-fallback"><div class="shot-sidebar"></div><div class="shot-node node-a"></div><div class="shot-node node-b"></div><div class="shot-node node-c"></div><div class="shot-node node-d"></div><svg viewBox="0 0 560 260" aria-hidden="true"><path d="M116 144 C190 78 242 74 300 126"/><path d="M308 132 C390 166 420 70 500 110"/><path d="M308 132 C386 218 438 190 514 218"/></svg><div class="shot-panel"></div><div class="shot-log"></div></div>`;
+    }
+    return `<div class="shot-designer-fallback"><div class="shot-history"></div><div class="shot-frame desktop-frame"></div><div class="shot-frame mobile-frame"></div><div class="shot-properties"></div></div>`;
+  }
+
+  function productScreenshot(t, kind, variant = "") {
+    const shot = t.screenshots[kind];
+    const src = screenshotAssets[kind];
+    const loading = variant.includes("hero") ? "eager" : "lazy";
+    const fetchPriority = variant.includes("hero") ? " fetchpriority=\"high\"" : "";
+    return `<figure class="product-shot product-shot-${kind} ${variant}" data-product-shot="${kind}"><div class="product-shot-media"><img src="${src}" alt="${shot.alt}" loading="${loading}" decoding="async"${fetchPriority}>${screenshotFallback(kind)}</div><figcaption><span>${shot.label}</span><strong>${shot.title}</strong></figcaption></figure>`;
+  }
+
+  function agentHeroTerminal(t) {
+    return `<div class="agent-hero-terminal" role="img" aria-label="Aflow Agent terminal user interface preview">
+      <pre class="agent-terminal-ascii"> █████╗ ███████╗██╗      ██████╗ ██╗    ██╗     █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║    ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+███████║█████╗  ██║     ██║   ██║██║ █╗ ██║    ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║
+██╔══██║██╔══╝  ██║     ██║   ██║██║███╗██║    ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║
+██║  ██║██║     ███████╗╚██████╔╝╚███╔███╔╝    ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║
+╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   </pre>
+      <pre class="agent-terminal-panda">   ʕ•ᴥ•ʔ</pre>
+      <pre class="agent-terminal-wordmark">
+▄▀█ █▀▀ █   █▀█ █ █ █
+█▀█ █▀  █▄▄ █▄█ ▀▄▀▄▀</pre>
+      <div class="agent-terminal-copy">
+        <p>Agentic Workflow Agent</p>
+        <p><span>Aflow Agent</span> is built on Pi.</p>
+        <p>- You can ask Aflow to create, adapt, validate, run, and resume Specflow workflows.</p>
+        <p>- Pi can explain its own features and look up its docs. Ask it how to use or extend Pi / Aflow.</p>
+      </div>
+      <div class="agent-terminal-rule"></div>
+      <div class="agent-terminal-input"><span>${t.hero.terminalPrompt}</span></div>
+      <div class="agent-terminal-rule"></div>
+      <div class="agent-terminal-status">
+        <p>/mnt/d/Project/Specflow/specflow-code (master)</p>
+        <p><span>$0.000 (sub) 0.0%/272k (auto)</span><span>gpt-5.5 • medium</span></p>
+        <strong>Aflow</strong>
+      </div>
+    </div>`;
+  }
+
+  function heroShowcase(t) {
+    return `<aside class="hero-showcase reveal" aria-label="${t.screenshots.agent.title}">${agentHeroTerminal(t)}<div class="hero-showcase-links"><span>Aflow Agent</span><span>Aflow Specflow</span><span>Aflow Designer</span></div></aside>`;
+  }
+
   function heroTitle(t) {
     const rows = Array.isArray(t.hero.titleRows)
       ? t.hero.titleRows
@@ -701,11 +805,11 @@
   }
 
   function hero(t) {
-    return `<section id="hero" class="hero section" aria-labelledby="hero-title"><div class="hero-orbit" aria-hidden="true">A</div><div class="container hero-layout"><div class="hero-copy reveal"><div class="product-pill">${brandMark()}<strong>Aflow</strong><span>${t.hero.badge}</span></div><h1 id="hero-title">${heroTitle(t)}</h1><p class="hero-body">${t.hero.body}</p><div class="cta-row"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.hero.primaryCta}</span></a><a class="button secondary" href="product.html">${icon("branch")}<span>${t.hero.secondaryCta}</span></a></div><p class="support-line">${t.hero.supportLine}</p><p class="agent-stack">${t.hero.monoLabel}</p></div>${workflowPreview(t)}</div></section>`;
+    return `<section id="hero" class="hero section" aria-labelledby="hero-title"><div class="hero-orbit" aria-hidden="true">A</div><div class="container hero-layout"><div class="hero-copy reveal"><div class="product-pill">${brandMark()}<strong>Aflow</strong><span>${t.hero.badge}</span></div><h1 id="hero-title">${heroTitle(t)}</h1><p class="hero-body">${t.hero.body}</p><div class="cta-row"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.hero.primaryCta}</span></a><a class="button secondary" href="product.html">${icon("branch")}<span>${t.hero.secondaryCta}</span></a></div><p class="support-line">${t.hero.supportLine}</p><p class="agent-stack">${t.hero.monoLabel}</p></div>${heroShowcase(t)}</div></section>`;
   }
 
   function workflowPhases(t) {
-    const items = t.workflowPhases.items.map((item) => `<article class="phase-card reveal"><span>${item.step}</span><h3>${item.title}</h3><strong>${item.product}</strong><p>${item.body}</p></article>`).join("");
+    const items = t.workflowPhases.items.map((item) => `<article class="phase-card reveal">${productScreenshot(t, item.shot, "phase-shot")}<span>${item.step}</span><h3>${item.title}</h3><strong>${item.product}</strong><p>${item.body}</p></article>`).join("");
     return `<section id="agentic-workflow" class="workflow-phases section" aria-labelledby="workflow-phases-title"><div class="container"><div class="section-heading reveal"><p class="section-label">${t.workflowPhases.label}</p><h2 id="workflow-phases-title">${t.workflowPhases.title}</h2><p>${t.workflowPhases.body}</p></div><div class="phase-grid">${items}</div></div></section>`;
   }
 
@@ -728,7 +832,7 @@
   function productsPage(t) {
     const designerPoints = t.products.designerPoints.map((point) => `<span>${point}</span>`).join("");
     const points = t.products.specflowPoints.map((point) => `<span>${point}</span>`).join("");
-    return `<main id="main-content" class="products-page" tabindex="-1"><section class="products-hero section"><div class="container reveal"><p class="section-label">${t.products.label}</p><h1>${t.products.title}</h1><p>${t.products.body}</p></div></section><section class="products-section section"><div class="container product-grid"><article id="aflow-agent" class="product-card reveal"><span>${t.products.aflowStatus}</span><h2>${t.products.aflowTitle}</h2><p>${t.products.aflowBody}</p></article><article id="specflow" class="product-card reveal"><span>${t.products.specflowStatus}</span><h2>${t.products.specflowTitle}</h2><p>${t.products.specflowBody}</p><div class="technical-stack">${points}</div></article><article id="designer" class="product-card reveal"><span>${t.products.designerStatus}</span><h2>${t.products.designerTitle}</h2><p>${t.products.designerBody}</p><div class="technical-stack">${designerPoints}</div></article></div><div class="container product-cta reveal"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.products.cta}</span></a></div></section></main>`;
+    return `<main id="main-content" class="products-page" tabindex="-1"><section class="products-hero section"><div class="container reveal"><p class="section-label">${t.products.label}</p><h1>${t.products.title}</h1><p>${t.products.body}</p></div></section><section class="products-section section"><div class="container product-grid"><article id="aflow-agent" class="product-card reveal">${productScreenshot(t, "agent", "product-card-shot")}<span>${t.products.aflowStatus}</span><h2>${t.products.aflowTitle}</h2><p>${t.products.aflowBody}</p></article><article id="specflow" class="product-card reveal">${productScreenshot(t, "specflow", "product-card-shot")}<span>${t.products.specflowStatus}</span><h2>${t.products.specflowTitle}</h2><p>${t.products.specflowBody}</p><div class="technical-stack">${points}</div></article><article id="designer" class="product-card reveal">${productScreenshot(t, "designer", "product-card-shot")}<span>${t.products.designerStatus}</span><h2>${t.products.designerTitle}</h2><p>${t.products.designerBody}</p><div class="technical-stack">${designerPoints}</div></article></div><div class="container product-cta reveal"><a class="button primary" href="download.html">${icon("arrow")}<span>${t.products.cta}</span></a></div></section></main>`;
   }
 
   function commandGroup(group) {
@@ -837,9 +941,19 @@
           : `<main id="main-content" tabindex="-1">${hero(t)}${workflowPhases(t)}${values(t)}${useCases(t)}${technical(t)}${closing(t)}</main>`;
     app.innerHTML = `<a class="skip-link" href="#main-content">${t.accessibility.skipToContent}</a>${header(t)}${main}${footer(t)}`;
     bindControls();
+    bindScreenshotFallbacks();
     bindMotion();
     app.querySelector("[data-header]")?.classList.toggle("has-scroll", window.scrollY > 8);
     if (page === "docs") loadDocs();
+  }
+
+  function bindScreenshotFallbacks() {
+    app.querySelectorAll(".product-shot img").forEach((image) => {
+      const figure = image.closest(".product-shot");
+      const markMissing = () => figure?.classList.add("is-missing");
+      image.addEventListener("error", markMissing, { once: true });
+      if (image.complete && image.naturalWidth === 0) markMissing();
+    });
   }
 
   function bindMotion() {
