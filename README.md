@@ -146,6 +146,14 @@ bun run build      # build:ui then build:bin, producing ./specflow
 bun run typecheck  # type-check all packages
 ```
 
+macOS window screenshot helper:
+
+```sh
+bun run screenshot:window -- "Netease"            # capture by app name or window-title keyword, defaults to Desktop
+bun run screenshot:window -- --list "Music"       # inspect matching visible windows
+bun run screenshot:window -- "Google Chrome" -o ~/Desktop/chrome.png
+```
+
 ## Acknowledgements
 
 Specflow references and learns from the following projects and communities:

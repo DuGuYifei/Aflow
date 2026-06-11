@@ -146,6 +146,14 @@ bun run build      # build:ui 后 build:bin，生成 ./specflow
 bun run typecheck  # 对所有 packages 做类型检查
 ```
 
+macOS 窗口截图工具：
+
+```sh
+bun run screenshot:window -- "网易云"             # 按 App 名称或窗口标题关键字截图，默认保存到桌面
+bun run screenshot:window -- --list "音乐"        # 查看匹配到的可见窗口
+bun run screenshot:window -- "Google Chrome" -o ~/Desktop/chrome.png
+```
+
 ## 致谢
 
 Specflow 的设计参考和学习了以下项目与社区：
