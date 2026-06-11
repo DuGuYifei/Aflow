@@ -198,6 +198,20 @@ function throwIfCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new WorkflowCancelledError();
 }
 
+function combineAbortSignals(left: AbortSignal | undefined, right: AbortSignal | undefined): AbortSignal | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (left.aborted || right.aborted) {
+    abort();
+    return controller.signal;
+  }
+  left.addEventListener("abort", abort, { once: true });
+  right.addEventListener("abort", abort, { once: true });
+  return controller.signal;
+}
+
 export class WorkflowExecutor {
   readonly #cwd: string;
   readonly #terminalEvents: TerminalEventStore;
@@ -378,7 +392,7 @@ export class WorkflowExecutor {
             specflowSessionId: node.sessionId,
             agentServerId: resolveAgentServerId(workflow.agents.find((agent) => agent.id === node.agentId)!),
             pausedAt,
-          }, async (prompt) => {
+          }, async (prompt, signal) => {
             const invocation = this.#createInvocation({
               run,
               agentId: node.agentId,
@@ -393,7 +407,7 @@ export class WorkflowExecutor {
               invocation,
               agentId: node.agentId,
               prompt,
-              signal: options.signal,
+              signal: combineAbortSignals(options.signal, signal),
             });
           }, options.signal);
           this.#onNodeStatus?.({

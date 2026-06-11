@@ -9,6 +9,8 @@ import {
 import { initializeDesignSession, listDesignSessions, loadDesignSession, sendDesignMessage } from "./sessions";
 import { loadDesignProjectArtifact, safeProjectRelativePath } from "./artifacts";
 import { createDesignProject, designProjectPath, listDesignProjects, loadDesignProject, sanitizeDesignProjectName } from "./projects";
+import { sanitizeProjectKind } from "./project-config";
+import { designRuntimeManagerForRoot } from "./runtime-manager";
 import {
   branchDesignVersionFromCommit,
   loadDesignVersionState,
@@ -24,6 +26,7 @@ import type {
 } from "./types";
 
 export function createDesignApiHandler(root: string): (request: Request) => Promise<Response | null> {
+  const runtimeManager = designRuntimeManagerForRoot(root);
   return async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
     const { pathname } = url;
@@ -39,12 +42,16 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
       }
 
       if (request.method === "GET" && pathname === "/api/design/projects") {
-        return Response.json(await listDesignProjects(root));
+        return Response.json(await listDesignProjects(root, (project) => runtimeManager.runtimeState(project)));
       }
 
       if (request.method === "POST" && pathname === "/api/design/projects") {
-        const body = await request.json() as { name?: unknown };
-        return Response.json(await createDesignProject(root, typeof body.name === "string" ? body.name : ""));
+        const body = await request.json() as { name?: unknown; kind?: unknown };
+        return Response.json(await createDesignProject(
+          root,
+          typeof body.name === "string" ? body.name : "",
+          sanitizeProjectKind(body.kind),
+        ));
       }
 
       if (request.method === "POST" && pathname === "/api/design/references/import") {
@@ -120,6 +127,24 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
         }
       }
 
+      const projectRuntimeMatch = pathname.match(/^\/api\/design\/projects\/([^/]+)\/runtime(?:\/([^/]+))?$/);
+      if (projectRuntimeMatch) {
+        const projectName = decodeURIComponent(projectRuntimeMatch[1]!);
+        const action = projectRuntimeMatch[2];
+        if (request.method === "GET" && !action) {
+          return Response.json(await runtimeManager.status(projectName));
+        }
+        if (request.method === "POST" && action === "start") {
+          return Response.json(await runtimeManager.start(projectName));
+        }
+        if (request.method === "POST" && action === "restart") {
+          return Response.json(await runtimeManager.restart(projectName));
+        }
+        if (request.method === "POST" && action === "stop") {
+          return Response.json(await runtimeManager.stop(projectName));
+        }
+      }
+
       if (request.method === "GET" && pathname === "/api/design/sessions") {
         return Response.json(await listDesignSessions(root, url.searchParams.get("projectName") ?? undefined));
       }
@@ -142,11 +167,10 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
         const path = designProjectPath(root, name);
         const projectStat = await stat(path).catch(() => undefined);
         if (!projectStat?.isDirectory()) throw httpError(404, `Design project not found: ${name}`);
+        const project = await loadDesignProject(root, name, (entry) => runtimeManager.runtimeState(entry));
         return Response.json({
-          name,
-          path,
-          updatedAt: projectStat.mtime.toISOString(),
-          artifact: await loadDesignProjectArtifact(name, path),
+          ...project,
+          artifact: await loadDesignProjectArtifact(project),
         });
       }
 
@@ -280,7 +304,7 @@ async function serveDesignProjectFile(
   const contentType = contentTypeFor(filePath);
   const rawContent = await readFile(filePath);
   const body = contentType.startsWith("text/html")
-    ? injectDesignFrameBridge(rawContent.toString("utf8"), selectedComponentId, view, frameId)
+    ? injectDesignFrameBridge(rawContent.toString("utf8"), selectedComponentId, view, frameId, normalizedAssetPath)
     : rawContent;
   return new Response(body, {
     headers: {
@@ -290,17 +314,18 @@ async function serveDesignProjectFile(
   });
 }
 
-function injectDesignFrameBridge(source: string, selectedComponentId: string, view: string, frameId: string): string {
+function injectDesignFrameBridge(source: string, selectedComponentId: string, view: string, frameId: string, sourcePath: string): string {
   const bridge = [
     "<style>",
     "[data-component-id],[data-aflow-dom-id]{cursor:pointer;transition:opacity 120ms,filter 120ms,outline-color 120ms,box-shadow 120ms;}",
-    ".__aflow_design_selected{outline:2px solid var(--aflow-design-outline-color,#2563eb)!important;outline-offset:3px!important;box-shadow:0 0 0 1px color-mix(in srgb,var(--aflow-design-outline-color,#2563eb),transparent 30%)!important;opacity:1!important;filter:none!important;}",
-    ".__aflow_design_hover{outline:2px solid var(--aflow-design-outline-color,#0ea5e9)!important;outline-offset:2px!important;box-shadow:0 0 0 1px color-mix(in srgb,var(--aflow-design-outline-color,#0ea5e9),transparent 42%)!important;}",
+    ".__aflow_design_selected{outline:2px solid var(--aflow-design-outline-color,#2563eb)!important;outline-offset:-2px!important;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--aflow-design-outline-color,#2563eb),transparent 30%)!important;opacity:1!important;filter:none!important;}",
+    ".__aflow_design_hover{outline:2px solid var(--aflow-design-outline-color,#0ea5e9)!important;outline-offset:-2px!important;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--aflow-design-outline-color,#0ea5e9),transparent 42%)!important;}",
     "</style>",
     "<script>",
-    `const __aflowSelectedComponent=${JSON.stringify(selectedComponentId)};`,
+    `let __aflowSelectedComponent=${JSON.stringify(selectedComponentId)};`,
     `const __aflowDesignView=${JSON.stringify(view)};`,
     `const __aflowFrameId=${JSON.stringify(frameId)};`,
+    `const __aflowSourcePath=${JSON.stringify(sourcePath)};`,
     "const __aflowLayerColors=['#0ea5e9','#8b5cf6','#f97316','#22c55e','#e11d48','#14b8a6','#f59e0b'];",
     "const __aflowComponentSelector='[data-component-id]';",
     "const __aflowDomSelector='[data-component-id],[data-aflow-dom-id]';",
@@ -309,9 +334,13 @@ function injectDesignFrameBridge(source: string, selectedComponentId: string, vi
     "let __aflowHoverId='';",
     "let __aflowDomCounter=0;",
     "let __aflowStyleDrafts={};",
+    "let __aflowDraftedIds=new Set();",
     "function __aflowNodeId(node){return node?(node.getAttribute('data-component-id')||node.getAttribute('data-aflow-dom-id')||''):'';}",
     "function __aflowEscapeAttr(value){return String(value).replace(/\\\\/g,'\\\\\\\\').replace(/\"/g,'\\\\\"');}",
     "function __aflowQueryById(id){return document.querySelector('[data-component-id=\"'+CSS.escape(id)+'\"],[data-aflow-dom-id=\"'+CSS.escape(id)+'\"]');}",
+    "function __aflowXPathLiteral(value){const text=String(value);if(!text.includes('\"'))return '\"'+text+'\"';if(!text.includes(\"'\"))return \"'\"+text+\"'\";return 'concat('+text.split('\"').map((part)=>'\"'+part+'\"').join(',\\'\"\\',')+')';}",
+    "function __aflowXPathSegment(node){const tag=node.tagName.toLowerCase();let same=0;let index=0;Array.from(node.parentElement?node.parentElement.children:[]).forEach((child)=>{if(child.tagName===node.tagName){same+=1;if(child===node)index=same;}});return same>1?tag+'['+index+']':tag;}",
+    "function __aflowXPath(node){if(!node||node.nodeType!==1)return '';const parts=[];let current=node;while(current&&current.nodeType===1&&current.tagName!=='HTML'){if(current.id){parts.unshift('*[@id='+__aflowXPathLiteral(current.id)+']');return '//'+parts.join('/');}const componentId=current.getAttribute('data-component-id');if(componentId){parts.unshift('*[@data-component-id='+__aflowXPathLiteral(componentId)+']');return '//'+parts.join('/');}if(current.tagName!=='BODY')parts.unshift(__aflowXPathSegment(current));current=current.parentElement;}return '/html/body'+(parts.length?'/'+parts.join('/'):'');}",
     "function __aflowIsSelectable(node){if(!node||node.nodeType!==1||__aflowIgnoredTags.has(node.tagName))return false;if(node.closest('[data-aflow-ignore=\"true\"],[hidden]'))return false;const style=getComputedStyle(node);if(style.display==='none'||style.visibility==='hidden'||style.pointerEvents==='none')return false;const rects=Array.from(node.getClientRects());return rects.some((rect)=>rect.width>=3&&rect.height>=3);}",
     "function __aflowEnsureSelectableIds(){if(__aflowDesignView==='wireframe')return;document.querySelectorAll('body *').forEach((node)=>{if(node.hasAttribute('data-component-id')||node.hasAttribute('data-aflow-dom-id'))return;if(!__aflowIsSelectable(node))return;node.setAttribute('data-aflow-dom-id','dom:'+(__aflowFrameId||'frame')+':'+String(__aflowDomCounter++));});}",
     "function __aflowCssPath(node){const parts=[];let current=node;while(current&&current.nodeType===1&&current.tagName!=='BODY'&&current.tagName!=='HTML'){let part=current.tagName.toLowerCase();if(current.id){part+='#'+current.id;parts.unshift(part);break;}let nth=1;let sibling=current.previousElementSibling;while(sibling){if(sibling.tagName===current.tagName)nth+=1;sibling=sibling.previousElementSibling;}part+=':nth-of-type('+nth+')';parts.unshift(part);current=current.parentElement;}return parts.join(' > ');}",
@@ -319,7 +348,7 @@ function injectDesignFrameBridge(source: string, selectedComponentId: string, vi
     "function __aflowComputedStyle(node){if(!node)return {};const style=getComputedStyle(node);return {display:style.display,position:style.position,left:style.left,top:style.top,right:style.right,bottom:style.bottom,width:style.width,height:style.height,transform:style.transform,color:style.color,backgroundColor:style.backgroundColor,fontFamily:style.fontFamily,fontSize:style.fontSize,fontWeight:style.fontWeight,lineHeight:style.lineHeight,textAlign:style.textAlign,letterSpacing:style.letterSpacing,border:style.border,borderRadius:style.borderRadius,padding:style.padding,margin:style.margin,opacity:style.opacity,flexDirection:style.flexDirection,alignItems:style.alignItems,justifyContent:style.justifyContent,gap:style.gap,boxShadow:style.boxShadow};}",
     "function __aflowBounds(node){if(!node)return undefined;const rect=node.getBoundingClientRect();return {x:__aflowRound(rect.x),y:__aflowRound(rect.y),width:__aflowRound(rect.width),height:__aflowRound(rect.height)};}",
     "function __aflowDirectChildren(node){if(!node)return [];const selector=__aflowSelector();return Array.from(node.children||[]).filter((child)=>child.matches&&child.matches(selector)).slice(0,120).map((child)=>__aflowDescribe(child,false));}",
-    "function __aflowDescribe(node,includeChildren=false){const id=__aflowNodeId(node);const explicit=Boolean(node&&node.hasAttribute('data-component-id'));const tag=node?node.tagName.toLowerCase():'element';const text=((node&&node.getAttribute('aria-label'))||(node&&node.getAttribute('alt'))||(node&&node.getAttribute('title'))||(node&&node.getAttribute('data-component-name'))||(node&&node.textContent)||'').replace(/\\s+/g,' ').trim();const name=(text?text.slice(0,56):tag)+(text.length>56?'...':'');const selector=explicit?'[data-component-id=\"'+__aflowEscapeAttr(id)+'\"]':__aflowCssPath(node);const children=includeChildren?__aflowDirectChildren(node):[];return {id,name,type:explicit?'component:'+tag:'dom:'+tag,selector,bounds:__aflowBounds(node),computedStyle:__aflowComputedStyle(node),description:explicit?'Declared design component':'Auto-detected DOM element inside the design frame',children};}",
+    "function __aflowDescribe(node,includeChildren=false){const id=__aflowNodeId(node);const explicit=Boolean(node&&node.hasAttribute('data-component-id'));const nativeId=typeof node?.id==='string'?node.id:'';const tag=node?node.tagName.toLowerCase():'element';const text=((node&&node.getAttribute('aria-label'))||(node&&node.getAttribute('alt'))||(node&&node.getAttribute('title'))||(node&&node.getAttribute('data-component-name'))||(node&&node.textContent)||'').replace(/\\s+/g,' ').trim();const name=(text?text.slice(0,56):tag)+(text.length>56?'...':'');const selector=explicit?'[data-component-id=\"'+__aflowEscapeAttr(id)+'\"]':__aflowCssPath(node);const selectionLevel=explicit?'component':'dom-element';const anchorKind=explicit?'data-component-id':nativeId?'id':'xpath';const children=includeChildren?__aflowDirectChildren(node):[];return {id,name,type:explicit?'component:'+tag:'dom:'+tag,selector,filePath:__aflowSourcePath,xpath:__aflowXPath(node),tagName:tag,textContent:text.slice(0,240),selectionLevel,anchorKind,bounds:__aflowBounds(node),computedStyle:__aflowComputedStyle(node),description:explicit?'Source HTML element marked with data-component-id; treat it as a stable design component anchor.':'Rendered HTML element selected from the frame; it may be a small nested element rather than a design component.',children};}",
     "function __aflowComponentDepth(node){let depth=0;let parent=node?node.parentElement:null;const selector=__aflowSelector();while(parent){if(parent.matches&&parent.matches(selector))depth+=1;parent=parent.parentElement;}return depth;}",
     "function __aflowLayerColor(node){return __aflowLayerColors[__aflowComponentDepth(node)%__aflowLayerColors.length];}",
     "function __aflowApplySelection(){",
@@ -335,11 +364,13 @@ function injectDesignFrameBridge(source: string, selectedComponentId: string, vi
     "node.classList.toggle('__aflow_design_hover',Boolean(__aflowHoverId)&&id===__aflowHoverId&&!active);",
     "});",
     "}",
+    "function __aflowRestoreDrafts(){__aflowDraftedIds.forEach((id)=>{const node=__aflowQueryById(id);if(!node)return;try{const base=JSON.parse(node.dataset.aflowBaseInlineStyles||'{}');Object.entries(base.styles||{}).forEach(([key,value])=>{node.style[key]=String(value||'')});if(typeof base.transform==='string')node.style.transform=base.transform;}catch{}delete node.dataset.aflowBaseInlineStyles;delete node.dataset.aflowBaseX;delete node.dataset.aflowBaseY;delete node.dataset.aflowBaseTransform;});__aflowDraftedIds=new Set();}",
     "function __aflowApplyDrafts(){",
+    "__aflowRestoreDrafts();",
     "Object.entries(__aflowStyleDrafts||{}).forEach(([id,style])=>{",
     "const node=__aflowQueryById(id);",
     "if(!node||!style||typeof style!=='object')return;",
-    "if(node.dataset.aflowBaseX===undefined||node.dataset.aflowBaseY===undefined){const rect=node.getBoundingClientRect();node.dataset.aflowBaseX=String(rect.x);node.dataset.aflowBaseY=String(rect.y);node.dataset.aflowBaseTransform=node.style.transform||'';}",
+    "const inlineStyles={};Object.keys(style).forEach((key)=>{if(key==='__aflowX'||key==='__aflowY')return;inlineStyles[key]=node.style[key]||'';});const rect=node.getBoundingClientRect();node.dataset.aflowBaseInlineStyles=JSON.stringify({styles:inlineStyles,transform:node.style.transform||''});node.dataset.aflowBaseX=String(rect.x);node.dataset.aflowBaseY=String(rect.y);node.dataset.aflowBaseTransform=node.style.transform||'';",
     "const baseX=Number(node.dataset.aflowBaseX||0);",
     "const baseY=Number(node.dataset.aflowBaseY||0);",
     "const targetX=Number.parseFloat(String(style.__aflowX));",
@@ -348,6 +379,7 @@ function injectDesignFrameBridge(source: string, selectedComponentId: string, vi
     "const hasY=Number.isFinite(targetY);",
     "if(hasX||hasY){const dx=hasX?targetX-baseX:0;const dy=hasY?targetY-baseY:0;node.style.transform=[node.dataset.aflowBaseTransform||'',`translate(${dx}px, ${dy}px)`].filter(Boolean).join(' ');}",
     "Object.entries(style).forEach(([key,value])=>{try{if(key==='__aflowX'||key==='__aflowY')return;node.style[key]=String(value)}catch{}});",
+    "__aflowDraftedIds.add(id);",
     "});",
     "}",
     "function __aflowAncestors(target){",
@@ -388,7 +420,7 @@ function injectDesignFrameBridge(source: string, selectedComponentId: string, vi
     "event.stopPropagation();",
     "window.parent.postMessage({type:'design-component-selected',frameId:__aflowFrameId,id:__aflowNodeId(target),component:__aflowDescribe(target,false),ancestors:__aflowAncestors(target),x:event.clientX,y:event.clientY},'*');",
     "},true);",
-    "window.addEventListener('message',(event)=>{const data=event.data||{};if(data.type==='design-style-drafts'){__aflowStyleDrafts=data.drafts||{};__aflowApplyDrafts();return;}if(data.type==='design-component-hierarchy-request'&&typeof data.id==='string'){__aflowEnsureSelectableIds();const node=__aflowQueryById(data.id);if(!node)return;window.parent.postMessage({type:'design-component-hierarchy',requestId:data.requestId,frameId:__aflowFrameId,id:data.id,component:__aflowDescribe(node,true),path:__aflowAncestorComponents(node)},'*');}});",
+    "window.addEventListener('message',(event)=>{const data=event.data||{};if(data.type==='design-style-drafts'){__aflowStyleDrafts=data.drafts||{};__aflowApplyDrafts();return;}if(data.type==='design-selected-component'){__aflowSelectedComponent=typeof data.id==='string'?data.id:'';__aflowApplySelection();return;}if(data.type==='design-component-hierarchy-request'&&typeof data.id==='string'){__aflowEnsureSelectableIds();const node=__aflowQueryById(data.id);if(!node)return;window.parent.postMessage({type:'design-component-hierarchy',requestId:data.requestId,frameId:__aflowFrameId,id:data.id,component:__aflowDescribe(node,true),path:__aflowAncestorComponents(node)},'*');}});",
     "window.addEventListener('DOMContentLoaded',()=>{__aflowApplySelection();__aflowApplyDrafts();});",
     "__aflowApplySelection();__aflowApplyDrafts();",
     "</script>",

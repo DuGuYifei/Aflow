@@ -17,7 +17,6 @@ import {
   designProjectsDir,
   designReferencesDir,
   localAgentflowsDir,
-  prdDraftsDir,
   runLogsDir,
   runsDir,
   specflowRoot,
@@ -33,7 +32,6 @@ const GITIGNORE_ENTRIES = [
   "design/conversations/",
   "design/projects/",
   "design/settings.json",
-  "prd/drafts/",
 ];
 
 export interface InitWorkspaceOptions {
@@ -79,7 +77,6 @@ export async function initWorkspace(
     mkdir(designReferencesDir(workingDirectory), { recursive: true }),
     mkdir(designConversationsDir(workingDirectory), { recursive: true }),
     mkdir(designProjectsDir(workingDirectory), { recursive: true }),
-    mkdir(prdDraftsDir(workingDirectory), { recursive: true }),
   ]);
 
   const gitignorePath = join(root, ".gitignore");

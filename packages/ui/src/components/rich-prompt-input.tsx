@@ -13,6 +13,7 @@ import type { AgentServerCapabilities, SkillSummary } from '../api';
 
 export interface RichPromptInputHandle {
   focus: () => void;
+  getSerializedValue: () => string;
   insertSerialized: (serialized: string) => void;
   setSelectionToEnd: () => void;
 }
@@ -116,6 +117,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
 
   useImperativeHandle(forwardedRef, () => ({
     focus: () => editorRef.current?.focus(),
+    getSerializedValue: () => editorRef.current ? serializeEditor(editorRef.current) : props.value,
     insertSerialized,
     setSelectionToEnd: () => {
       const editor = editorRef.current;
@@ -145,24 +147,31 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault();
-      props.onSubmit?.();
-      return;
+    if (active && candidates.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setHighlight((value) => (value + 1) % candidates.length);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setHighlight((value) => (value - 1 + candidates.length) % candidates.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        accept(candidates[Math.min(highlight, candidates.length - 1)]!);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setActive(null);
+        return;
+      }
     }
-    if (!active || candidates.length === 0) return;
-    if (event.key === 'ArrowDown') {
+    if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
       event.preventDefault();
-      setHighlight((value) => (value + 1) % candidates.length);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlight((value) => (value - 1 + candidates.length) % candidates.length);
-    } else if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault();
-      accept(candidates[Math.min(highlight, candidates.length - 1)]!);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      setActive(null);
+      props.onSubmit();
     }
   };
 
@@ -270,15 +279,18 @@ export function variableTokenDefinition(variables: Array<{ token: string; hint?:
 
 export function designComponentTokenDefinition(): RichPromptTokenDefinition {
   return regexTokenDefinition(
-    /<specflow_component\s+id="([^"]+)"(?:\s+name="([^"]*)")?\s*\/>/g,
+    /<specflow_html_element\s+([^>]*)\/>/g,
     (match, serialized) => {
-      const id = unescapePromptAttr(match[1] ?? '');
-      const name = unescapePromptAttr(match[2] ?? id);
+      const attrs = parsePromptAttrs(match[1] ?? '');
+      const id = attrs.id ?? attrs.xpath ?? attrs.selector ?? attrs.file ?? serialized;
+      const label = attrs.name ?? attrs.text ?? attrs.tag ?? attrs.xpath ?? id;
+      const target = attrs.file && attrs.xpath ? `${attrs.file}::${attrs.xpath}` : attrs.selector ?? id;
       return {
         kind: 'component',
         id,
-        label: name || id,
-        title: id,
+        label,
+        detail: attrs.file,
+        title: target,
         serialized,
       };
     },
@@ -287,17 +299,19 @@ export function designComponentTokenDefinition(): RichPromptTokenDefinition {
 
 export function designCommentTokenDefinition(): RichPromptTokenDefinition {
   return regexTokenDefinition(
-    /<specflow_comment\s+componentId="([^"]+)"\s+componentName="([^"]*)">([\s\S]*?)<\/specflow_comment>/g,
+    /<specflow_element_comment\s+([^>]*)>([\s\S]*?)<\/specflow_element_comment>/g,
     (match, serialized) => {
-      const id = unescapePromptAttr(match[1] ?? '');
-      const name = unescapePromptAttr(match[2] ?? id);
-      const comment = (match[3] ?? '').trim();
+      const attrs = parsePromptAttrs(match[1] ?? '');
+      const comment = (match[2] ?? '').trim();
+      const id = attrs.id ?? attrs.xpath ?? attrs.selector ?? serialized;
+      const name = attrs.name ?? attrs.text ?? attrs.tag ?? id;
+      const target = attrs.file && attrs.xpath ? `${attrs.file}::${attrs.xpath}` : attrs.selector ?? id;
       return {
         kind: 'comment',
         id,
-        label: name || id,
+        label: name,
         detail: comment,
-        title: comment,
+        title: target,
         serialized,
       };
     },
@@ -325,6 +339,16 @@ function regexTokenDefinition(
       };
     },
   };
+}
+
+function parsePromptAttrs(input: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const regex = /([A-Za-z0-9_-]+)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(input)) !== null) {
+    attrs[match[1]!] = unescapePromptAttr(match[2] ?? '');
+  }
+  return attrs;
 }
 
 function parseRichPromptSegments(value: string, definitions: RichPromptTokenDefinition[]): RichPromptSegment[] {

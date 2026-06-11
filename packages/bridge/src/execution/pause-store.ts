@@ -6,7 +6,7 @@ export interface PausedNodeSession {
   pausedAt: string;
 }
 
-type PausedPromptHandler = (prompt: string) => Promise<string>;
+type PausedPromptHandler = (prompt: string, signal?: AbortSignal) => Promise<string>;
 
 interface PendingPause {
   session: PausedNodeSession;
@@ -60,16 +60,21 @@ export class RunPauseStore {
     });
   }
 
-  async sendPrompt(runId: string, nodeId: string, prompt: string): Promise<{ output: string }> {
+  async sendPrompt(runId: string, nodeId: string, prompt: string, signal?: AbortSignal): Promise<{ output: string }> {
     const entry = this.#requirePending(runId, nodeId);
     if (prompt.trim() === "") throw new Error("Prompt must not be empty.");
     if (entry.promptPending) throw new Error("A prompt is already running for this paused node.");
     entry.promptPending = true;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal?.aborted) abort();
+    signal?.addEventListener("abort", abort, { once: true });
     try {
-      const output = await entry.prompt(prompt);
+      const output = await entry.prompt(prompt, controller.signal);
       entry.lastOutput = output;
       return { output };
     } finally {
+      signal?.removeEventListener("abort", abort);
       entry.promptPending = false;
     }
   }

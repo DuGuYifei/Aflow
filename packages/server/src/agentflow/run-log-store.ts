@@ -1,5 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { TerminalOutputEvent } from "@specflow/workflow";
 import type {
   AgentPromptStatusEvent,
@@ -8,6 +7,14 @@ import type {
   RunInteraction,
   RunStatusEvent,
 } from "@specflow/bridge";
+import type { AcpTimelineEvent } from "@specflow/shared";
+import { compactAcpTimelineEventsForRestore, isAcpTimelineEvent } from "@specflow/shared";
+import {
+  appendAcpEventLogEntry,
+  deleteAcpEventLog,
+  listAcpEventLogEntries,
+  listAcpEventLogEntriesRange,
+} from "../acp-event-log-store";
 import { runLogsDir as agentflowRunLogsDir } from "../workspace-paths";
 
 export type AgentLifecycleLogPayload = {
@@ -30,6 +37,7 @@ export type RestoreAttemptLogEvent = {
 };
 
 export type RunLogEvent =
+  | (AcpTimelineEvent & { runId: string })
   | ({ type: "terminal" } & TerminalOutputEvent & { nodeId?: string; specflowSessionId?: string })
   | ({ type: "session_update" } & AgentSessionUpdateStatusEvent & { specflowSessionId?: string })
   | ({ type: "agent_prompt" } & AgentPromptStatusEvent)
@@ -63,28 +71,18 @@ export function runLogPath(root: string, runId: string): string {
 }
 
 export async function appendRunLogEvent(root: string, event: RunLogEvent): Promise<void> {
-  const path = runLogPath(root, event.runId);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(event)}\n`, { flag: "a" });
+  await appendAcpEventLogEntry(runLogsDir(root), event.runId, event);
 }
 
 export async function listRunLogEvents(root: string, runId: string): Promise<RunLogEvent[]> {
-  let rawValue: string;
-  try {
-    rawValue = await readFile(runLogPath(root, runId), "utf8");
-  } catch {
-    return [];
-  }
-  const events: RunLogEvent[] = [];
-  for (const line of rawValue.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
-      events.push(JSON.parse(line) as RunLogEvent);
-    } catch {
-      // Skip malformed lines; the log is append-only and should remain readable.
-    }
-  }
-  return events;
+  return listAcpEventLogEntries<RunLogEvent>(runLogsDir(root), runId);
+}
+
+export async function listRunTimelineRestoreEvents(root: string, runId: string): Promise<RunLogEvent[]> {
+  const events = await listRunLogEvents(root, runId);
+  const timelineEvents = events.filter((event): event is AcpTimelineEvent & { runId: string } => isAcpTimelineEvent(event));
+  if (timelineEvents.length === 0) return events;
+  return compactAcpTimelineEventsForRestore(timelineEvents) as RunLogEvent[];
 }
 
 export interface RunLogEventPage {
@@ -108,18 +106,9 @@ export async function listRunLogEventsRange(
   runId: string,
   options: { from?: number; to?: number; tail?: number } = {},
 ): Promise<RunLogEventPage> {
-  const events = await listRunLogEvents(root, runId);
-  const total = events.length;
-  if (typeof options.tail === "number" && options.tail > 0) {
-    const startIndex = Math.max(0, total - options.tail);
-    return { events: events.slice(startIndex), total, startIndex };
-  }
-  const from = Math.max(0, options.from ?? 0);
-  const toSequence = Math.min(total, options.to ?? total);
-  if (toSequence <= from) return { events: [], total, startIndex: from };
-  return { events: events.slice(from, toSequence), total, startIndex: from };
+  return listAcpEventLogEntriesRange<RunLogEvent>(runLogsDir(root), runId, options);
 }
 
 export async function deleteRunLog(root: string, runId: string): Promise<void> {
-  await rm(runLogPath(root, runId), { force: true });
+  await deleteAcpEventLog(runLogsDir(root), runId);
 }

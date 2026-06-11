@@ -1,3 +1,5 @@
+import type { AcpTimelineEvent } from '@specflow/shared';
+
 export type Theme = 'light' | 'dark';
 export type Language = 'en' | 'zh-CN';
 
@@ -69,7 +71,7 @@ export interface LogLine {
   stream?: 'stdout' | 'stderr' | 'system';
 }
 
-export type TimelineEvent =
+export type LegacyTimelineEvent =
   | {
     type: 'terminal';
     chunk: string;
@@ -106,7 +108,9 @@ export type TimelineEvent =
     role: 'agent' | 'user' | 'system';
     text: string;
     nodeId?: string;
+    agentInvocationId?: string;
     specflowSessionId?: string;
+    localContext?: boolean;
     fork?: {
       specflowSessionId: string;
       parentSpecflowSessionId?: string;
@@ -117,6 +121,8 @@ export type TimelineEvent =
       agentInvocationId?: string;
     };
   };
+
+export type TimelineEvent = AcpTimelineEvent | LegacyTimelineEvent;
 
 export interface Branch {
   id: string;

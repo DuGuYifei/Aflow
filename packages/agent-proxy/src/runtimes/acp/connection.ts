@@ -845,11 +845,19 @@ export class AcpRestoredConversation implements AgentConversation {
         resolvedId: this.#resolvedId,
       });
     }
-    const response = await raceWithAbort(this.#client.connection.prompt({
-      sessionId: this.#request.sessionId,
-      prompt: [{ type: "text", text: prompt }],
-    }), signal, "ACP conversation prompt cancelled.");
-    return { output: this.#output, stopReason: response.stopReason };
+    const abort = () => {
+      void this.#client.connection.cancel({ sessionId: this.#request.sessionId });
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      const response = await raceWithAbort(this.#client.connection.prompt({
+        sessionId: this.#request.sessionId,
+        prompt: [{ type: "text", text: prompt }],
+      }), signal, "ACP conversation prompt cancelled.");
+      return { output: this.#output, stopReason: response.stopReason };
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
   }
 
   async close(): Promise<void> {

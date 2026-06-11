@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -17,7 +17,7 @@ describe("AgentServerStore", () => {
       },
     }), "utf8");
 
-    const entries = await new AgentServerStore({ root }).listAgentServers();
+    const entries = await new AgentServerStore({ root, cacheDir: await tempCacheDir() }).listAgentServers();
 
     expect(entries[0]).toMatchObject({
       id: "claude-acp",
@@ -50,7 +50,7 @@ describe("AgentServerStore", () => {
       },
     }), "utf8");
 
-    const resolved = await new AgentServerStore({ root }).resolve("fake");
+    const resolved = await new AgentServerStore({ root, cacheDir: await tempCacheDir() }).resolve("fake");
 
     expect(resolved.settings).toMatchObject({
       type: "custom",
@@ -85,7 +85,8 @@ describe("AgentServerStore", () => {
     })) as unknown as typeof fetch;
 
     try {
-      const resolved = await new AgentServerStore({ root }).resolve("other");
+      const cacheDir = await tempCacheDir();
+      const resolved = await new AgentServerStore({ root, cacheDir }).resolve("other");
       expect(resolved.command).toMatchObject({
         command: process.platform === "win32" ? "npx.cmd" : "npx",
         args: ["--yes", "other-acp", "--acp"],
@@ -94,6 +95,8 @@ describe("AgentServerStore", () => {
         registryId: "other-acp",
         version: "1.0.0",
       });
+      expect(await readFile(join(cacheDir, "registry.json"), "utf8")).toContain("other-acp");
+      await expect(access(join(root, ".aflow/.specflow/cache/agents"))).rejects.toThrow();
     } finally {
       globalThis.fetch = restoreFetch;
     }
@@ -114,7 +117,7 @@ describe("AgentServerStore", () => {
     globalThis.fetch = (async () => Response.json({ version: "1", agents: [] })) as unknown as typeof fetch;
 
     try {
-      await expect(new AgentServerStore({ root }).resolve("other")).rejects.toThrow("ACP registry agent not found: missing-acp");
+      await expect(new AgentServerStore({ root, cacheDir: await tempCacheDir() }).resolve("other")).rejects.toThrow("ACP registry agent not found: missing-acp");
     } finally {
       globalThis.fetch = restoreFetch;
     }
@@ -143,9 +146,13 @@ describe("AgentServerStore", () => {
     })) as unknown as typeof fetch;
 
     try {
-      await expect(new AgentServerStore({ root }).resolve("other")).rejects.toThrow("ACP registry agent has no supported distribution");
+      await expect(new AgentServerStore({ root, cacheDir: await tempCacheDir() }).resolve("other")).rejects.toThrow("ACP registry agent has no supported distribution");
     } finally {
       globalThis.fetch = restoreFetch;
     }
   });
 });
+
+async function tempCacheDir(): Promise<string> {
+  return mkdtemp(join(tmpdir(), "specflow-agent-cache-"));
+}

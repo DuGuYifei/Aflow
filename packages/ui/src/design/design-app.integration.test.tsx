@@ -61,26 +61,36 @@ describe("DesignApp integration", () => {
     clickText("Description");
     await waitForText("Design goals");
 
-    clickText("Component tree");
-    await waitForText("Hero Section");
-
     clickText("Start design");
     await waitForText("Start a design session");
     clickTextIn(".design-start-modal", "Start design");
-    await waitForText("Designer mode is ready.");
+    await waitForText("Design session started");
+    await waitForText("Using Read file tool");
 
     window.dispatchEvent(new MessageEvent("message", {
       data: {
         type: "design-component-selected",
         frameId: "desktop",
         id: "hero",
+        component: {
+          id: "hero",
+          name: "Hero Section",
+          type: "component:section",
+          selector: "[data-component-id=\"hero\"]",
+          filePath: "desktop.html",
+          xpath: "//*[@data-component-id=\"hero\"]",
+          tagName: "section",
+          textContent: "Hero Section",
+          selectionLevel: "component",
+          anchorKind: "data-component-id",
+        },
         ancestors: ["hero", "page"],
         x: 16,
         y: 18,
       },
     }));
 
-    await waitForText("Selected component");
+    await waitForText("Selected element");
     await waitForText("Background");
     await waitForText("Hero Section");
 
@@ -91,8 +101,9 @@ describe("DesignApp integration", () => {
 
     const textarea = document.querySelector(".design-compose textarea");
     if (!(textarea instanceof window.HTMLTextAreaElement)) throw new Error("Design compose textarea not found");
-    await waitFor(() => textarea.value.includes("<specflow_component"));
+    await waitFor(() => textarea.value.includes("<specflow_html_element"));
     expect(textarea.value).toContain('id="hero"');
+    expect(textarea.value).toContain('file="desktop.html"');
 
     const commentButton = [...document.querySelectorAll(".design-component-actions button")]
       .find((button): button is HTMLButtonElement => button instanceof window.HTMLButtonElement && button.textContent?.includes("Comment"));
@@ -110,6 +121,12 @@ describe("DesignApp integration", () => {
           name: "Start free trial",
           type: "dom:button",
           selector: "main > button:nth-of-type(1)",
+          filePath: "desktop.html",
+          xpath: "//*[@id=\"main\"]/button",
+          tagName: "button",
+          textContent: "Start free trial",
+          selectionLevel: "dom-element",
+          anchorKind: "id",
           description: "Auto-detected DOM element inside the design frame",
         },
         ancestors: ["dom:desktop:0", "hero", "page"],
@@ -119,7 +136,17 @@ describe("DesignApp integration", () => {
     }));
 
     await waitForText("Start free trial");
-    await waitForText("dom:button");
+    await waitForText("dom-element");
+
+    const backgroundInput = inputForLabel("Background");
+    backgroundInput.value = "#111827";
+    backgroundInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await waitForText("1 visual");
+
+    const draftRemove = document.querySelector(".design-visual-draft-chip button");
+    if (!(draftRemove instanceof window.HTMLButtonElement)) throw new Error("Visual draft remove button not found");
+    draftRemove.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => !(document.body.textContent?.includes("1 visual") ?? false));
   });
 });
 
@@ -172,7 +199,30 @@ function mockDesignFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
         acpSessionId: "acp-session-1",
         memoryInjected: true,
         messages: [],
-        logs: [],
+        logs: [{
+          type: "acp_timeline",
+          id: "log-tool-0",
+          at: "2026-06-05T00:00:00.400Z",
+          source: "design",
+          scopeId: "session-1",
+          designSessionId: "session-1",
+          kind: "tool_call",
+          phase: "message",
+          toolCallId: "tool-1",
+          title: "Read file",
+          status: "pending",
+        }, {
+          type: "acp_timeline",
+          id: "log-tool-1",
+          at: "2026-06-05T00:00:00.500Z",
+          source: "design",
+          scopeId: "session-1",
+          designSessionId: "session-1",
+          kind: "tool_call_update",
+          phase: "message",
+          toolCallId: "tool-1",
+          status: "in_progress",
+        }],
         latestArtifact: sampleArtifact(),
       }],
     ]), {
@@ -198,17 +248,6 @@ function sampleArtifact() {
       y: 0,
       designPath: "desktop.html",
       descriptionPath: "desktop.md",
-    }],
-    componentTree: [{
-      id: "page",
-      name: "Page",
-      type: "page",
-      children: [{
-        id: "hero",
-        name: "Hero Section",
-        type: "section",
-        description: "Primary checkout hero.",
-      }],
     }],
   };
 }
@@ -243,6 +282,14 @@ function clickTextIn(selector: string, text: string): void {
     .find((element) => element.textContent?.includes(text));
   if (!(target instanceof window.HTMLElement)) throw new Error(`Clickable text not found: ${text}`);
   target.click();
+}
+
+function inputForLabel(text: string): HTMLInputElement {
+  const label = [...document.querySelectorAll("label.design-property-field")]
+    .find((element) => element.textContent?.includes(text));
+  const input = label?.querySelector("input");
+  if (!(input instanceof window.HTMLInputElement)) throw new Error(`Input label not found: ${text}`);
+  return input;
 }
 
 async function waitForText(text: string): Promise<void> {

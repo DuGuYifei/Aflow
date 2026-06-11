@@ -113,6 +113,18 @@ describe("App run integration", () => {
     await waitFor(() => MockEventSource.instances.some((source) => source.url === "/api/runs/run1/events"));
     const source = MockEventSource.instances.find((candidate) => candidate.url === "/api/runs/run1/events")!;
     source.emit("terminal", { stream: "stdout", chunk: "live-log-line\n", nodeId: "node-1" });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-terminal-1",
+      at: "2026-05-19T10:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "terminal",
+      stream: "stdout",
+      text: "live-log-line\n",
+      nodeId: "node-1",
+    });
     source.emit("run-status", { status: "success" });
 
     await waitForText("live-log-line");
@@ -141,6 +153,25 @@ describe("App run integration", () => {
       prompt: "live user prompt",
       at: "2026-05-19T10:00:00.000Z",
     });
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "live user prompt" } },
+    });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-user-1",
+      at: "2026-05-19T10:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "user_message",
+      turnId: "invocation-1",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      text: "live user prompt",
+    });
     await waitForText("live user prompt");
     source.emit("agent-lifecycle", {
       type: "agent_lifecycle",
@@ -155,7 +186,21 @@ describe("App run integration", () => {
       lifecycle: { type: "session_forked", sessionId: "acp-fork", parentSessionId: "acp-main", at: "2026-05-19T10:00:01.000Z" },
     });
 
-    await waitForText("fork · gate");
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-lifecycle-1",
+      at: "2026-05-19T10:00:01.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "lifecycle",
+      turnId: "invocation-2",
+      nodeId: "gate",
+      agentInvocationId: "invocation-2",
+      eventType: "session_forked",
+      data: { purpose: "gate" },
+    });
+    await waitForText("[acp:session_forked]");
   });
 
   test("opens historical run logs without replaying them through SSE", async () => {
@@ -260,11 +305,37 @@ describe("App run integration", () => {
       agentInvocationId: "invocation-1",
       update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "streamed " } },
     });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-stream-1",
+      at: "2026-05-19T10:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "assistant_delta",
+      turnId: "invocation-1",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      text: "streamed ",
+    });
     source.emit("session-update", {
       type: "session_update",
       nodeId: "node-1",
       agentInvocationId: "invocation-1",
       update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "answer" } },
+    });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-stream-2",
+      at: "2026-05-19T10:00:00.100Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "assistant_delta",
+      turnId: "invocation-1",
+      nodeId: "node-1",
+      agentInvocationId: "invocation-1",
+      text: "answer",
     });
     source.emit("session-update", {
       type: "session_update",
@@ -272,11 +343,36 @@ describe("App run integration", () => {
       agentInvocationId: "invocation-1",
       update: { sessionUpdate: "tool_call", toolCallId: "tool-1", title: "Read file", status: "pending" },
     });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-tool-1",
+      at: "2026-05-19T10:00:00.200Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "tool_call",
+      turnId: "invocation-1",
+      toolCallId: "tool-1",
+      title: "Read file",
+      status: "pending",
+    });
     source.emit("session-update", {
       type: "session_update",
       nodeId: "node-1",
       agentInvocationId: "invocation-1",
       update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1", status: "completed" },
+    });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-tool-2",
+      at: "2026-05-19T10:00:00.300Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "tool_call_update",
+      turnId: "invocation-1",
+      toolCallId: "tool-1",
+      status: "completed",
     });
 
     await waitForText("streamed answer");
@@ -446,6 +542,7 @@ describe("App run integration", () => {
     renderApp(root);
 
     await waitForText("Start run");
+    await waitFor(() => document.querySelector(".node") instanceof window.HTMLElement);
     selectFirstCanvasNode();
     await waitForText("Definition");
 
@@ -468,6 +565,7 @@ describe("App run integration", () => {
     renderApp(root);
 
     await waitForText("Start run");
+    await waitFor(() => document.querySelector(".node") instanceof window.HTMLElement);
     selectFirstCanvasNode();
     await waitForText("Lock node position");
 
@@ -826,8 +924,60 @@ describe("App run integration", () => {
     if (!(send instanceof window.HTMLButtonElement)) throw new Error("Paused send button not found");
     send.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitFor(() => pausedPrompts.includes("extra context"));
+    source.emit("agent-prompt", {
+      type: "agent_prompt",
+      runId: "run1",
+      nodeId: "node-1",
+      agentInvocationId: "paused-prompt-1",
+      agentId: "agent-server-echo-headless",
+      agentServerId: "echo-headless",
+      specflowSessionId: "main",
+      prompt: "extra context",
+      at: "2026-05-19T10:00:00.000Z",
+    });
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "paused-prompt-1",
+      update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "extra context" } },
+    });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-paused-user",
+      at: "2026-05-19T10:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "user_message",
+      turnId: "paused-prompt-1",
+      nodeId: "node-1",
+      agentInvocationId: "paused-prompt-1",
+      text: "extra context",
+    });
+    source.emit("session-update", {
+      type: "session_update",
+      nodeId: "node-1",
+      agentInvocationId: "paused-prompt-1",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "paused answer" } },
+    });
+    source.emit("timeline", {
+      type: "acp_timeline",
+      id: "timeline-paused-agent",
+      at: "2026-05-19T10:00:00.100Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "assistant_delta",
+      turnId: "paused-prompt-1",
+      nodeId: "node-1",
+      agentInvocationId: "paused-prompt-1",
+      text: "paused answer",
+    });
     await waitForText("extra context");
     await waitForText("paused answer");
+    const userMessages = [...document.querySelectorAll(".term-stream .timeline-message.user")]
+      .filter((candidate) => candidate.textContent?.includes("extra context"));
+    expect(userMessages.length).toBe(1);
     if (document.querySelector(".paused-transcript")) throw new Error("Paused transcript should not render outside the log stream");
 
     clickButton("Continue");
@@ -964,7 +1114,7 @@ function mockFetch(input: RequestInfo | URL, initialValue?: RequestInit): Promis
   if (method === "GET" && url === "/api/runs/run1") {
     return json(sampleRun("running"));
   }
-  if (method === "GET" && url === "/api/runs/run1/logs") {
+  if (method === "GET" && url === "/api/runs/run1/logs?timeline=compact") {
     return json(recordedRunLogs);
   }
   if (method === "GET" && url === "/api/runs/run1/paused-nodes") {
@@ -1203,8 +1353,13 @@ function setInputValue(input: HTMLInputElement, value: string): void {
 }
 
 function setCheckboxValue(input: HTMLInputElement, checked: boolean): void {
+  if (input.checked !== checked) {
+    input.click();
+  }
+  if (input.checked === checked) return;
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "checked")?.set;
   setter?.call(input, checked);
+  input.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   input.dispatchEvent(new window.Event("input", { bubbles: true }));
   input.dispatchEvent(new window.Event("change", { bubbles: true }));
 }

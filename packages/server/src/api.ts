@@ -2,7 +2,8 @@ import { AgentServerStore, probeAcpAgentCapabilities, type AgentServerCapabiliti
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
 import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
-import { SPECFLOW_AGENTFLOW_PATH, uuidv7 } from "@specflow/shared";
+import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
+import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
 import { canvasToWorkflow } from "./agentflow/canvas-to-workflow";
@@ -21,7 +22,7 @@ import {
   recordAgentSessionRestoreAttempt,
   upsertAgentSessionsFromRun,
 } from "./agentflow/agent-session-store";
-import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange } from "./agentflow/run-log-store";
+import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange, listRunTimelineRestoreEvents } from "./agentflow/run-log-store";
 import { prepareCanvasRun } from "./agentflow/run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
 import { assertServerRunnableAgentFlow } from "./agentflow/agentflow-validation";
@@ -723,7 +724,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         // the client; batch load is O(1) on the React side.
         if (options.replay) {
           for (const event of await listRunLogEvents(root, runId)) {
-            if (event.type === "terminal") {
+            if (event.type === "acp_timeline") {
+              if (event.kind !== "timeline_snapshot") enqueue("timeline", { ...event, replay: true });
+            } else if (event.type === "terminal") {
               enqueue("terminal", {
                 chunk: event.chunk,
                 stream: event.stream,
@@ -767,6 +770,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         const unsubscribeSessionUpdate = eventBus.on(`${runId}:session-update`, (event) => enqueue("session-update", event));
         const unsubscribeAgentPrompt = eventBus.on(`${runId}:agent-prompt`, (event) => enqueue("agent-prompt", event));
         const unsubscribeAgentLifecycle = eventBus.on(`${runId}:agent-lifecycle`, (event) => enqueue("agent-lifecycle", event));
+        const unsubscribeTimeline = eventBus.on(`${runId}:timeline`, (event) => enqueue("timeline", event));
 
         for (const interaction of bridge.interactions.list({ runId, status: "pending" })) {
           enqueue("interaction-requested", interaction);
@@ -780,7 +784,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         }
 
         cleanup = () => {
-          unsubscribeNode(); unsubscribeRun(); unsubscribeTerminal(); unsubscribeSessionUpdate(); unsubscribeAgentPrompt(); unsubscribeAgentLifecycle(); unsubscribeInteraction();
+          unsubscribeNode(); unsubscribeRun(); unsubscribeTerminal(); unsubscribeSessionUpdate(); unsubscribeAgentPrompt(); unsubscribeAgentLifecycle(); unsubscribeTimeline(); unsubscribeInteraction();
         };
       },
       cancel() {
@@ -908,6 +912,13 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           console.error("Failed to append run log", error);
         });
     };
+    const timeline = new AcpTimelinePipeline({
+      source: "agentflow",
+      scopeId: runId,
+      append: (event) => appendRunLogEvent(root, { ...event, runId } as AcpTimelineEvent & { runId: string }),
+      emit: (event) => eventBus.emit(`${runId}:timeline`, event),
+      base: { runId },
+    });
     const offInteractionLog = bridge.interactions.subscribe(runId, (interaction) => {
       appendLog({ type: "interaction", ...interactionAuditRecord(interaction) });
     });
@@ -924,6 +935,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
             : undefined;
           const event = { type: "terminal" as const, ...terminalEvent, nodeId: attributedNodeId, specflowSessionId };
           appendLog(event);
+          timeline.record({
+            kind: "terminal",
+            turnId: terminalEvent.agentInvocationId,
+            text: terminalEvent.chunk,
+            stream: terminalEvent.stream,
+            nodeId: attributedNodeId,
+            agentInvocationId: terminalEvent.agentInvocationId,
+            specflowSessionId,
+          });
           eventBus.emit(`${runId}:term`, {
             chunk: terminalEvent.chunk,
             stream: terminalEvent.stream,
@@ -1068,7 +1088,19 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           agentServerId,
           lifecycle,
         } as const;
+        const lifecycleRecord = lifecycle as { type?: string; sessionId?: string };
         appendLog(lifecycleLogEvent);
+        timeline.record({
+          kind: "lifecycle",
+          turnId: agentInvocationId,
+          eventType: typeof lifecycleRecord.type === "string" ? lifecycleRecord.type : "agent_lifecycle",
+          data: lifecycleLogEvent,
+          nodeId,
+          agentInvocationId,
+          agentServerId,
+          specflowSessionId,
+          sessionId: typeof lifecycleRecord.sessionId === "string" ? lifecycleRecord.sessionId : undefined,
+        });
         eventBus.emit(`${runId}:agent-lifecycle`, lifecycleLogEvent);
       },
       onAgentPrompt: (event) => {
@@ -1090,6 +1122,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         void saveRun(record, root);
         const promptLogEvent = { type: "agent_prompt", ...event } as const;
         appendLog(promptLogEvent);
+        timeline.record({
+          kind: "user_message",
+          turnId: event.agentInvocationId,
+          text: event.prompt,
+          nodeId: event.nodeId,
+          agentInvocationId: event.agentInvocationId,
+          agentServerId: event.agentServerId,
+          specflowSessionId: event.specflowSessionId,
+        });
         eventBus.emit(`${event.runId}:agent-prompt`, promptLogEvent);
       },
       onAgentSessionUpdate: (event) => {
@@ -1112,6 +1153,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         // page load routes events to the correct session tab.
         const persisted = { type: "session_update" as const, ...event, specflowSessionId };
         appendLog(persisted);
+        recordAgentflowSessionUpdate(timeline, persisted);
         eventBus.emit(`${runId}:session-update`, persisted);
       },
       interactions: bridge.interactions,
@@ -1124,6 +1166,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         ...(resumeFrom ? { resumeFrom: resumeFrom.state } : {}),
       })
       .then(async (workflowRun) => {
+        timeline.snapshot({ status: "success" });
+        await timeline.flush();
         await logWrite;
         record.agentInvocations = workflowRun.agentInvocations;
         await saveRun(record, root);
@@ -1135,6 +1179,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         // with valid acpSessionIds. Rebuild explicitly so resume lookups don't
         // have to fix this up after the fact.
         try {
+          timeline.snapshot({ status: record.status === "cancelled" ? "cancelled" : "failed" });
+          await timeline.flush();
           await logWrite;
           await upsertAgentSessionsFromRun(record, root);
         } catch (error) {
@@ -1146,6 +1192,68 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       });
 
     return Response.json({ runId });
+  }
+
+  function recordAgentflowSessionUpdate(
+    timeline: AcpTimelinePipeline,
+    event: {
+      sessionId?: string;
+      update: unknown;
+      nodeId?: string;
+      agentInvocationId?: string;
+      agentServerId?: string;
+      specflowSessionId?: string;
+    },
+  ): void {
+    const update = event.update && typeof event.update === "object" ? event.update as Record<string, unknown> : {};
+    const kind = typeof update.sessionUpdate === "string" ? update.sessionUpdate : "";
+    const base = {
+      turnId: event.agentInvocationId,
+      nodeId: event.nodeId,
+      agentInvocationId: event.agentInvocationId,
+      agentServerId: event.agentServerId,
+      sessionId: event.sessionId,
+      specflowSessionId: event.specflowSessionId,
+    };
+    if (kind === "agent_message_chunk" || kind === "user_message_chunk" || kind === "agent_thought_chunk") {
+      const text = acpContentText(update.content);
+      if (!text) return;
+      timeline.record(kind === "user_message_chunk"
+        ? { ...base, kind: "user_message", text }
+        : { ...base, kind: "assistant_delta", text, role: kind === "agent_thought_chunk" ? "thought" : "assistant" });
+      return;
+    }
+    if (kind === "tool_call" || kind === "tool_call_update") {
+      const toolCallId = typeof update.toolCallId === "string" ? update.toolCallId : undefined;
+      if (!toolCallId) return;
+      timeline.record({
+        ...base,
+        kind,
+        toolCallId,
+        title: typeof update.title === "string" ? update.title : undefined,
+        status: typeof update.status === "string" ? update.status : undefined,
+        toolKind: typeof update.kind === "string" ? update.kind : undefined,
+        content: update.content,
+        locations: update.locations,
+        rawInput: update.rawInput,
+        rawOutput: update.rawOutput,
+      });
+      return;
+    }
+    if (kind) {
+      timeline.record({
+        ...base,
+        kind: "lifecycle",
+        eventType: kind,
+        data: event.update,
+      });
+    }
+  }
+
+  function acpContentText(content: unknown): string {
+    const block = content && typeof content === "object" ? content as { type?: unknown; text?: unknown } : {};
+    if (block.type === "text" && typeof block.text === "string") return block.text;
+    return typeof block.type === "string" ? `[${block.type}]` : "";
   }
 
   async function inspectWorkflowAuthentication(agentflow: AgentFlowDoc): Promise<AgentAuthenticationStatus[]> {
@@ -1768,8 +1876,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     // GET /api/runs/:id/logs
-    // No query → full array (back-compat). With ?tail=N or ?from=X&to=Y →
-    // paginated `{ events, total, startIndex }` for lazy load.
+    // No query → full array (back-compat). With ?timeline=compact → latest
+    // ACP snapshot plus later raw timeline events. With ?tail=N or ?from=X&to=Y
+    // → paginated `{ events, total, startIndex }` for lazy load.
     const runLogsMatch = pathname.match(/^\/api\/runs\/([^/]+)\/logs$/);
     if (runLogsMatch && request.method === "GET") {
       const tailParam = url.searchParams.get("tail");
@@ -1784,6 +1893,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           ...(Number.isFinite(from) ? { from } : {}),
           ...(Number.isFinite(toSequence) ? { to: toSequence } : {}),
         }));
+      }
+      if (url.searchParams.get("timeline") === "compact") {
+        return Response.json(await listRunTimelineRestoreEvents(root, runLogsMatch[1]));
       }
       return Response.json(await listRunLogEvents(root, runLogsMatch[1]));
     }
@@ -1816,7 +1928,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
           return Response.json({ error: "Prompt must not be empty" }, { status: 400 });
         }
-        return Response.json(await bridge.pauses.sendPrompt(runId, nodeId, body.prompt));
+        return Response.json(await bridge.pauses.sendPrompt(runId, nodeId, body.prompt, request.signal));
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 409 });
       }
@@ -1905,6 +2017,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       active.promptPending = true;
       const promptController = new AbortController();
       active.promptController = promptController;
+      const abortPrompt = () => promptController.abort();
+      request.signal.addEventListener("abort", abortPrompt, { once: true });
       try {
         const result = await active.conversation.prompt({
           prompt: body.prompt,
@@ -1916,6 +2030,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 409 });
       } finally {
+        request.signal.removeEventListener("abort", abortPrompt);
         active.promptController = undefined;
         active.promptPending = false;
       }

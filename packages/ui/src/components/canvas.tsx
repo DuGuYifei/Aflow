@@ -475,14 +475,14 @@ export function Canvas({
       if (key === 'c' && isEdit && canCopyNode) {
         event.preventDefault();
         onCopyNode();
-      } else if (key === 'v' && isEdit && canPasteNode) {
+      } else if (key === 'v' && isEdit) {
         event.preventDefault();
         onPasteNode(viewportCenterToCanvas());
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [canCopyNode, canPasteNode, isEdit, onCopyNode, onPasteNode, viewportCenterToCanvas]);
+  }, [canCopyNode, isEdit, onCopyNode, onPasteNode, viewportCenterToCanvas]);
 
   // ── port-drag-to-connect ──────────────────────────────────────────────────
 

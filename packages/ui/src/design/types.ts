@@ -1,3 +1,5 @@
+import type { AcpTimelineEvent } from '@specflow/shared';
+
 export interface DesignReferenceSummary {
   name: string;
   path: string;
@@ -6,7 +8,9 @@ export interface DesignReferenceSummary {
 export interface DesignProjectSummary {
   name: string;
   path: string;
+  kind: DesignProjectKind;
   updatedAt?: string;
+  runtime?: DesignRuntimeState;
 }
 
 export interface DesignProjectDetail extends DesignProjectSummary {
@@ -17,6 +21,37 @@ export interface DesignReferenceContext {
   name: string;
   path: string;
   interfaceDescription?: string;
+}
+
+export type DesignProjectKind = 'html' | 'react';
+
+export interface DesignProjectDevCommand {
+  command: string;
+  args: string[];
+}
+
+export interface DesignProjectConfig {
+  kind: DesignProjectKind;
+  devCommand?: DesignProjectDevCommand;
+  lastRuntime?: {
+    port?: number;
+    startedAt?: string;
+    stoppedAt?: string;
+  };
+}
+
+export type DesignRuntimeStatus = 'stopped' | 'starting' | 'running' | 'failed';
+
+export interface DesignRuntimeState {
+  kind: DesignProjectKind;
+  status: DesignRuntimeStatus;
+  port?: number;
+  url?: string;
+  startedAt?: string;
+  stoppedAt?: string;
+  command?: DesignProjectDevCommand;
+  error?: string;
+  outputTail?: string;
 }
 
 export interface DesignChatMessage {
@@ -61,6 +96,12 @@ export interface DesignComponentNode {
   name: string;
   type?: string;
   selector?: string;
+  filePath?: string;
+  xpath?: string;
+  tagName?: string;
+  textContent?: string;
+  selectionLevel?: 'component' | 'dom-element' | string;
+  anchorKind?: 'data-component-id' | 'id' | 'xpath' | string;
   description?: string;
   bounds?: {
     x: number;
@@ -76,9 +117,10 @@ export interface DesignArtifact {
   id: string;
   projectName: string;
   projectPath: string;
+  kind: DesignProjectKind;
+  runtime?: DesignRuntimeState;
   createdAt: string;
   frames?: DesignArtifactFrame[];
-  componentTree?: DesignComponentNode[];
 }
 
 export interface DesignArtifactFrame {
@@ -89,6 +131,7 @@ export interface DesignArtifactFrame {
   height: number;
   x: number;
   y: number;
+  route?: string;
   designPath?: string;
   wireframePath?: string;
   descriptionPath?: string;
@@ -104,7 +147,7 @@ export interface DesignSession {
   memoryInjected: boolean;
   reference?: DesignReferenceContext;
   messages: DesignChatMessage[];
-  logs?: DesignLogEntry[];
+  logs?: AcpTimelineEvent[];
   latestArtifact?: DesignArtifact;
 }
 

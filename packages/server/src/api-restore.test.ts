@@ -125,6 +125,51 @@ describe("agent session restore API", () => {
     expect((await blockedPrompt)?.status).toBe(409);
   });
 
+  test("aborts an active restored prompt when the request is cancelled", async () => {
+    const root = await setupProject("load,resume");
+    await upsertAgentSessionsFromRun(sampleRun("run1"), root);
+    const [session] = await listAgentSessions(root);
+    expect(session).toBeDefined();
+
+    const bridge = createSpecflowBridge();
+    const handle = createApiHandler(bridge, root);
+    const response = await handle(new Request(`http://specflow.test/api/agent-sessions/${session!.id}/restore`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "continue" }),
+    }));
+    const body = await response?.json() as { restoreId: string; status: string };
+    expect(response?.status).toBe(200);
+    expect(body.status).toBe("running");
+
+    const eventResponse = await handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/events`));
+    expect(eventResponse?.status).toBe(200);
+    await readUntil(eventResponse!, ["session-update", "\"status\":\"success\""]);
+
+    const controller = new AbortController();
+    const promptPending = handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "cancel this prompt" }),
+      signal: controller.signal,
+    }));
+    for (let index = 0; index < 30 && bridge.interactions.list({ runId: "run1", status: "pending" }).length === 0; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(bridge.interactions.list({ runId: "run1", status: "pending" })).toHaveLength(1);
+
+    controller.abort();
+    const prompt = await promptPending;
+    expect(prompt?.status).toBe(409);
+    const promptBody = await prompt?.json() as { error: string };
+    expect(promptBody.error).toContain("cancelled");
+
+    const close = await handle(new Request(`http://specflow.test/api/agent-session-restores/${body.restoreId}/close`, {
+      method: "POST",
+    }));
+    expect(close?.status).toBe(200);
+  });
+
   test("cancels an active restore attempt", async () => {
     const root = await setupProject("load,resume", { SPECFLOW_FAKE_ACP_RESTORE_DELAY_MS: "5000" });
     await upsertAgentSessionsFromRun(sampleRun("run1"), root);

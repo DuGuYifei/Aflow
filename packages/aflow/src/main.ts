@@ -24,10 +24,6 @@ export async function main(args: string[]): Promise<void> {
       await launchSpecflowOnly();
       return;
     }
-    if (mode === "prd") {
-      console.log("Aflow PRD mode is reserved for a future workflow.");
-      return;
-    }
   }
 
   await runAflowAgent(args);

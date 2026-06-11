@@ -6,6 +6,7 @@ import {
   appendRunLogEvent,
   deleteRunLog,
   listRunLogEvents,
+  listRunTimelineRestoreEvents,
   runLogPath,
 } from "./agentflow/run-log-store";
 
@@ -81,5 +82,53 @@ describe("run log store", () => {
     await deleteRunLog(root, "run1");
     await expect(readFile(runLogPath(root, "run1"), "utf8")).rejects.toThrow();
     expect(await listRunLogEvents(root, "run1")).toEqual([]);
+  });
+
+  test("compacts timeline restore logs from the latest snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-logs-"));
+    await appendRunLogEvent(root, {
+      type: "acp_timeline",
+      id: "user-1",
+      at: "2026-05-19T00:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "user_message",
+      text: "old prompt",
+    });
+    await appendRunLogEvent(root, {
+      type: "acp_timeline",
+      id: "snapshot-1",
+      at: "2026-05-19T00:00:01.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "timeline_snapshot",
+      status: "success",
+      rawEventCount: 1,
+      blocks: [{
+        id: "block-user-1",
+        at: "2026-05-19T00:00:00.000Z",
+        source: "agentflow",
+        scopeId: "run1",
+        runId: "run1",
+        kind: "message",
+        role: "user",
+        text: "old prompt",
+      }],
+    });
+    await appendRunLogEvent(root, {
+      type: "acp_timeline",
+      id: "assistant-2",
+      at: "2026-05-19T00:00:02.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "assistant_delta",
+      text: "new chunk",
+    });
+
+    const events = await listRunTimelineRestoreEvents(root, "run1");
+    expect(events.map((event) => event.type === "acp_timeline" ? event.id : event.type)).toEqual(["snapshot-1", "assistant-2"]);
   });
 });

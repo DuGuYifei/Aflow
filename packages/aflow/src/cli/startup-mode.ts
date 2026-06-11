@@ -1,4 +1,4 @@
-export type AflowStartupMode = "designer" | "prd" | "specflow" | "native";
+export type AflowStartupMode = "designer" | "specflow" | "native";
 
 interface StartupModeOption {
   mode: AflowStartupMode;
@@ -6,11 +6,10 @@ interface StartupModeOption {
   description: string;
 }
 
-const OPTIONS: StartupModeOption[] = [
+export const STARTUP_MODE_OPTIONS: StartupModeOption[] = [
   { mode: "native", label: "Native Aflow", description: "Start the original Aflow agent TUI" },
   { mode: "specflow", label: "Specflow", description: "Open the Agentflow canvas server" },
   { mode: "designer", label: "Designer", description: "Open the design workbench at /design" },
-  { mode: "prd", label: "PRD", description: "Placeholder for future PM workflows" },
 ];
 
 export async function chooseAflowStartupMode(): Promise<AflowStartupMode> {
@@ -21,12 +20,12 @@ export async function chooseAflowStartupMode(): Promise<AflowStartupMode> {
     process.stdout.write("\x1b[2J\x1b[H");
     process.stdout.write("Aflow\n\n");
     process.stdout.write("Choose a workspace mode:\n\n");
-    for (let index = 0; index < OPTIONS.length; index += 1) {
-      const option = OPTIONS[index]!;
+    for (let index = 0; index < STARTUP_MODE_OPTIONS.length; index += 1) {
+      const option = STARTUP_MODE_OPTIONS[index]!;
       const active = index === selectedIndex ? ">" : " ";
       process.stdout.write(`${active} ${index + 1}. ${option.label.padEnd(13)} ${option.description}\n`);
     }
-    process.stdout.write("\nUse Up/Down, 1-4, Enter to select, Ctrl+C to exit.\n");
+    process.stdout.write("\nUse Up/Down, 1-3, Enter to select, Ctrl+C to exit.\n");
   };
 
   return new Promise<AflowStartupMode>((resolve) => {
@@ -41,6 +40,7 @@ export async function chooseAflowStartupMode(): Promise<AflowStartupMode> {
       cleanup();
       resolve(mode);
     };
+    const numericPattern = new RegExp(`^[1-${STARTUP_MODE_OPTIONS.length}]$`);
     const onData = (chunk: Buffer) => {
       const value = chunk.toString("utf8");
       if (value === "\u0003") {
@@ -48,20 +48,20 @@ export async function chooseAflowStartupMode(): Promise<AflowStartupMode> {
         process.exit(130);
       }
       if (value === "\r" || value === "\n") {
-        finish(OPTIONS[selectedIndex]!.mode);
+        finish(STARTUP_MODE_OPTIONS[selectedIndex]!.mode);
         return;
       }
-      if (/^[1-4]$/.test(value)) {
-        finish(OPTIONS[Number(value) - 1]!.mode);
+      if (numericPattern.test(value)) {
+        finish(STARTUP_MODE_OPTIONS[Number(value) - 1]!.mode);
         return;
       }
       if (value === "\x1b[A") {
-        selectedIndex = (selectedIndex + OPTIONS.length - 1) % OPTIONS.length;
+        selectedIndex = (selectedIndex + STARTUP_MODE_OPTIONS.length - 1) % STARTUP_MODE_OPTIONS.length;
         render();
         return;
       }
       if (value === "\x1b[B") {
-        selectedIndex = (selectedIndex + 1) % OPTIONS.length;
+        selectedIndex = (selectedIndex + 1) % STARTUP_MODE_OPTIONS.length;
         render();
       }
     };

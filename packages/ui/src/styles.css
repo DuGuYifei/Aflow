@@ -2877,6 +2877,58 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   max-width: 150px;
 }
 
+.design-runtime-chip {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  border-radius: 7px;
+  color: var(--ink-2);
+  padding: 0 4px 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.design-runtime-chip a {
+  width: 22px;
+  height: 22px;
+  color: var(--ink-3);
+  display: inline-grid;
+  place-items: center;
+}
+
+.design-runtime-chip a:hover {
+  color: var(--ink);
+}
+
+.design-runtime-chip .icon-btn {
+  width: 22px;
+  height: 22px;
+}
+
+.design-runtime-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ink-3);
+  flex: 0 0 auto;
+}
+
+.design-runtime-chip.running .design-runtime-dot {
+  background: #1f9d55;
+}
+
+.design-runtime-chip.starting .design-runtime-dot {
+  background: #d99a1e;
+}
+
+.design-runtime-chip.failed .design-runtime-dot {
+  background: #d13f3f;
+}
+
 .design-back-icon {
   transform: rotate(180deg);
 }
@@ -2930,8 +2982,39 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-bottom: 1px solid var(--line);
   padding: 12px 14px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
+}
+
+.design-project-kind {
+  height: 32px;
+  align-self: stretch;
+}
+
+.design-project-kind-warning {
+  grid-column: 1 / -1;
+  border: 1px solid color-mix(in oklab, var(--err), transparent 62%);
+  background: color-mix(in oklab, var(--err), transparent 92%);
+  color: var(--err);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.design-project-kind-badge {
+  margin-left: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.design-project-kind-badge.react {
+  color: var(--accent-ink);
+  border-color: color-mix(in oklab, var(--accent), transparent 45%);
 }
 
 .design-project-list {
@@ -2972,6 +3055,9 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .design-project-item span {
   font-size: 12px;
   font-weight: 650;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .design-project-item small {
@@ -3263,6 +3349,54 @@ body.design-resizing-chat {
 .design-activity-dots span:nth-child(2) { animation-delay: 120ms; }
 .design-activity-dots span:nth-child(3) { animation-delay: 240ms; }
 
+.design-tool-details {
+  display: block;
+  width: min(100%, 680px);
+}
+
+.design-tool-details > summary {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.design-tool-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.design-tool-detail-list {
+  margin: 5px 0 0 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.design-tool-detail {
+  display: grid;
+  gap: 2px;
+}
+
+.design-tool-detail > span {
+  color: var(--ink-4);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.design-tool-detail pre {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
 .design-markdown {
   display: grid;
   gap: 8px;
@@ -3418,6 +3552,62 @@ body.design-resizing-chat {
 .design-attachment-thumb button:hover {
   color: var(--ink);
   background: var(--line-2);
+}
+
+.design-visual-draft-strip {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.design-visual-draft-chip {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid color-mix(in oklab, var(--accent), var(--line) 58%);
+  background: color-mix(in oklab, var(--accent-soft), transparent 18%);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 3px 4px 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.design-visual-draft-name {
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.design-visual-draft-count {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.design-visual-draft-chip button {
+  width: 17px;
+  height: 17px;
+  border: 0;
+  background: transparent;
+  border-radius: 50%;
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+}
+
+.design-visual-draft-chip button:hover {
+  background: color-mix(in oklab, var(--accent), transparent 84%);
+  color: var(--ink);
+}
+
+.design-visual-draft-chip button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .design-reference-strip {
@@ -3642,6 +3832,8 @@ body.design-resizing-chat {
 
 .design-compose .rich-prompt-input {
   min-height: 76px;
+  max-height: min(30vh, 220px);
+  overflow-y: auto;
   border: 0;
   background: transparent;
   border-radius: 12px;
@@ -3658,6 +3850,58 @@ body.design-resizing-chat {
 
 .design-compose .rich-prompt-input[aria-disabled="true"] {
   background: transparent;
+}
+
+.design-reference-chip-strip {
+  min-height: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.design-reference-chip {
+  max-width: 100%;
+  min-height: 24px;
+  border: 1px solid color-mix(in oklab, #0ea5e9 34%, var(--line));
+  background: color-mix(in oklab, #0ea5e9 10%, var(--bg-panel));
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 3px 5px 3px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.design-reference-chip-name {
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.design-reference-chip-note {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.design-reference-chip button {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+}
+
+.design-reference-chip button:hover {
+  background: color-mix(in oklab, var(--ink), transparent 92%);
+  color: var(--ink);
 }
 
 .design-slash-wrap {
@@ -3842,6 +4086,20 @@ body.design-resizing-chat {
   display: block;
 }
 
+.design-frame-runtime-empty {
+  width: 100%;
+  height: 100%;
+  border: 1px dashed var(--line);
+  background: color-mix(in oklab, var(--bg-panel), var(--bg) 24%);
+  border-radius: 8px;
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
 .design-frame-canvas.mode-hand .design-frame-iframe {
   pointer-events: none;
 }
@@ -3965,6 +4223,12 @@ body.design-resizing-chat {
   border-bottom: 1px solid var(--line);
   display: grid;
   gap: 8px;
+}
+
+.design-reference-context .textarea {
+  max-height: 140px;
+  overflow-y: auto;
+  resize: vertical;
 }
 
 .design-reference-drawer {
@@ -4803,6 +5067,15 @@ body.design-resizing-chat {
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.design-component-target {
+  margin: 0 4px 10px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .design-component-detail p {

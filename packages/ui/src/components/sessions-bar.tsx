@@ -40,6 +40,7 @@ interface SessionsBarProps {
   pausedNode?: PausedNodeSession | null;
   pausedPromptBusy?: boolean;
   onPromptPausedNode?: (prompt: string) => void;
+  onCancelPausedPrompt?: () => void;
   onContinuePausedNode?: () => void;
   readonly?: boolean;
 }
@@ -59,7 +60,7 @@ export function SessionsBar({
   onRestoreSession,
   restoreStatusBySession = {},
   pausedNode, pausedPromptBusy = false,
-  onPromptPausedNode, onContinuePausedNode,
+  onPromptPausedNode, onCancelPausedPrompt, onContinuePausedNode,
   readonly,
 }: SessionsBarProps) {
   const { t } = useI18n();
@@ -168,6 +169,7 @@ export function SessionsBar({
           pausedNode={pausedNode}
           pausedPromptBusy={pausedPromptBusy}
           onPromptPausedNode={onPromptPausedNode}
+          onCancelPausedPrompt={onCancelPausedPrompt}
           onContinuePausedNode={onContinuePausedNode}
           t={t}
         />
@@ -221,6 +223,7 @@ interface LogsTabProps {
   pausedNode?: PausedNodeSession | null;
   pausedPromptBusy: boolean;
   onPromptPausedNode?: (prompt: string) => void;
+  onCancelPausedPrompt?: () => void;
   onContinuePausedNode?: () => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }
@@ -228,7 +231,7 @@ interface LogsTabProps {
 function LogsTab({
   sessions, activeSessionId, setActiveSessionId, activeRunId, activeRunStatus, stepNodes, timelineEvents, agentSessions, restoreStatusBySession, onRestoreSession, onDeleteSession,
   onLoadEarlierLogs, canLoadEarlierLogs, loadingEarlierLogs, historicLogTotal, historicLogLoadedFromIndex,
-  pausedNode, pausedPromptBusy, onPromptPausedNode, onContinuePausedNode,
+  pausedNode, pausedPromptBusy, onPromptPausedNode, onCancelPausedPrompt, onContinuePausedNode,
   t,
 }: LogsTabProps) {
   const [sideW, setSideW] = useState(() => {
@@ -302,6 +305,24 @@ function LogsTab({
   const nodeById = new Map(stepNodes.map((node) => [node.id, node]));
   const visibleEvents = (timelineEvents ?? []).filter((event) => {
     if (!activeEntry) return true;
+    if (event.type === 'acp_timeline' && event.kind === 'lifecycle') {
+      const data = event.data && typeof event.data === 'object'
+        ? event.data as { specflowSessionId?: unknown; parentSpecflowSessionId?: unknown }
+        : undefined;
+      const eventSessionId = typeof event.specflowSessionId === 'string'
+        ? event.specflowSessionId
+        : typeof data?.specflowSessionId === 'string'
+          ? data.specflowSessionId
+          : undefined;
+      const parentSessionId = typeof data?.parentSpecflowSessionId === 'string'
+        ? data.parentSpecflowSessionId
+        : undefined;
+      if (eventSessionId || parentSessionId) {
+        if (activeEntry.kind === 'fork') return eventSessionId === activeEntry.id;
+        return eventSessionId === activeEntry.id || parentSessionId === activeEntry.id;
+      }
+      return true;
+    }
     if (event.type === 'display-message' && event.fork) {
       if (activeEntry.kind === 'fork') return event.fork.specflowSessionId === activeEntry.id;
       return event.fork.parentSpecflowSessionId === activeEntry.id;
@@ -383,6 +404,7 @@ function LogsTab({
             node={stepNodes.find((candidate) => candidate.id === pausedNode.nodeId)}
             busy={pausedPromptBusy}
             onPrompt={onPromptPausedNode}
+            onCancel={onCancelPausedPrompt}
             onContinue={onContinuePausedNode}
             t={t}
           />
@@ -686,17 +708,19 @@ function forkEventLabel(fork: NonNullable<Extract<TimelineEvent, { type: 'displa
   return fork.specflowSessionId;
 }
 
-function PausedNodeComposer(props: {
+export function PausedNodeComposer(props: {
   node?: WorkflowNode;
   busy: boolean;
   onPrompt?: (prompt: string) => void;
+  onCancel?: () => void;
   onContinue?: () => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
   const [prompt, setPrompt] = useState('');
-  const submit = () => {
-    if (!prompt.trim() || props.busy) return;
-    props.onPrompt?.(prompt.trim());
+  const submit = (override?: string) => {
+    const value = (override ?? prompt).trim();
+    if (!value || props.busy) return;
+    props.onPrompt?.(value);
     setPrompt('');
   };
   return (
@@ -716,12 +740,19 @@ function PausedNodeComposer(props: {
           placeholder={props.t('sessions.promptPausedSession')}
           onInput={(event) => setPrompt(event.currentTarget.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit();
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              submit(event.currentTarget.value);
+            }
           }}
         />
-        <button className="btn sm" disabled={props.busy || !prompt.trim()} onClick={submit}>
-          {props.busy ? props.t('sessions.sending') : props.t('sessions.send')}
-        </button>
+        {props.busy ? (
+          <button className="btn sm" onClick={props.onCancel}>{props.t('common.cancel')}</button>
+        ) : (
+          <button className="btn sm" disabled={!prompt.trim()} onClick={() => submit()}>
+            {props.t('sessions.send')}
+          </button>
+        )}
       </div>
     </div>
   );

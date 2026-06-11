@@ -137,8 +137,11 @@ describe("agent server API", () => {
 
   test("fetches the full registry browser index without creating the agent cache", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-registry-api-"));
+    const cacheDir = await mkdtemp(join(tmpdir(), "specflow-agent-server-cache-"));
     const handle = createApiHandler(createSpecflowBridge(), root);
     const fetchBeforeTest = globalThis.fetch;
+    const cacheBeforeTest = process.env.SPECFLOW_AGENT_CACHE_DIR;
+    process.env.SPECFLOW_AGENT_CACHE_DIR = cacheDir;
     globalThis.fetch = (async () => Response.json({
       version: "1",
       agents: [{
@@ -163,9 +166,15 @@ describe("agent server API", () => {
           { id: "other-acp", version: "1.0.0" },
         ],
       });
+      await expect(access(join(cacheDir, "registry.json"))).rejects.toThrow();
       await expect(access(join(root, ".aflow/.specflow", "cache", "agents"))).rejects.toThrow();
     } finally {
       globalThis.fetch = fetchBeforeTest;
+      if (cacheBeforeTest === undefined) {
+        delete process.env.SPECFLOW_AGENT_CACHE_DIR;
+      } else {
+        process.env.SPECFLOW_AGENT_CACHE_DIR = cacheBeforeTest;
+      }
     }
   });
 

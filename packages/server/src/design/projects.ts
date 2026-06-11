@@ -1,9 +1,14 @@
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { designProjectsDir } from "../workspace-paths";
-import type { DesignProjectSummary } from "./types";
+import { loadDesignProjectConfig } from "./project-config";
+import { scaffoldDesignProject, type ScaffoldDesignProjectOptions } from "./project-scaffold";
+import type { DesignProjectKind, DesignProjectSummary, DesignRuntimeState } from "./types";
 
-export async function listDesignProjects(root: string): Promise<DesignProjectSummary[]> {
+export async function listDesignProjects(
+  root: string,
+  runtimeState?: (project: DesignProjectSummary) => DesignRuntimeState | undefined,
+): Promise<DesignProjectSummary[]> {
   const directory = designProjectsDir(root);
   await mkdir(directory, { recursive: true });
   const entries = await readdir(directory, { withFileTypes: true });
@@ -11,40 +16,51 @@ export async function listDesignProjects(root: string): Promise<DesignProjectSum
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const path = join(directory, entry.name);
-    const entryStat = await stat(path).catch(() => undefined);
+    const project = await designProjectSummary(entry.name, path);
+    const runtime = runtimeState?.(project);
     projects.push({
-      name: entry.name,
-      path,
-      updatedAt: entryStat?.mtime.toISOString(),
+      ...project,
+      ...(runtime ? { runtime } : {}),
     });
   }
   return projects.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "")
     || left.name.localeCompare(right.name));
 }
 
-export async function createDesignProject(root: string, name: string): Promise<DesignProjectSummary> {
+export async function createDesignProject(
+  root: string,
+  name: string,
+  kind: DesignProjectKind = "html",
+  options: ScaffoldDesignProjectOptions = {},
+): Promise<DesignProjectSummary> {
   const projectName = sanitizeDesignProjectName(name);
   const path = designProjectPath(root, projectName);
   if (await projectExists(path)) throw httpError(409, `Design project already exists: ${projectName}`);
   await mkdir(designProjectsDir(root), { recursive: true });
   await mkdir(path, { recursive: false });
-  const entryStat = await stat(path);
-  return {
-    name: projectName,
-    path,
-    updatedAt: entryStat.mtime.toISOString(),
-  };
+  try {
+    await scaffoldDesignProject(path, kind, options);
+  } catch (error) {
+    await rm(path, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return designProjectSummary(projectName, path);
 }
 
-export async function loadDesignProject(root: string, name: string): Promise<DesignProjectSummary> {
+export async function loadDesignProject(
+  root: string,
+  name: string,
+  runtimeState?: (project: DesignProjectSummary) => DesignRuntimeState | undefined,
+): Promise<DesignProjectSummary> {
   const projectName = sanitizeDesignProjectName(name);
   const path = designProjectPath(root, projectName);
   const entryStat = await stat(path).catch(() => undefined);
   if (!entryStat?.isDirectory()) throw httpError(404, `Design project not found: ${projectName}`);
+  const project = await designProjectSummary(projectName, path);
+  const runtime = runtimeState?.(project);
   return {
-    name: projectName,
-    path,
-    updatedAt: entryStat.mtime.toISOString(),
+    ...project,
+    ...(runtime ? { runtime } : {}),
   };
 }
 
@@ -73,6 +89,19 @@ async function projectExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function designProjectSummary(name: string, path: string): Promise<DesignProjectSummary> {
+  const [entryStat, config] = await Promise.all([
+    stat(path),
+    loadDesignProjectConfig(path),
+  ]);
+  return {
+    name,
+    path,
+    kind: config.kind,
+    updatedAt: entryStat.mtime.toISOString(),
+  };
 }
 
 function httpError(status: number, message: string): Error & { status?: number } {
