@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
-import { startSpecflowServer, type RunningSpecflowServer } from "@specflow/server";
+import { prepareSpecflowWorkspace, startSpecflowServer, type RunningSpecflowServer } from "@specflow/server";
 import { SpecflowClient, type SpecflowHealth } from "./specflow-client";
 
 export interface ConnectSpecflowServerOptions {
@@ -28,6 +28,7 @@ export async function connectOrStartSpecflowServer(
     const health = await client.health();
     ensureSpecflowHealth(health, url);
     ensureWorkspaceMatch(health, options.cwd, url);
+    await prepareSpecflowWorkspace(options.cwd, { createIfMissing: true });
     return { client, url, started: false, health };
   }
 
@@ -38,6 +39,7 @@ export async function connectOrStartSpecflowServer(
   if (existingHealth) {
     ensureSpecflowHealth(existingHealth, defaultUrl);
     if (workspaceMatches(existingHealth, options.cwd)) {
+      await prepareSpecflowWorkspace(options.cwd, { createIfMissing: true });
       return {
         client: new SpecflowClient(defaultUrl),
         url: defaultUrl,
@@ -47,7 +49,7 @@ export async function connectOrStartSpecflowServer(
     }
   }
 
-  const server = await startSpecflowServer({ host, port });
+  const server = await startSpecflowServer({ cwd: options.cwd, host, port });
   const client = new SpecflowClient(server.url);
   const health = await client.health().catch(() => undefined);
   return {

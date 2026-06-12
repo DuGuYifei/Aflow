@@ -6,8 +6,10 @@ import { SkillStore, resolveSlashCommands } from "./skills";
 import { createApiHandler } from "./api";
 import { createDesignApiHandler } from "./design/api";
 import { stopDesignRuntimeManagers } from "./design/runtime-manager";
+import { prepareSpecflowWorkspace } from "./workspace";
 
 export interface SpecflowServerOptions {
+  cwd?: string;
   host?: string;
   port?: number;
 }
@@ -20,7 +22,8 @@ export interface RunningSpecflowServer {
 export async function startSpecflowServer(
   options: SpecflowServerOptions = {},
 ): Promise<RunningSpecflowServer> {
-  const workingDirectory = process.cwd();
+  const workingDirectory = options.cwd ?? process.cwd();
+  await prepareSpecflowWorkspace(workingDirectory, { createIfMissing: true });
 
   const host = options.host ?? DEFAULT_HOST;
   const preferredPort = options.port ?? SERVER_PORT;
