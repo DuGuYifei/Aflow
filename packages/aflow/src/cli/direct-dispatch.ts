@@ -1,6 +1,7 @@
 import type { CommandIO } from "./io";
+import { parseCommonCommandOptions } from "./args";
 import { runAflowAgent } from "../pi/pi-sdk-host";
-import { buildCreateWorkflowPrompt, buildForkAdaptWorkflowPrompt } from "../pi/slash-prompts";
+import { buildCreateWorkflowPrompt, buildForkAdaptWorkflowPrompt, buildMigrateV2WorkflowPrompt } from "../pi/slash-prompts";
 import { specflowResumeCommand } from "./commands/resume";
 import { specflowResumeSessionCommand } from "./commands/resume-session";
 import { specflowRunCommand } from "./commands/run";
@@ -17,6 +18,7 @@ const DIRECT_COMMANDS = new Set([
   "specflow-fork-adapt",
   "specflow-validate",
   "specflow-run",
+  "specflow-migrate-v2",
   "specflow-resume",
   "specflow-resume-session",
 ]);
@@ -34,6 +36,15 @@ export async function dispatchDirectAflowCommand(args: string[], context: Direct
   }
   if (command === "specflow-fork-adapt") {
     await runAflowAgent([buildForkAdaptWorkflowPrompt(rest.join(" "))]);
+    return;
+  }
+  if (command === "specflow-migrate-v2") {
+    const { serverUrl, rest: migrateRest } = parseCommonCommandOptions(rest);
+    const target = migrateRest[0];
+    if (!target) throw new Error("Usage: /specflow-migrate-v2 <workflow-id|path/to/workflow.yaml> [--server URL]");
+    if (migrateRest.length > 1) throw new Error(`Unexpected argument: ${migrateRest[1]}`);
+    if (serverUrl) process.env["AFLOW_SPECFLOW_URL"] = serverUrl;
+    await runAflowAgent([buildMigrateV2WorkflowPrompt(target)]);
     return;
   }
   await dispatchParsedCommand(command, rest, context);

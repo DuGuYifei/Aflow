@@ -1,5 +1,7 @@
 import type { AgentFlowDoc, AgentFlowNode, CanvasEdge } from "./canvas-doc";
 import { contentSourceForEdge, hasTransferProperties } from "./canvas-edge-semantics";
+import { assertRunnableAgentFlowV1Loops } from "./v1/validation";
+import { assertControlledLoopsV2, assertRunnableAgentFlowV2Shape } from "./v2/validation";
 
 const SYMBOL_KEY = /^[a-z][a-z0-9-]*$/;
 const XML_SAFE_TAG = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
@@ -24,8 +26,18 @@ export function edgeIdFromReferences(edge: Pick<CanvasEdge, "from" | "to" | "bra
 export function normalizeAgentFlowDraft(canvasDocument: AgentFlowDoc): AgentFlowDoc {
   let stepNumber = 0;
   let gateNumber = 0;
+  let startNumber = 0;
   const nodes: AgentFlowNode[] = canvasDocument.nodes.map((node) => {
     const alias = typeof node.alias === "string" ? node.alias : "";
+    if (node.kind === "start") {
+      startNumber += 1;
+      return {
+        ...node,
+        alias: alias.trim() ? alias : (startNumber === 1 ? "START" : `START ${startNumber}`),
+        title: node.title ?? "Start",
+        sessionId: null,
+      };
+    }
     if (node.kind === "input") {
       return {
         ...node,
@@ -59,11 +71,15 @@ export function normalizeAgentFlowDraft(canvasDocument: AgentFlowDoc): AgentFlow
       alias: alias.trim() ? alias : `G${gateNumber}`,
       title: node.title ?? "",
       decisionCriteria: node.decisionCriteria ?? "",
-      branches: node.branches ?? [],
+      branches: (node.branches ?? []).map((branch) => ({
+        ...branch,
+        label: branch.label ?? branch.id,
+      })),
     };
   });
   return {
     ...canvasDocument,
+    version: canvasDocument.version ?? 1,
     name: canvasDocument.name ?? "",
     sessions: canvasDocument.sessions.map((session) => ({
       ...session,
@@ -72,6 +88,11 @@ export function normalizeAgentFlowDraft(canvasDocument: AgentFlowDoc): AgentFlow
     })),
     nodes,
     edges: canvasDocument.edges ?? [],
+    variables: canvasDocument.variables?.map((variable) => ({
+      ...variable,
+      title: variable.title ?? "",
+      required: variable.required !== false,
+    })),
   };
 }
 
@@ -118,6 +139,9 @@ export function assertValidAgentFlowDraft(input: AgentFlowDoc): void {
     if (target?.kind === "input") {
       throw new Error(`Edge "${edge.id}" cannot target an input node.`);
     }
+    if (target?.kind === "start") {
+      throw new Error(`Edge "${edge.id}" cannot target a start node.`);
+    }
     if (source?.kind === "end") {
       throw new Error(`Edge "${edge.id}" cannot leave an end node.`);
     }
@@ -131,6 +155,7 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
   const canvasDocument = normalizeAgentFlowDraft(input);
   assertValidAgentFlowDraft(canvasDocument);
 
+  const version = canvasDocument.version ?? 1;
   const sessionIds = new Set(canvasDocument.sessions.map((session) => session.id));
   for (const session of canvasDocument.sessions) {
     if (!session.agentServerId.trim()) {
@@ -138,13 +163,37 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
     }
   }
 
+  if (version === 2) {
+    assertRunnableAgentFlowV2Shape(canvasDocument);
+  }
+
   const inputVariables = new Set<string>();
+  for (const variable of canvasDocument.variables ?? []) {
+    if (!INPUT_VARIABLE_NAME.test(variable.name)) {
+      throw new Error(`Variable "${variable.name}" must match ${INPUT_VARIABLE_NAME.source}.`);
+    }
+    if (inputVariables.has(variable.name)) {
+      throw new Error(`Duplicate input variable "${variable.name}".`);
+    }
+    inputVariables.add(variable.name);
+  }
+
   for (const node of canvasDocument.nodes) {
     if (node.kind === "step" && (!node.sessionId || !sessionIds.has(node.sessionId))) {
       throw new Error(`Node "${node.id}" references missing session "${node.sessionId}".`);
     }
     if (node.kind === "gate" && node.branches.length === 0) {
       throw new Error(`Gate node "${node.id}" must define at least one branch.`);
+    }
+    if (node.kind === "gate") {
+      for (const branch of node.branches) {
+        if (branch.maxTraversals !== undefined && (!Number.isInteger(branch.maxTraversals) || branch.maxTraversals < 1)) {
+          throw new Error(`Gate node "${node.id}" branch "${branch.id}" maxTraversals must be a positive integer.`);
+        }
+      }
+    }
+    if (version === 2 && node.kind === "input") {
+      throw new Error(`v2 workflow "${canvasDocument.id}" cannot use input nodes; declare top-level variables instead.`);
     }
     if (node.kind !== "input") continue;
     if (!node.variableName.trim()) {
@@ -164,6 +213,20 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
   for (const edge of canvasDocument.edges) {
     const source = canvasDocument.nodes.find((node) => node.id === edge.from);
     const target = canvasDocument.nodes.find((node) => node.id === edge.to);
+    if (version === 2 && edge.loopback) {
+      throw new Error(`v2 edge "${edge.id}" cannot define loopback; loops are detected automatically.`);
+    }
+    if (version === 2 && edge.maxTraversals !== undefined) {
+      throw new Error(`v2 edge "${edge.id}" cannot define maxTraversals; put it on the gate branch instead.`);
+    }
+    if (source?.kind === "start") {
+      if (edge.branch || hasTransferProperties(edge) || edge.maxTraversals !== undefined || edge.loopback) {
+        throw new Error(`Start edge "${edge.id}" must be control-only.`);
+      }
+      if (target?.kind !== "step") {
+        throw new Error(`Start edge "${edge.id}" must target a step node.`);
+      }
+    }
     if (source?.kind === "gate" && !edge.branch) {
       throw new Error(`Edge "${edge.id}" leaving gate "${source.id}" must select a branch.`);
     }
@@ -185,7 +248,7 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
       throw new Error(`Gate input edge "${edge.id}" cannot declare transmission properties.`);
     } else if (target?.kind === "gate" && edge.loopback) {
       throw new Error(`Gate input edge "${edge.id}" cannot be a loopback edge.`);
-    } else if ((source?.kind === "input" || target?.kind === "end") && hasTransferProperties(edge)) {
+    } else if ((source?.kind === "input" || source?.kind === "start" || target?.kind === "end") && hasTransferProperties(edge)) {
       throw new Error(`Control-only edge "${edge.id}" cannot declare transmission properties.`);
     } else if (edge.transmit !== true && (edge.outputTag || edge.handoffPrompt)) {
       throw new Error(`Edge "${edge.id}" cannot define outputTag or handoffPrompt unless transmit is enabled.`);
@@ -205,8 +268,11 @@ export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
       inputEdgesByTargetTag.set(targetTag, matchingEdges);
     }
   }
-  assertControlledLoopbacks(canvasDocument);
-  assertAcyclicExecutedEdges(canvasDocument);
+  if (version === 1) {
+    assertRunnableAgentFlowV1Loops(canvasDocument);
+  } else {
+    assertControlledLoopsV2(canvasDocument);
+  }
 }
 
 export function assertInteractivePauseSupported(
@@ -226,7 +292,7 @@ export function assertInteractivePauseSupported(
 
 export function assertNoPauseNodes(input: AgentFlowDoc): void {
   const canvasDocument = normalizeAgentFlowDraft(input);
-  const pausedNodes = canvasDocument.nodes.filter((node) => node.kind === "step" && node.pauseAfterRun);
+  const pausedNodes = canvasDocument.nodes.filter((node) => (node.kind === "step" || node.kind === "gate") && node.pauseAfterRun);
   if (pausedNodes.length === 0) return;
   throw new Error([
     "specflow run does not support pauseAfterRun nodes.",
@@ -252,57 +318,4 @@ export function assertCliRunnableAgentFlow(input: AgentFlowDoc): void {
 function areExclusiveGateBranches(first: CanvasEdge, second: CanvasEdge, canvasDocument: AgentFlowDoc): boolean {
   if (first.from !== second.from || !first.branch || !second.branch || first.branch === second.branch) return false;
   return canvasDocument.nodes.find((node) => node.id === first.from)?.kind === "gate";
-}
-
-function assertAcyclicExecutedEdges(canvasDocument: AgentFlowDoc): void {
-  const adjacency = new Map<string, string[]>();
-  for (const edge of canvasDocument.edges.filter((candidate) => !candidate.loopback)) {
-    adjacency.set(edge.from, [...(adjacency.get(edge.from) ?? []), edge.to]);
-  }
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const visit = (nodeId: string): void => {
-    if (visiting.has(nodeId)) throw new Error(`Workflow contains an unmarked cycle through node "${nodeId}".`);
-    if (visited.has(nodeId)) return;
-    visiting.add(nodeId);
-    for (const targetId of adjacency.get(nodeId) ?? []) visit(targetId);
-    visiting.delete(nodeId);
-    visited.add(nodeId);
-  };
-  for (const node of canvasDocument.nodes) visit(node.id);
-}
-
-function assertControlledLoopbacks(canvasDocument: AgentFlowDoc): void {
-  const bySource = new Map<string, CanvasEdge[]>();
-  for (const edge of canvasDocument.edges.filter((candidate) => !candidate.loopback)) {
-    bySource.set(edge.from, [...(bySource.get(edge.from) ?? []), edge]);
-  }
-  const gateIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "gate").map((node) => node.id));
-  for (const loopback of canvasDocument.edges.filter((edge) => edge.loopback)) {
-    const pending: Array<{ nodeId: string; crossedGateBranch: boolean }> = [{
-      nodeId: loopback.to,
-      crossedGateBranch: false,
-    }];
-    const visited = new Set<string>();
-    let controlled = gateIds.has(loopback.from) && Boolean(loopback.branch);
-    while (!controlled && pending.length > 0) {
-      const current = pending.pop()!;
-      const key = `${current.nodeId}:${current.crossedGateBranch}`;
-      if (visited.has(key)) continue;
-      visited.add(key);
-      if (current.nodeId === loopback.from && current.crossedGateBranch) {
-        controlled = true;
-        break;
-      }
-      for (const edge of bySource.get(current.nodeId) ?? []) {
-        pending.push({
-          nodeId: edge.to,
-          crossedGateBranch: current.crossedGateBranch || (gateIds.has(edge.from) && Boolean(edge.branch)),
-        });
-      }
-    }
-    if (!controlled) {
-      throw new Error(`Loopback edge "${loopback.id}" must close a path controlled by a gate branch.`);
-    }
-  }
 }

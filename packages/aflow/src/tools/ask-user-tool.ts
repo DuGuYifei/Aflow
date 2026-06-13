@@ -24,7 +24,7 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
       "Use ask_user when a /specflow-* command lacks required information.",
       "Use choice mode with options when the user needs to pick one known value.",
       "By default, provide at most three explicit choice options; Aflow appends the fourth custom-input option.",
-      "Do not guess workflow ids, run ids, or business inputs when they are absent.",
+      "Do not guess workflow ids, run ids, required workflow variables, or business facts when they are absent.",
     ],
     parameters: AskUserParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

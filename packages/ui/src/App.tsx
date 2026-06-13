@@ -1,15 +1,17 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode } from './types';
+import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable, RunSnapshot, RunReachability, RuntimeEditClass } from './types';
 import { edgeKey, isSymbolKey } from './appearance';
 import {
   fetchCanvases, fetchCanvas, saveCanvas, uploadCanvasAssets, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteCanvas as apiDeleteCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
-  cancelRun as apiCancelRun,
+  pauseRun as apiPauseRun, interruptRun as apiInterruptRun, playRun as apiPlayRun, stopRun as apiStopRun,
   fetchAgentSessions, fetchAgentServers, fetchAgentServerCapabilities, refreshAgentServerCapabilities, restoreAgentSession, subscribeToRestore,
-  fetchAgentSession, fetchResumableSession, fetchRunLogsRange, resumeWorkflowRun,
+  fetchAgentSession, fetchResumableSession, fetchRunLogsRange, continueWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
-  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
+  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction, startAflowMigration,
+  patchRunSnapshot, fetchRunReachability,
+  saveRunBestPractice,
   AgentAuthenticationRequiredError,
   type SseEventType,
   type AgentAuthenticationStatus,
@@ -30,6 +32,11 @@ import { NodePanel } from './components/node-panel';
 import { ConnectionPanel } from './components/connection-panel';
 import { SessionsBar } from './components/sessions-bar';
 import { RunConfigPanel } from './components/run-config-panel';
+import { RuntimeControlBar } from './components/runtime-control-bar';
+import { VariablesPalette } from './components/variables-palette';
+import { VariablePanel } from './components/variable-panel';
+import { LegacyWorkflowModal } from './components/legacy-workflow-modal';
+import { AflowMigrationTerminalModal } from './components/aflow-migration-terminal-modal';
 import { InteractionModal } from './components/interaction-modal';
 import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
@@ -50,12 +57,29 @@ function runStatusFromEvent(status: string): RunStatus {
   if (status === 'error') return 'error';
   if (status === 'done') return 'success';
   if (status === 'failed') return 'error';
-  if (status === 'cancelled') return 'cancelled';
+  if (status === 'paused') return 'paused';
+  if (status === 'interrupted') return 'interrupted';
+  if (status === 'stopped' || status === 'cancelled') return 'stopped';
   return 'running';
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function runSnapshotCanEdit(status: RunStatus | undefined): boolean {
+  return status === 'paused' || status === 'interrupted';
+}
+
+function runStatusIsTerminal(status: RunStatus): boolean {
+  return status === 'success' || status === 'error' || status === 'stopped' || status === 'cancelled';
+}
+
+function runtimeEditImpactKey(editClass: RuntimeEditClass | undefined): string {
+  if (editClass === 'history_only') return 'runtime.historyOnly';
+  if (editClass === 'inactive') return 'runtime.inactive';
+  if (editClass === 'current') return 'runtime.current';
+  return 'runtime.affectsFuture';
 }
 
 type ConversationConfigState = {
@@ -141,6 +165,17 @@ function emptyAgentCapabilities(): AgentServerCapabilities {
   };
 }
 
+function nextVariableName(variables: Variable[]): string {
+  const used = new Set(variables.map((variable) => variable.name));
+  let suffix = variables.length + 1;
+  let name = `specflow_var${suffix}`;
+  while (used.has(name)) {
+    suffix += 1;
+    name = `specflow_var${suffix}`;
+  }
+  return name;
+}
+
 const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
   workflowsWidth: 220,
   runsWidth: 280,
@@ -174,12 +209,20 @@ export function App() {
   const [nodes, setNodes] = useState<WorkflowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [workflowVersion, setWorkflowVersion] = useState<1 | 2>(1);
+  const [workflowVariables, setWorkflowVariables] = useState<Variable[]>([]);
+  const [derivedLoopClosingEdgeIds, setDerivedLoopClosingEdgeIds] = useState<string[]>([]);
+  const [variablesPaletteCollapsed, setVariablesPaletteCollapsed] = useState(false);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const workflowsRef = useRef<Workflow[]>([]);
+  const runsRef = useRef<Run[]>([]);
 
   const [activeRunId, setActiveRunId] = useState('');
   const activeRun = runs.find((run) => run.id === activeRunId);
+  const [runReachability, setRunReachability] = useState<RunReachability | null>(null);
+  const [runControlBusy, setRunControlBusy] = useState(false);
+  const [bestPracticeBusyRunId, setBestPracticeBusyRunId] = useState('');
 
   const [historicNodeStates, setHistoricNodeStates] = useState<RunStateMap>({});
   const [liveNodeStates, setLiveNodeStates] = useState<RunStateMap>({});
@@ -240,6 +283,10 @@ export function App() {
   const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
   const [agentServerManagerOpen, setAgentServerManagerOpen] = useState(false);
   const [authStatuses, setAuthStatuses] = useState<AgentAuthenticationStatus[]>([]);
+  const [legacyWorkflowPrompt, setLegacyWorkflowPrompt] = useState<{ workflowId: string; name: string } | null>(null);
+  const [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false);
+  const [legacyMigrationError, setLegacyMigrationError] = useState('');
+  const [migrationTerminal, setMigrationTerminal] = useState<{ sessionId: string; workflowName: string } | null>(null);
 
   // viewMode is derived from selection: viewing a run → run view (readonly).
   const view: 'edit' | 'run' = activeRunId ? 'run' : 'edit';
@@ -248,6 +295,8 @@ export function App() {
   const displayNodes: WorkflowNode[]  = (activeRun?.canvasSnapshot?.nodes  as WorkflowNode[]) ?? nodes;
   const displayEdges: Edge[]          = (activeRun?.canvasSnapshot?.edges  as Edge[])         ?? edges;
   const displaySessions: Session[]    = (activeRun?.canvasSnapshot?.sessions as Session[])    ?? sessions;
+  const displayWorkflowVersion: 1 | 2  = activeRun?.canvasSnapshot?.version ?? workflowVersion;
+  const displayDerivedLoopClosingEdgeIds = activeRun?.canvasSnapshot?.derived?.loopClosingEdgeIds ?? derivedLoopClosingEdgeIds;
 
   const refreshWorkflows = useCallback(async () => {
     const list = await fetchCanvases();
@@ -262,21 +311,25 @@ export function App() {
     }
     setActiveWorkflow((current) => {
       if (current && nextWorkflows.some((workflow) => workflow.id === current)) return current;
-      const initial = nextWorkflows.find((workflow) => workflow.id === 'example-code-frontend-flow') ?? nextWorkflows[0];
+      const initial = nextWorkflows.find((workflow) => workflow.id === 'example-v2-review-loop') ?? nextWorkflows[0];
       return initial?.id ?? '';
     });
   }, []);
 
-  // Variables are derived from InputNodes — both in edit and run view.
+  // v1 variables are derived from InputNodes; v2 variables are top-level workflow data.
   const variables = useMemo(
-    () => nodes.filter((node): node is InputNode => node.kind === 'input')
-              .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
-    [nodes],
+    () => workflowVersion === 2
+      ? workflowVariables
+      : nodes.filter((node): node is InputNode => node.kind === 'input')
+        .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
+    [nodes, workflowVariables, workflowVersion],
   );
   const displayVariables = useMemo(
-    () => displayNodes.filter((node): node is InputNode => node.kind === 'input')
-                      .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
-    [displayNodes],
+    () => displayWorkflowVersion === 2
+      ? (activeRun?.canvasSnapshot?.variables ?? workflowVariables)
+      : displayNodes.filter((node): node is InputNode => node.kind === 'input')
+        .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
+    [activeRun?.canvasSnapshot?.variables, displayNodes, displayWorkflowVersion, workflowVariables],
   );
   const hasAgentUpdates = useMemo(
     () => agentServers.some((server) => server.registry?.updateAvailable),
@@ -286,10 +339,14 @@ export function App() {
   const nodesRef     = useRef(nodes);
   const edgesRef     = useRef(edges);
   const sessionsRef  = useRef(sessions);
+  const workflowVariablesRef = useRef(workflowVariables);
+  const workflowVersionRef = useRef(workflowVersion);
   const resumeAfterAuthRef = useRef<undefined | (() => void | Promise<void>)>(undefined);
   const restoreUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
   const runUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
   const subscribedRunIdRef = useRef<string | undefined>(undefined);
+  const snapshotPatchQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const snapshotPatchSequenceRef = useRef(0);
   const restoreRequestTokenRef = useRef(0);
   const conversationPromptAbortRef = useRef<AbortController | null>(null);
   const pausedPromptAbortRef = useRef<AbortController | null>(null);
@@ -299,6 +356,9 @@ export function App() {
   useEffect(() => { nodesRef.current     = nodes;     }, [nodes]);
   useEffect(() => { edgesRef.current     = edges;     }, [edges]);
   useEffect(() => { sessionsRef.current  = sessions;  }, [sessions]);
+  useEffect(() => { workflowVariablesRef.current = workflowVariables; }, [workflowVariables]);
+  useEffect(() => { workflowVersionRef.current = workflowVersion; }, [workflowVersion]);
+  useEffect(() => { runsRef.current = runs; }, [runs]);
   useEffect(() => { workflowsRef.current = workflows; }, [workflows]);
   useEffect(() => { conversationRef.current = conversation; }, [conversation]);
   useEffect(() => { nodeCopyBufferRef.current = nodeCopyBuffer; }, [nodeCopyBuffer]);
@@ -353,13 +413,20 @@ export function App() {
     setLoadedWorkflowId('');
     if (!activeWorkflow) return;
     fetchCanvas(activeWorkflow).then((canvasDocument) => {
+      setWorkflowVersion(canvasDocument.version ?? 1);
       setNodes(canvasDocument.nodes as WorkflowNode[]);
       setEdges(canvasDocument.edges as Edge[]);
       setSessions(canvasDocument.sessions as Session[]);
+      setWorkflowVariables(canvasDocument.variables ?? []);
+      setDerivedLoopClosingEdgeIds(canvasDocument.derived?.loopClosingEdgeIds ?? []);
       setActiveCanvasName(canvasDocument.name);
       setActiveSessionId(canvasDocument.sessions[0]?.id ?? '');
       setSelection(null);
       setLoadedWorkflowId(canvasDocument.id);
+      if ((canvasDocument.version ?? 1) === 1) {
+        setLegacyMigrationError('');
+        setLegacyWorkflowPrompt({ workflowId: canvasDocument.id, name: canvasDocument.name });
+      }
     }).catch(console.error);
 
     fetchRuns(activeWorkflow).then((records) => {
@@ -379,6 +446,7 @@ export function App() {
     setPausedNode(null);
     setPendingInteractions([]);
     setRunStartError('');
+    setRunReachability(null);
   }, [activeWorkflow, terminateConversation]);
 
   // ── debounced save ────────────────────────────────────────────────────────
@@ -389,14 +457,78 @@ export function App() {
     saveTimerRef.current = setTimeout(() => {
       const canvasDocument = {
         id: activeWorkflow,
+        version: workflowVersionRef.current,
         name: activeCanvasName,
         sessions: sessionsRef.current,
         nodes: nodesRef.current,
         edges: edgesRef.current,
+        variables: workflowVariablesRef.current,
       };
       saveCanvas(activeWorkflow, canvasDocument).catch(console.error);
     }, 300);
   }, [activeWorkflow, activeCanvasName]);
+
+  const patchActiveRunSnapshot = useCallback((
+    mutate: (snapshot: RunSnapshot) => RunSnapshot,
+    summary: string,
+  ): boolean => {
+    const run = runsRef.current.find((candidate) => candidate.id === activeRunId);
+    if (!run?.canvasSnapshot || !runSnapshotCanEdit(run.status)) return false;
+
+    const previousSnapshot = run.canvasSnapshot;
+    const nextSnapshot = mutate(previousSnapshot);
+    const sequence = ++snapshotPatchSequenceRef.current;
+    const editedAt = new Date().toISOString();
+
+    setRuns((previousRuns) => {
+      const updated = previousRuns.map((candidate) =>
+        candidate.id === run.id
+          ? { ...candidate, canvasSnapshot: nextSnapshot, snapshotEditedAt: editedAt, snapshotEditSummary: summary }
+          : candidate,
+      );
+      runsRef.current = updated;
+      return updated;
+    });
+
+    snapshotPatchQueueRef.current = snapshotPatchQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const result = await patchRunSnapshot(run.id, nextSnapshot, summary);
+          if (sequence !== snapshotPatchSequenceRef.current) return;
+          setRuns((previousRuns) => {
+            const updated = previousRuns.map((candidate) =>
+              candidate.id === run.id
+                ? {
+                    ...candidate,
+                    canvasSnapshot: result.snapshot,
+                    snapshotRevision: result.snapshotRevision,
+                    snapshotEditedAt: editedAt,
+                    snapshotEditSummary: summary,
+                  }
+                : candidate,
+            );
+            runsRef.current = updated;
+            return updated;
+          });
+          setRunReachability(result.reachability);
+        } catch (error) {
+          console.error('Failed to update run snapshot', error);
+          if (sequence === snapshotPatchSequenceRef.current) {
+            setRuns((previousRuns) => {
+              const updated = previousRuns.map((candidate) =>
+                candidate.id === run.id ? { ...candidate, canvasSnapshot: previousSnapshot } : candidate,
+              );
+              runsRef.current = updated;
+              return updated;
+            });
+            setRunStartError(t('app.snapshotUpdateFailed', { message: errorMessage(error) }));
+          }
+        }
+      });
+
+    return true;
+  }, [activeRunId, t]);
 
   // ── canvas edit handlers ──────────────────────────────────────────────────
 
@@ -424,17 +556,44 @@ export function App() {
   }, [scheduleSave]);
 
   const onEditNode = useCallback((id: string, patch: Record<string, unknown>) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => node.id === id ? { ...node, ...patch } as WorkflowNode : node),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => node.id === id ? { ...node, ...patch } as WorkflowNode : node);
       nodesRef.current = updated;
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onRenameNode = useCallback((oldId: string, newId: string) => {
     const nextId = newId.trim();
-    if (nextId === oldId || !isSymbolKey(nextId) || nodesRef.current.some((node) => node.id === nextId)) return;
+    const currentNodes = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot?.nodes ?? nodesRef.current;
+    if (nextId === oldId || !isSymbolKey(nextId) || currentNodes.some((node) => node.id === nextId)) return;
+
+    if (patchActiveRunSnapshot((snapshot) => {
+      const updatedNodes = snapshot.nodes.map((node) =>
+        node.id === oldId ? { ...node, id: nextId } as WorkflowNode : node,
+      );
+      const updatedEdges = snapshot.edges.map((edge) => {
+        const from = edge.from === oldId ? nextId : edge.from;
+        const to = edge.to === oldId ? nextId : edge.to;
+        return { ...edge, from, to, id: edgeKey({ from, to, branch: edge.branch }) };
+      });
+      return { ...snapshot, nodes: updatedNodes, edges: updatedEdges };
+    }, t('app.snapshotRenamedNode'))) {
+      setSelection((current) => {
+        if (!current) return current;
+        if (current.kind === 'node') return current.id === oldId ? { kind: 'node', id: nextId } : current;
+        if (current.kind === 'nodes') return { kind: 'nodes', ids: current.ids.map((id) => id === oldId ? nextId : id) };
+        if (current.kind === 'variable') return current;
+        return current;
+      });
+      return;
+    }
 
     const updatedNodes = nodesRef.current.map((node) =>
       node.id === oldId ? { ...node, id: nextId } as WorkflowNode : node,
@@ -456,6 +615,7 @@ export function App() {
       if (current.kind === 'nodes') {
         return { kind: 'nodes', ids: current.ids.map((id) => id === oldId ? nextId : id) };
       }
+      if (current.kind === 'variable') return current;
       const updatedEdge = updatedEdges.find((edge) =>
         edge.id === current.id
         || edgeKey({
@@ -474,9 +634,17 @@ export function App() {
     setLiveNodeStates(renameStateKey);
     setHistoricNodeStates(renameStateKey);
     scheduleSave();
-  }, [scheduleSave]);
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
 
   const onChangeSession = useCallback((id: string, sid: string) => {
+    if (patchActiveRunSnapshot((snapshot) => {
+      const updatedNodes = snapshot.nodes.map((node) => {
+        if (node.id !== id || node.kind !== 'step') return node;
+        return { ...node, sessionId: sid };
+      });
+      return { ...snapshot, nodes: updatedNodes, edges: normalizeTransferConfiguration(snapshot.edges, updatedNodes) };
+    }, t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== id || node.kind !== 'step') return node;
@@ -491,9 +659,24 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onAddBranch = useCallback((gateId: string) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== gateId || node.kind !== 'gate') return node;
+        let suffix = node.branches.length + 1;
+        let id = `branch-${suffix}`;
+        while (node.branches.some((branch) => branch.id === id)) {
+          suffix += 1;
+          id = `branch-${suffix}`;
+        }
+        const newBranch = { id, label: id };
+        return { ...node, branches: [...node.branches, newBranch] };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== gateId || node.kind !== 'gate') return node;
@@ -510,9 +693,17 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
-  const onEditBranch = useCallback((gateId: string, branchId: string, patch: { label?: string; description?: string }) => {
+  const onEditBranch = useCallback((gateId: string, branchId: string, patch: { label?: string; description?: string; maxTraversals?: number }) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== gateId || node.kind !== 'gate') return node;
+        return { ...node, branches: node.branches.map((secondBranch) => secondBranch.id === branchId ? { ...secondBranch, ...patch } : secondBranch) };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== gateId || node.kind !== 'gate') return node;
@@ -522,11 +713,21 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeleteBranch = useCallback((gateId: string, branchId: string) => {
-    const gate = nodesRef.current.find((node): node is Extract<WorkflowNode, { kind: 'gate' }> => node.kind === 'gate' && node.id === gateId);
+    const runSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
+    const gate = (runSnapshot?.nodes ?? nodesRef.current).find((node): node is Extract<WorkflowNode, { kind: 'gate' }> => node.kind === 'gate' && node.id === gateId);
     if (!gate || gate.branches.length <= 1) return;
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== gateId || node.kind !== 'gate') return node;
+        return { ...node, branches: node.branches.filter((secondBranch) => secondBranch.id !== branchId) };
+      }),
+      edges: snapshot.edges.filter((edge) => !(edge.from === gateId && edge.branch === branchId)),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== gateId || node.kind !== 'gate') return node;
@@ -541,9 +742,17 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
 
   const onAddPath = useCallback((nodeId: string, path = '') => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, paths: [...(node.paths ?? []), path] };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== nodeId || node.kind !== 'step') return node;
@@ -553,9 +762,19 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onEditPath = useCallback((nodeId: string, index: number, value: string) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        const paths = [...(node.paths ?? [])];
+        paths[index] = value;
+        return { ...node, paths };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== nodeId || node.kind !== 'step') return node;
@@ -567,9 +786,17 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeletePath = useCallback((nodeId: string, index: number) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, paths: (node.paths ?? []).filter((_, pathIndex) => pathIndex !== index) };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== nodeId || node.kind !== 'step') return node;
@@ -579,10 +806,18 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onUploadImages = useCallback(async (nodeId: string, files: File[]) => {
     const uploaded = await uploadCanvasAssets(activeWorkflow, 'image', files);
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, images: [...(node.images ?? []), ...(uploaded.images ?? [])] };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== nodeId || node.kind !== 'step') return node;
@@ -592,9 +827,17 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [activeWorkflow, scheduleSave]);
+  }, [activeWorkflow, patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeleteImage = useCallback((nodeId: string, index: number) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        if (node.id !== nodeId || node.kind !== 'step') return node;
+        return { ...node, images: (node.images ?? []).filter((_, imageIndex) => imageIndex !== index) };
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== nodeId || node.kind !== 'step') return node;
@@ -604,11 +847,18 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onImportPaths = useCallback(async (nodeId: string, files: File[], directory: boolean) => {
     if (!files.length) return;
     const uploaded = await uploadCanvasAssets(activeWorkflow, 'path', files, directory);
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => node.id === nodeId && node.kind === 'step'
+        ? { ...node, paths: [...(node.paths ?? []), ...uploaded.paths] }
+        : node),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => node.id === nodeId && node.kind === 'step'
         ? { ...node, paths: [...(node.paths ?? []), ...uploaded.paths] }
@@ -617,25 +867,35 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [activeWorkflow, scheduleSave]);
+  }, [activeWorkflow, patchActiveRunSnapshot, scheduleSave, t]);
 
   const onEditEdge = useCallback((id: string, patch: Partial<Edge>) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      edges: snapshot.edges.map((edge) => edge.id === id ? { ...edge, ...patch } : edge),
+    }), t('app.snapshotEditedEdge'))) return;
+
     setEdges((previousEdges) => {
       const updated = previousEdges.map((edge) => edge.id === id ? { ...edge, ...patch } : edge);
       edgesRef.current = updated;
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeleteEdge = useCallback((id: string) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      edges: snapshot.edges.filter((edge) => edge.id !== id),
+    }), t('app.snapshotEditedEdge'))) return;
+
     setEdges((previousEdges) => {
       const updated = previousEdges.filter((edge) => edge.id !== id);
       edgesRef.current = updated;
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   // ── node/edge create (from canvas) ────────────────────────────────────────
 
@@ -649,13 +909,18 @@ export function App() {
   }, [scheduleSave]);
 
   const onAddEdge = useCallback((edge: Edge) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      edges: [...snapshot.edges, edge],
+    }), t('app.snapshotEditedEdge'))) return;
+
     setEdges((previousEdges) => {
       const updated = [...previousEdges, edge];
       edgesRef.current = updated;
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeleteNode = useCallback((id: string) => {
     const node = nodesRef.current.find((node) => node.id === id);
@@ -722,6 +987,13 @@ export function App() {
   }, [scheduleSave]);
 
   const onUpdateSessionMcpServers = useCallback((id: string, mcpServers: string | undefined) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      sessions: snapshot.sessions.map((session) =>
+        session.id === id ? { ...session, mcpServers: mcpServers || undefined } : session,
+      ),
+    }), t('app.snapshotEditedSession'))) return;
+
     setSessions((previousSessions) => {
       const updated = previousSessions.map((session) =>
         session.id === id ? { ...session, mcpServers: mcpServers || undefined } : session,
@@ -730,7 +1002,7 @@ export function App() {
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onEditSession = useCallback((id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => {
     const nextId = patch.name?.trim() ?? id;
@@ -758,10 +1030,99 @@ export function App() {
 
   // Variables are declared via InputNodes on the canvas. Editing a variable
   // default value from the SessionsBar patches the InputNode directly.
-  const onEditVariable = useCallback((name: string, patch: Partial<{ defaultValue?: string; description?: string }>) => {
-    const inputNode = nodesRef.current.find((node): node is InputNode => node.kind === 'input' && node.variableName === name);
+  const onAddVariable = useCallback(() => {
+    const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
+    const currentVersion = activeSnapshot?.version ?? workflowVersionRef.current;
+    const currentVariables = activeSnapshot?.variables ?? workflowVariablesRef.current;
+    if (currentVersion !== 2) return;
+    const name = nextVariableName(currentVariables);
+    const nextVariable: Variable = {
+      name,
+      title: name.replace(/^specflow_/, ''),
+      required: true,
+    };
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      variables: [...(snapshot.variables ?? []), nextVariable],
+    }), t('app.snapshotEditedVariable'))) {
+      setRunConfigOpen(false);
+      setSelection({ kind: 'variable', name });
+      return;
+    }
+    setWorkflowVariables((previousVariables) => {
+      const updated = [...previousVariables, nextVariable];
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+    setRunConfigOpen(false);
+    setSelection({ kind: 'variable', name });
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
+
+  const onEditVariable = useCallback((name: string, patch: Partial<Variable>) => {
+    const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
+    const currentVersion = activeSnapshot?.version ?? workflowVersionRef.current;
+    if (currentVersion === 2) {
+      if (patchActiveRunSnapshot((snapshot) => ({
+        ...snapshot,
+        variables: (snapshot.variables ?? []).map((variable) => variable.name === name ? { ...variable, ...patch } : variable),
+      }), t('app.snapshotEditedVariable'))) return;
+
+      setWorkflowVariables((previousVariables) => {
+        const updated = previousVariables.map((variable) => variable.name === name ? { ...variable, ...patch } : variable);
+        workflowVariablesRef.current = updated;
+        scheduleSave();
+        return updated;
+      });
+      return;
+    }
+    const inputNode = (activeSnapshot?.nodes ?? nodesRef.current).find((node): node is InputNode => node.kind === 'input' && node.variableName === name);
     if (inputNode) onEditNode(inputNode.id, patch);
-  }, [onEditNode]);
+  }, [activeRunId, onEditNode, patchActiveRunSnapshot, scheduleSave, t]);
+
+  const onRenameVariable = useCallback((oldName: string, newName: string) => {
+    const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
+    const currentVersion = activeSnapshot?.version ?? workflowVersionRef.current;
+    const currentVariables = activeSnapshot?.variables ?? workflowVariablesRef.current;
+    if (currentVersion !== 2 || oldName === newName) return;
+    if (currentVariables.some((variable) => variable.name === newName && variable.name !== oldName)) return;
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      variables: (snapshot.variables ?? []).map((variable) => variable.name === oldName ? { ...variable, name: newName } : variable),
+    }), t('app.snapshotEditedVariable'))) {
+      setSelection((current) => current?.kind === 'variable' && current.name === oldName ? { kind: 'variable', name: newName } : current);
+      return;
+    }
+
+    setWorkflowVariables((previousVariables) => {
+      const updated = previousVariables.map((variable) => variable.name === oldName ? { ...variable, name: newName } : variable);
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+    setSelection((current) => current?.kind === 'variable' && current.name === oldName ? { kind: 'variable', name: newName } : current);
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
+
+  const onDeleteVariable = useCallback((name: string) => {
+    const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
+    const currentVersion = activeSnapshot?.version ?? workflowVersionRef.current;
+    if (currentVersion !== 2) return;
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      variables: (snapshot.variables ?? []).filter((variable) => variable.name !== name),
+    }), t('app.snapshotEditedVariable'))) {
+      setSelection((current) => current?.kind === 'variable' && current.name === name ? null : current);
+      return;
+    }
+
+    setWorkflowVariables((previousVariables) => {
+      const updated = previousVariables.filter((variable) => variable.name !== name);
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+    setSelection((current) => current?.kind === 'variable' && current.name === name ? null : current);
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
 
   // ── logs ──────────────────────────────────────────────────────────────────
 
@@ -771,11 +1132,20 @@ export function App() {
 
   const onSelectNode     = (id: string) => { setRunConfigOpen(false); setSelection({ kind: 'node', id }); };
   const onSelectEdge     = (id: string) => { setRunConfigOpen(false); setSelection({ kind: 'edge', id }); };
+  const onSelectVariable = (name: string) => { setRunConfigOpen(false); setSelection({ kind: 'variable', name }); };
   const onSelectNodes    = (ids: string[]) => {
     setRunConfigOpen(false);
     setSelection(ids.length === 1 ? { kind: 'node', id: ids[0]! } : ids.length > 1 ? { kind: 'nodes', ids } : null);
   };
   const onClearSelection = ()            => setSelection(null);
+  const onSelectWorkflowFromSidebar = useCallback((id: string) => {
+    const workflow = workflowsRef.current.find((candidate) => candidate.id === id);
+    if (workflow && (workflow.deprecated || (workflow.version ?? 1) === 1)) {
+      setLegacyMigrationError('');
+      setLegacyWorkflowPrompt({ workflowId: workflow.id, name: workflow.name });
+    }
+    setActiveWorkflow(id);
+  }, []);
 
   const onCopyNode = useCallback(() => {
     if (view !== 'edit' || loadedWorkflowId !== activeWorkflow) return;
@@ -828,7 +1198,8 @@ export function App() {
     if (selection.kind === 'node') onDeleteNode(selection.id);
     if (selection.kind === 'nodes') onDeleteNodes(selection.ids);
     if (selection.kind === 'edge') onDeleteEdge(selection.id);
-  }, [activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, selection, view]);
+    if (selection.kind === 'variable') onDeleteVariable(selection.name);
+  }, [activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, onDeleteVariable, selection, view]);
 
   const onAddSessionRequest = useCallback(() => {
     setBarExpanded(true);
@@ -964,16 +1335,28 @@ export function App() {
       } else if (type === 'interaction-requested') {
         onRunInteractionEvent(data as RunInteraction);
       } else if (type === 'run-status') {
-        const event = data as { status: string; error?: string; replay?: boolean };
+        const event = data as { status: string; error?: string; replay?: boolean; control?: Run['control'] };
         const uiStatus = runStatusFromEvent(event.status);
         setRuns((previous) => previous.map((run) =>
-          run.id === runId ? { ...run, status: uiStatus } : run,
+          run.id === runId ? { ...run, status: uiStatus, control: event.control } : run,
         ));
         if (uiStatus !== 'running') {
+          if ((uiStatus === 'paused' || uiStatus === 'interrupted') && !event.replay) {
+            void fetchRun(runId).then((record) => {
+              const freshRun = apiRunToUiRun(record);
+              setRuns((previous) => previous.map((run) =>
+                run.id === runId ? { ...run, ...freshRun } : run,
+              ));
+              if (runSnapshotCanEdit(freshRun.status)) {
+                void fetchRunReachability(runId).then(setRunReachability).catch(console.error);
+              }
+            }).catch(console.error);
+            return;
+          }
           if (!event.replay) {
             setPausedNode(null);
           }
-          cleanup();
+          if (runStatusIsTerminal(uiStatus)) cleanup();
           if (!event.replay) {
             fetchRuns(activeWorkflow).then((records) => {
               setRuns(records.map(apiRunToUiRun));
@@ -1010,6 +1393,7 @@ export function App() {
               nodeOutputs: uiRun.nodeOutputs,
               initialInput: uiRun.initialInput,
               variableValues: uiRun.variableValues,
+              control: uiRun.control,
             }
           : run,
       ));
@@ -1032,6 +1416,20 @@ export function App() {
     }).catch(console.error);
     attachToRun(id, { replay: false });
   }, [attachToRun]);
+
+  useEffect(() => {
+    if (!activeRunId || !activeRun || !runSnapshotCanEdit(activeRun.status)) {
+      setRunReachability(null);
+      return;
+    }
+    let cancelled = false;
+    fetchRunReachability(activeRunId)
+      .then((reachability) => {
+        if (!cancelled) setRunReachability(reachability);
+      })
+      .catch(console.error);
+    return () => { cancelled = true; };
+  }, [activeRunId, activeRun?.status, activeRun?.snapshotRevision]);
 
   const onLoadEarlierLogs = useCallback(async () => {
     if (!activeRunId || logHistoryLoading || logHistoryEarliestIndex <= 0) return;
@@ -1064,13 +1462,20 @@ export function App() {
     setSelection(null);
     setPendingInteractions([]);
     setPausedNode(null);
+    setRunReachability(null);
   }, []);
 
   const onOpenNewRun = useCallback(() => {
     setRunStartError('');
     const defaults: Record<string, string> = {};
-    for (const node of nodesRef.current) {
-      if (node.kind === 'input') defaults[node.variableName] = node.defaultValue ?? '';
+    if (workflowVersionRef.current === 2) {
+      for (const variable of workflowVariablesRef.current) {
+        defaults[variable.name] = variable.defaultValue ?? '';
+      }
+    } else {
+      for (const node of nodesRef.current) {
+        if (node.kind === 'input') defaults[node.variableName] = node.defaultValue ?? '';
+      }
     }
     setRunConfigVars(defaults);
     setRunConfigBusy(false);
@@ -1209,17 +1614,76 @@ export function App() {
     }
   }, [activeRunId, refreshAgentSessions]);
 
-  const onCancelRun = useCallback(async (id: string) => {
+  const onPauseRun = useCallback(async (id: string) => {
+    setRunControlBusy(true);
     try {
-      await apiCancelRun(id);
-      setRuns((previous) => previous.map((run) =>
-        run.id === id ? { ...run, status: 'cancelled' } : run,
-      ));
-      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.cancelRequested'), stream: 'system' }]);
+      const result = await apiPauseRun(id);
+      if (result.controlIntent) {
+        setRuns((previous) => previous.map((run) =>
+          run.id === id ? { ...run, status: 'running', control: { ...(run.control ?? {}), intent: result.controlIntent } } : run,
+        ));
+      }
+      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.pauseRequested'), stream: 'system' }]);
     } catch (error) {
-      console.error('Failed to cancel run', error);
+      console.error('Failed to pause run', error);
+      setRunStartError(t('app.runControlFailed', { message: errorMessage(error) }));
+    } finally {
+      setRunControlBusy(false);
     }
-  }, []);
+  }, [t]);
+
+  const onInterruptRun = useCallback(async (id: string) => {
+    setRunControlBusy(true);
+    try {
+      const result = await apiInterruptRun(id);
+      if (result.controlIntent) {
+        setRuns((previous) => previous.map((run) =>
+          run.id === id ? { ...run, status: 'running', control: { ...(run.control ?? {}), intent: result.controlIntent } } : run,
+        ));
+      }
+      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.interruptRequested'), stream: 'system' }]);
+    } catch (error) {
+      console.error('Failed to interrupt run', error);
+      setRunStartError(t('app.runControlFailed', { message: errorMessage(error) }));
+    } finally {
+      setRunControlBusy(false);
+    }
+  }, [t]);
+
+  const onPlayRun = useCallback(async (id: string) => {
+    setRunControlBusy(true);
+    try {
+      await apiPlayRun(id);
+      setRuns((previous) => previous.map((run) =>
+        run.id === id ? { ...run, status: 'running', control: undefined } : run,
+      ));
+      setRunReachability(null);
+      attachToRun(id, { replay: false });
+      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.playRequested'), stream: 'system' }]);
+    } catch (error) {
+      console.error('Failed to play run', error);
+      setRunStartError(t('app.runControlFailed', { message: errorMessage(error) }));
+    } finally {
+      setRunControlBusy(false);
+    }
+  }, [attachToRun, t]);
+
+  const onStopRun = useCallback(async (id: string) => {
+    setRunControlBusy(true);
+    try {
+      await apiStopRun(id);
+      setRuns((previous) => previous.map((run) =>
+        run.id === id ? { ...run, status: 'stopped' } : run,
+      ));
+      setRunReachability(null);
+      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.stopRequested'), stream: 'system' }]);
+    } catch (error) {
+      console.error('Failed to stop run', error);
+      setRunStartError(t('app.runControlFailed', { message: errorMessage(error) }));
+    } finally {
+      setRunControlBusy(false);
+    }
+  }, [t]);
 
   const onRestoreHistoricalSession = useCallback(async (
     session: AgentSessionRecord,
@@ -1361,7 +1825,7 @@ export function App() {
 
   const onResumeRun = useCallback(async (sourceRunId: string) => {
     try {
-      const { runId: newRunId } = await resumeWorkflowRun(sourceRunId);
+      const { runId: newRunId } = await continueWorkflowRun(sourceRunId);
       const initial = await fetchRun(newRunId);
       const placeholder = apiRunToUiRun(initial);
       setRuns((previous) => [
@@ -1387,6 +1851,26 @@ export function App() {
       setRunStartError(t('app.resumeFailed', { message: errorMessage(error) }));
     }
   }, [attachToRun, requestAuth, t]);
+
+  const onSaveBestPractice = useCallback(async (runId: string) => {
+    const run = runsRef.current.find((candidate) => candidate.id === runId);
+    const snapshotName = run?.canvasSnapshot?.name || run?.label || t('app.untitledWorkflow');
+    setBestPracticeBusyRunId(runId);
+    try {
+      const result = await saveRunBestPractice(runId, { name: `${snapshotName} best practice` });
+      await refreshWorkflows();
+      setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), {
+        type: 'terminal',
+        chunk: t('app.bestPracticeSaved', { name: result.workflow.name }),
+        stream: 'system',
+      }]);
+    } catch (error) {
+      console.error('Failed to save best practice', error);
+      setRunStartError(t('app.bestPracticeFailed', { message: errorMessage(error) }));
+    } finally {
+      setBestPracticeBusyRunId('');
+    }
+  }, [refreshWorkflows, t]);
 
   const onPromptConversation = useCallback(async (prompt: string) => {
     const active = conversation;
@@ -1480,12 +1964,28 @@ export function App() {
     }
   }, [appendPausedDisplayMessage, pausedNode, pausedPromptBusy]);
 
+  const onStartLegacyMigration = useCallback(async () => {
+    const target = legacyWorkflowPrompt;
+    if (!target || legacyMigrationBusy) return;
+    setLegacyMigrationBusy(true);
+    setLegacyMigrationError('');
+    try {
+      const result = await startAflowMigration(target.workflowId);
+      setMigrationTerminal({ sessionId: result.terminalSessionId, workflowName: target.name });
+      setLegacyWorkflowPrompt(null);
+    } catch (error) {
+      setLegacyMigrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLegacyMigrationBusy(false);
+    }
+  }, [legacyMigrationBusy, legacyWorkflowPrompt]);
+
   // ── workflow management ───────────────────────────────────────────────────
 
   const onCreateWorkflow = useCallback(async (name: string) => {
     try {
       const canvasDocument = await createCanvas(name.trim() || t('app.untitledWorkflow'));
-      const summary = { id: canvasDocument.id, name: canvasDocument.name, runs: 0 };
+      const summary = { id: canvasDocument.id, name: canvasDocument.name, version: canvasDocument.version, runs: 0 };
       setWorkflows((previous) => [summaryToWorkflow(summary), ...previous]);
       setActiveWorkflow(canvasDocument.id);
     } catch (error) {
@@ -1501,10 +2001,12 @@ export function App() {
         clearTimeout(saveTimerRef.current);
         const canvasDocument = {
           id,
+          version: workflowVersionRef.current,
           name: nextName,
           sessions: sessionsRef.current,
           nodes: nodesRef.current,
           edges: edgesRef.current,
+          variables: workflowVariablesRef.current,
         };
         await saveCanvas(id, canvasDocument);
         setActiveCanvasName(nextName);
@@ -1539,6 +2041,11 @@ export function App() {
           nodesRef.current = [];
           setEdges([]);
           edgesRef.current = [];
+          setWorkflowVersion(1);
+          workflowVersionRef.current = 1;
+          setWorkflowVariables([]);
+          workflowVariablesRef.current = [];
+          setDerivedLoopClosingEdgeIds([]);
           setRuns([]);
           setActiveRunId('');
           setSelection(null);
@@ -1557,6 +2064,7 @@ export function App() {
 
   const selectedNode     = selection?.kind === 'node' ? displayNodes.find((node) => node.id === selection.id) : null;
   const selectedEdge     = selection?.kind === 'edge' ? displayEdges.find((edge) => edge.id === selection.id) : null;
+  const selectedVariable = selection?.kind === 'variable' ? displayVariables.find((variable) => variable.name === selection.name) : null;
   const selectedFromNode = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.from) : undefined;
   const selectedToNode   = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.to)   : undefined;
   const selectedTransferSourceNode = selectedEdge ? resolveTransferSource(selectedEdge, displayNodes, displayEdges) : undefined;
@@ -1568,17 +2076,33 @@ export function App() {
     && (
       selection?.kind === 'edge'
         ? edges.some((edge) => edge.id === selection.id)
+        : selection?.kind === 'variable'
+          ? workflowVersion === 2 && workflowVariables.some((variable) => variable.name === selection.name)
         : selectedNodeIds.some((id) => {
             const node = nodes.find((candidate) => candidate.id === id);
             return node && !(node as WorkflowNode & { locked?: boolean }).locked;
           })
     );
+  const runSnapshotEditable = runSnapshotCanEdit(activeRun?.status);
+  const runPanelReadonly = view === 'run' && !runSnapshotEditable;
+  const selectedRuntimeEditClass: RuntimeEditClass | undefined = runSnapshotEditable
+    ? selection?.kind === 'node'
+      ? runReachability?.nodes[selection.id]
+      : selection?.kind === 'edge'
+        ? runReachability?.nodes[selectedEdge?.to ?? '']
+        : selection?.kind === 'variable'
+          ? 'future'
+          : undefined
+    : undefined;
+  const selectedEditImpactLabel = runSnapshotEditable
+    ? t(runtimeEditImpactKey(selectedRuntimeEditClass))
+    : undefined;
 
   const selectedNodeWithState = selectedNode
     ? { ...selectedNode, runState: runState[selectedNode.id] }
     : null;
 
-  const hasRightPanel = selection?.kind === 'node' || selection?.kind === 'edge';
+  const hasRightPanel = selection?.kind === 'node' || selection?.kind === 'edge' || selection?.kind === 'variable';
   const barH     = barExpanded ? barHeight : 32;
   const rootClass = ['app', 'two-col-left', 'has-bottom-bar', hasRightPanel ? '' : 'no-right'].filter(Boolean).join(' ');
   const leftWidth = sidebarTotalWidth(sidebarLayout);
@@ -1594,9 +2118,6 @@ export function App() {
         runLabel={activeRun?.label}
         workflowName={activeCanvasName}
         onNewRun={onOpenNewRun}
-        onRerun={activeRunId ? () => handleRerun(activeRunId) : undefined}
-        onCancelRun={activeRunId ? () => onCancelRun(activeRunId) : undefined}
-        canCancelRun={activeRun?.status === 'running'}
         onAgentServers={() => setAgentServerManagerOpen(true)}
         hasAgentUpdates={hasAgentUpdates}
         view={view}
@@ -1622,11 +2143,13 @@ export function App() {
         activeRun={activeRunId}
         layout={sidebarLayout}
         onLayoutChange={setSidebarLayout}
-        onSelectWorkflow={setActiveWorkflow}
+        onSelectWorkflow={onSelectWorkflowFromSidebar}
         onSelectRun={onSelectRun}
         onNewRun={onOpenNewRun}
         onRerunRun={handleRerun}
         onResumeRun={onResumeRun}
+        onSaveBestPractice={onSaveBestPractice}
+        bestPracticeBusyRunId={bestPracticeBusyRunId}
         onDeleteRun={onDeleteRun}
         onCreateWorkflow={onCreateWorkflow}
         onRenameWorkflow={onRenameWorkflow}
@@ -1635,6 +2158,8 @@ export function App() {
 
       <div className="canvas-cell" style={{ position: 'relative', overflow: 'hidden', minHeight: 0, height: '100%' }}>
         <Canvas
+          workflowVersion={displayWorkflowVersion}
+          derivedLoopClosingEdgeIds={displayDerivedLoopClosingEdgeIds}
           nodes={displayNodes}
           edges={displayEdges}
           sessions={displaySessions}
@@ -1664,6 +2189,17 @@ export function App() {
           zoom={zoom} setZoom={setZoom}
           pan={pan} setPan={setPan}
         />
+        {displayWorkflowVersion === 2 && (
+          <VariablesPalette
+            variables={displayVariables}
+            selectedName={selection?.kind === 'variable' ? selection.name : undefined}
+            readonly={runPanelReadonly}
+            collapsed={variablesPaletteCollapsed}
+            onCollapsedChange={setVariablesPaletteCollapsed}
+            onAddVariable={onAddVariable}
+            onSelectVariable={onSelectVariable}
+          />
+        )}
         {activeRun && (
           <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 6 }}>
             <div className="run-pill">
@@ -1674,6 +2210,17 @@ export function App() {
               <span className="value" style={{ color: 'var(--ink-3)' }}>{activeRun.duration}</span>
             </div>
           </div>
+        )}
+        {activeRun && (
+          <RuntimeControlBar
+            status={activeRun.status}
+            controlIntent={activeRun.control?.intent}
+            busy={runControlBusy}
+            onPause={() => { void onPauseRun(activeRun.id); }}
+            onInterrupt={() => { void onInterruptRun(activeRun.id); }}
+            onPlay={() => { void onPlayRun(activeRun.id); }}
+            onStop={() => { void onStopRun(activeRun.id); }}
+          />
         )}
         {runStartBusy && !runConfigOpen && (
           <div className="run-start-busy" role="status">
@@ -1721,6 +2268,25 @@ export function App() {
           onChanged={refreshAgentServers}
         />
       )}
+      {!runConfigOpen && legacyWorkflowPrompt && (
+        <LegacyWorkflowModal
+          workflowName={legacyWorkflowPrompt.name}
+          busy={legacyMigrationBusy}
+          error={legacyMigrationError}
+          onMigrate={onStartLegacyMigration}
+          onClose={() => setLegacyWorkflowPrompt(null)}
+        />
+      )}
+      {!runConfigOpen && migrationTerminal && (
+        <AflowMigrationTerminalModal
+          sessionId={migrationTerminal.sessionId}
+          workflowName={migrationTerminal.workflowName}
+          onClose={() => {
+            setMigrationTerminal(null);
+            void refreshWorkflows().catch(console.error);
+          }}
+        />
+      )}
 
       {!runConfigOpen && selection?.kind === 'node' && selectedNodeWithState && (
         <NodePanel
@@ -1729,7 +2295,11 @@ export function App() {
           sessions={displaySessions}
           nodes={displayNodes}
           edges={displayEdges}
+          variables={displayVariables}
+          workflowVersion={displayWorkflowVersion}
           viewMode={view}
+          readonly={runPanelReadonly}
+          editImpactLabel={selectedEditImpactLabel}
           timelineEvents={logEvents}
           onClose={onClearSelection}
           onEditNode={onEditNode}
@@ -1758,10 +2328,26 @@ export function App() {
           fromNode={selectedFromNode}
           toNode={selectedToNode}
           transferSourceNode={selectedTransferSourceNode}
+          workflowVersion={displayWorkflowVersion}
+          derivedLoopClosingEdgeIds={displayDerivedLoopClosingEdgeIds}
           viewMode={view}
+          readonly={runPanelReadonly}
+          editImpactLabel={selectedEditImpactLabel}
           onClose={onClearSelection}
           onEditEdge={onEditEdge}
           onDeleteEdge={onDeleteEdge}
+        />
+      )}
+      {!runConfigOpen && selection?.kind === 'variable' && selectedVariable && (
+        <VariablePanel
+          variable={selectedVariable}
+          variables={displayVariables}
+          readonly={runPanelReadonly}
+          editImpactLabel={selectedEditImpactLabel}
+          onClose={onClearSelection}
+          onEditVariable={onEditVariable}
+          onRenameVariable={onRenameVariable}
+          onDeleteVariable={onDeleteVariable}
         />
       )}
 

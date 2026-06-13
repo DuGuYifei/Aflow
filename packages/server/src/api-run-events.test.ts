@@ -8,7 +8,7 @@ import { createApiHandler } from "./api";
 import { saveCanvas } from "./agentflow/canvas-store";
 import { upsertLocalAgentServer } from "./agent-server-config";
 import { appendRunLogEvent, listRunLogEvents } from "./agentflow/run-log-store";
-import { loadRun } from "./agentflow/run-store";
+import { loadRun, saveRun, type RunRecord } from "./agentflow/run-store";
 import type { CanvasDoc } from "./agentflow/canvas-doc";
 
 describe("run event API", () => {
@@ -51,6 +51,31 @@ describe("run event API", () => {
     const eventText = await readUntil(eventResponse!, "run-id-check");
     expect(eventText).toContain("event: agent-prompt");
     expect(eventText).toContain("run-id-check");
+  });
+
+  test("keeps the run event stream open for paused runs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-events-paused-"));
+    await saveRun(samplePausedRun(), root);
+    const handle = createApiHandler(createSpecflowBridge(), root);
+
+    const eventResponse = await handle(new Request("http://specflow.test/api/runs/run-paused/events"));
+    expect(eventResponse?.status).toBe(200);
+    const reader = eventResponse!.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    for (let index = 0; index < 10 && !text.includes("\"paused\""); index += 1) {
+      const result = await reader.read();
+      if (result.done) break;
+      text += decoder.decode(result.value, { stream: true });
+    }
+    expect(text).toContain("event: run-status");
+    expect(text).toContain("\"paused\"");
+    const next = await Promise.race([
+      reader.read().then((result) => result.done ? "closed" : "data"),
+      new Promise<"open">((resolve) => setTimeout(() => resolve("open"), 120)),
+    ]);
+    expect(next).toBe("open");
+    await reader.cancel();
   });
 
   test("rejects a manual pause checkpoint backed by a headless agent", async () => {
@@ -267,5 +292,53 @@ function sampleCanvas(agentServerId = "echo-headless"): CanvasDoc {
       },
     ],
     edges: [],
+  };
+}
+
+function samplePausedRun(): RunRecord {
+  const canvas = sampleCanvas();
+  return {
+    id: "run-paused",
+    workflowId: "wf-events",
+    label: "Run #1",
+    status: "paused",
+    activeNode: "node-1",
+    pausedNodeId: "node-1",
+    startedAt: "2026-06-13T00:00:00.000Z",
+    agent: "echo-headless",
+    nodeStates: { "node-1": "paused" },
+    nodeOutputs: {},
+    agentInvocations: [],
+    agentSessions: [],
+    agentflowSnapshot: {
+      id: "wf-events",
+      name: "Events test",
+      sessions: canvas.sessions,
+      nodes: [
+        {
+          kind: "step",
+          id: "node-1",
+          alias: "1",
+          title: "Echo",
+          prompt: "echo prompt",
+          sessionId: "s1",
+        },
+      ],
+      edges: [],
+    },
+    canvasSnapshot: { workflowId: "wf-events", version: 1, nodes: [] },
+    initialInput: "",
+    variableValues: {},
+    checkpoint: {
+      queue: [],
+      pendingInputs: {},
+      completedNodes: [],
+      completedExecutions: [],
+      skippedNodes: [],
+      inactiveEdges: [],
+      branchTraversals: {},
+      suspension: { kind: "pause_after_activation", source: "player", nodeId: "node-1" },
+      createdAt: "2026-06-13T00:00:00.000Z",
+    },
   };
 }

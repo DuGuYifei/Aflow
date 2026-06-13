@@ -1,5 +1,5 @@
 export type IconName =
-  | 'plus' | 'input' | 'step-node' | 'cursor' | 'copy' | 'paste' | 'play' | 'play-line' | 'pause' | 'edit' | 'trash' | 'x'
+  | 'plus' | 'input' | 'step-node' | 'cursor' | 'copy' | 'paste' | 'play' | 'play-line' | 'pause' | 'interrupt-turn' | 'stop-square' | 'edit' | 'trash' | 'x'
   | 'search' | 'chevron-right' | 'chevron-down' | 'chevron-up'
   | 'lock' | 'image' | 'folder' | 'file' | 'paperclip' | 'upload'
   | 'flow' | 'workflow' | 'play-circle' | 'history' | 'settings'
@@ -38,6 +38,8 @@ export function Icon({ name, size = 14, className = '', style }: IconProps) {
     case 'play':          return <svg {...props}><path d="M6 4l14 8-14 8z" fill="currentColor" stroke="none"/></svg>;
     case 'play-line':     return <svg {...props}><path d="M7 4v16l13-8z"/></svg>;
     case 'pause':         return <svg {...props}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>;
+    case 'interrupt-turn': return <svg {...props}><path d="M8 4v10"/><path d="M8 19h.01"/><path d="M15 4v16"/></svg>;
+    case 'stop-square':   return <svg {...props}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none"/></svg>;
     case 'edit':          return <svg {...props}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>;
     case 'trash':         return <svg {...props}><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>;
     case 'x':             return <svg {...props}><path d="M18 6L6 18M6 6l12 12"/></svg>;

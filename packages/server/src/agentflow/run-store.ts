@@ -10,14 +10,43 @@ import type { AgentInvocation } from "@specflow/workflow";
 import type { AgentSessionRecord } from "./agent-session-store";
 import { runsDir } from "../workspace-paths";
 
-export type RunState = "running" | "paused" | "success" | "error" | "pending" | "cancelled";
+export type RunState = "running" | "paused" | "interrupted" | "success" | "error" | "pending" | "cancelled";
+export type RunRecordStatus = "pending" | "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
+
+export type RunControlIntent =
+  | {
+      kind: "pause_after_activation";
+      source: "player";
+      nodeId: string;
+      executionKey: string;
+      requestedAt: string;
+    }
+  | {
+      kind: "pause_at_safe_point";
+      source: "player";
+      requestedAt: string;
+    }
+  | {
+      kind: "interrupting";
+      source: "player";
+      nodeId: string;
+      agentInvocationId: string;
+      requestedAt: string;
+    };
+
+export interface RunControlState {
+  intent?: RunControlIntent;
+  pauseRequested?: boolean;
+  interruptedNodeId?: string;
+  reason?: string;
+}
 
 export interface RunRecord {
   id: string;
   workflowId: string;
   label: string;
   ticket?: string;
-  status: "running" | "success" | "error" | "cancelled";
+  status: RunRecordStatus;
   activeNode?: string;
   pausedNodeId?: string;
   startedAt: string;
@@ -33,6 +62,11 @@ export interface RunRecord {
   canvasSnapshot: CanvasLayoutDoc;
   initialInput: string;
   variableValues: Record<string, string>;
+  control?: RunControlState;
+  checkpoint?: Record<string, unknown>;
+  snapshotRevision?: number;
+  snapshotEditedAt?: string;
+  snapshotEditSummary?: string;
   /** Set when this run was created by resuming another run; identifies the source. */
   resumedFromRunId?: string;
   /** Set on a source run once a continuation run has been created from it. */
@@ -97,7 +131,7 @@ export async function saveRun(record: RunRecord, root: string): Promise<void> {
 }
 
 /**
- * Mark any run records left in "running" state as cancelled. Called on server
+ * Mark any run records left in "running" state as stopped. Called on server
  * startup so a previous crash or kill -9 doesn't leave runs stuck pretending
  * to be live. The ACP session itself may still be recoverable via the agent
  * session restore flow.
@@ -109,16 +143,18 @@ export async function reconcileInterruptedRuns(root: string, reason: string): Pr
   for (const runRecord of runs) {
     let changed = false;
     const wasRunning = runRecord.status === "running";
+    const unsupportedSuspended = (runRecord.status === "paused" || runRecord.status === "interrupted") && !runRecord.checkpoint;
     const effectiveCompletedAt = runRecord.completedAt ?? completedAt;
-    if (wasRunning) {
-      runRecord.status = "cancelled";
+    if (wasRunning || unsupportedSuspended) {
+      runRecord.status = "stopped";
       runRecord.errorMsg = reason;
       runRecord.completedAt = completedAt;
       runRecord.duration = formatDuration(runRecord.startedAt, completedAt);
+      delete runRecord.control;
       changed = true;
     }
     for (const [nodeId, state] of Object.entries(runRecord.nodeStates)) {
-      if (runRecord.status === "cancelled" && (state === "running" || state === "paused")) {
+      if (runRecord.status === "stopped" && (state === "running" || state === "paused" || state === "interrupted")) {
         runRecord.nodeStates[nodeId] = "cancelled";
         changed = true;
       } else if (runRecord.status === "error" && state === "running") {
@@ -128,7 +164,7 @@ export async function reconcileInterruptedRuns(root: string, reason: string): Pr
     }
     for (const invocation of runRecord.agentInvocations) {
       if (invocation.status !== "running") continue;
-      if (runRecord.status === "cancelled") {
+      if (runRecord.status === "stopped") {
         invocation.status = "cancelled";
         invocation.error ??= runRecord.errorMsg ?? reason;
         invocation.completedAt ??= effectiveCompletedAt;
@@ -187,6 +223,7 @@ function nodeStatusFromRunState(state: RunState): NodeStatus | undefined {
     case "success": return "done";
     case "error": return "failed";
     case "cancelled": return "cancelled";
+    case "interrupted": return "interrupted";
     case "paused": return "paused";
     case "running": return "running";
     default: return undefined;
@@ -197,7 +234,9 @@ function workflowStatusFromRecordStatus(status: RunRecord["status"]): WorkflowRu
   switch (status) {
     case "success": return "done";
     case "error": return "failed";
-    case "cancelled": return "cancelled";
+    case "stopped": return "cancelled";
+    case "paused": return "paused";
+    case "interrupted": return "interrupted";
     default: return undefined;
   }
 }
@@ -225,6 +264,14 @@ export function formatDuration(startedAt: string, completedAt: string): string {
 }
 
 function normalizeRunRecord(runRecord: RunRecord): void {
+  const legacy = runRecord as Omit<RunRecord, "status"> & { status?: RunRecordStatus | "cancelled" };
+  if (legacy.status === "cancelled") {
+    legacy.status = "stopped";
+  }
+  for (const [nodeId, state] of Object.entries(runRecord.nodeStates ?? {})) {
+    if (state === "cancelled") continue;
+    runRecord.nodeStates[nodeId] = state;
+  }
   if (!runRecord.nodeOutputs) runRecord.nodeOutputs = {};
   if (!runRecord.agentInvocations) runRecord.agentInvocations = [];
   if (!runRecord.agentSessions) runRecord.agentSessions = [];

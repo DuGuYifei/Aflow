@@ -1,16 +1,18 @@
 ---
-title: Workflow YAML Authoring Tutorial
-description: Learn how to write Specflow agentflow YAML and turn agent work into visible, reusable workflows.
+title: "Deprecated: Workflow YAML v1 Authoring Tutorial"
+description: Legacy v1 reference for Specflow agentflow YAML. New workflows should use version 2.
 category: tutorial
-order: 1
-updatedAt: "2026-06-02 22:10:35 CEST"
+order: 99
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - workflow
   - yaml
   - agentflow
 ---
 
-# Workflow YAML Authoring Tutorial
+# Deprecated: Workflow YAML v1 Authoring Tutorial
+
+This page documents the legacy `version: 1` workflow format. New workflows should use [Workflow YAML v2 Authoring Tutorial](write-workflow-yaml-v2.md). v1 remains readable for compatibility, and the Specflow UI will suggest migrating v1 workflows with Aflow Agent.
 
 Committed workflow-as-code files live in `.aflow/.specflow/agentflow/agentflows/*.yaml`.
 Local experiments and fork/adapt drafts should live in `.aflow/.specflow/agentflow/agentflows-local/*.yaml`; this directory is added to `.aflow/.specflow/.gitignore` by default and is not committed.
@@ -145,7 +147,7 @@ Common fields:
 
 - `session` must reference an existing session key.
 - `prompt` is the instruction sent to the agent.
-- `pauseAfterRun: true` pauses after the node runs, which lets a human inspect or continue. The current `specflow run` CLI does not support interactive pause; workflows with pause nodes are rejected before the agent starts. Use the UI/server path when pause/continue is required.
+- `pauseAfterRun: true` pauses after the node runs, which lets a human inspect and then Play the same run. The current `specflow run` CLI does not support interactive Pause/Play; workflows with pause nodes are rejected before the agent starts. Use the UI/server path when manual run control is required.
 - `paths` associates files or directories.
 - `images` associates image resources. Each item includes `path` and optional `label` and `mimeType`.
 - `modeId` sets the ACP session mode before this node prompt runs.

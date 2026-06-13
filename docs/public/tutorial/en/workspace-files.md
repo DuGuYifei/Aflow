@@ -41,6 +41,7 @@ Specflow workspace files live under `.aflow/.specflow/`.
 ```
 
 These files are workflow-as-code and are suitable for version control.
+New workflow YAML should use `version: 2`; legacy `version: 1` files remain readable for compatibility.
 
 ```text
 .aflow/.specflow/agentflow/agentflows-local/*.yaml
