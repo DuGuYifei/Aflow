@@ -9,7 +9,7 @@ import {
   fetchAgentSessions, fetchAgentServers, fetchAgentServerCapabilities, refreshAgentServerCapabilities, restoreAgentSession, subscribeToRestore,
   fetchAgentSession, fetchResumableSession, fetchRunLogsRange, resumeWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
-  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
+  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction, startAflowMigration,
   AgentAuthenticationRequiredError,
   type SseEventType,
   type AgentAuthenticationStatus,
@@ -32,6 +32,8 @@ import { SessionsBar } from './components/sessions-bar';
 import { RunConfigPanel } from './components/run-config-panel';
 import { VariablesPalette } from './components/variables-palette';
 import { VariablePanel } from './components/variable-panel';
+import { LegacyWorkflowModal } from './components/legacy-workflow-modal';
+import { AflowMigrationTerminalModal } from './components/aflow-migration-terminal-modal';
 import { InteractionModal } from './components/interaction-modal';
 import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
@@ -257,6 +259,10 @@ export function App() {
   const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
   const [agentServerManagerOpen, setAgentServerManagerOpen] = useState(false);
   const [authStatuses, setAuthStatuses] = useState<AgentAuthenticationStatus[]>([]);
+  const [legacyWorkflowPrompt, setLegacyWorkflowPrompt] = useState<{ workflowId: string; name: string } | null>(null);
+  const [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false);
+  const [legacyMigrationError, setLegacyMigrationError] = useState('');
+  const [migrationTerminal, setMigrationTerminal] = useState<{ sessionId: string; workflowName: string } | null>(null);
 
   // viewMode is derived from selection: viewing a run → run view (readonly).
   const view: 'edit' | 'run' = activeRunId ? 'run' : 'edit';
@@ -390,6 +396,10 @@ export function App() {
       setActiveSessionId(canvasDocument.sessions[0]?.id ?? '');
       setSelection(null);
       setLoadedWorkflowId(canvasDocument.id);
+      if ((canvasDocument.version ?? 1) === 1) {
+        setLegacyMigrationError('');
+        setLegacyWorkflowPrompt({ workflowId: canvasDocument.id, name: canvasDocument.name });
+      }
     }).catch(console.error);
 
     fetchRuns(activeWorkflow).then((records) => {
@@ -860,6 +870,14 @@ export function App() {
     setSelection(ids.length === 1 ? { kind: 'node', id: ids[0]! } : ids.length > 1 ? { kind: 'nodes', ids } : null);
   };
   const onClearSelection = ()            => setSelection(null);
+  const onSelectWorkflowFromSidebar = useCallback((id: string) => {
+    const workflow = workflowsRef.current.find((candidate) => candidate.id === id);
+    if (workflow && (workflow.deprecated || (workflow.version ?? 1) === 1)) {
+      setLegacyMigrationError('');
+      setLegacyWorkflowPrompt({ workflowId: workflow.id, name: workflow.name });
+    }
+    setActiveWorkflow(id);
+  }, []);
 
   const onCopyNode = useCallback(() => {
     if (view !== 'edit' || loadedWorkflowId !== activeWorkflow) return;
@@ -1571,6 +1589,22 @@ export function App() {
     }
   }, [appendPausedDisplayMessage, pausedNode, pausedPromptBusy]);
 
+  const onStartLegacyMigration = useCallback(async () => {
+    const target = legacyWorkflowPrompt;
+    if (!target || legacyMigrationBusy) return;
+    setLegacyMigrationBusy(true);
+    setLegacyMigrationError('');
+    try {
+      const result = await startAflowMigration(target.workflowId);
+      setMigrationTerminal({ sessionId: result.terminalSessionId, workflowName: target.name });
+      setLegacyWorkflowPrompt(null);
+    } catch (error) {
+      setLegacyMigrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLegacyMigrationBusy(false);
+    }
+  }, [legacyMigrationBusy, legacyWorkflowPrompt]);
+
   // ── workflow management ───────────────────────────────────────────────────
 
   const onCreateWorkflow = useCallback(async (name: string) => {
@@ -1723,7 +1757,7 @@ export function App() {
         activeRun={activeRunId}
         layout={sidebarLayout}
         onLayoutChange={setSidebarLayout}
-        onSelectWorkflow={setActiveWorkflow}
+        onSelectWorkflow={onSelectWorkflowFromSidebar}
         onSelectRun={onSelectRun}
         onNewRun={onOpenNewRun}
         onRerunRun={handleRerun}
@@ -1833,6 +1867,25 @@ export function App() {
           }}
           onReady={onAuthReady}
           onChanged={refreshAgentServers}
+        />
+      )}
+      {!runConfigOpen && legacyWorkflowPrompt && (
+        <LegacyWorkflowModal
+          workflowName={legacyWorkflowPrompt.name}
+          busy={legacyMigrationBusy}
+          error={legacyMigrationError}
+          onMigrate={onStartLegacyMigration}
+          onClose={() => setLegacyWorkflowPrompt(null)}
+        />
+      )}
+      {!runConfigOpen && migrationTerminal && (
+        <AflowMigrationTerminalModal
+          sessionId={migrationTerminal.sessionId}
+          workflowName={migrationTerminal.workflowName}
+          onClose={() => {
+            setMigrationTerminal(null);
+            void refreshWorkflows().catch(console.error);
+          }}
         />
       )}
 

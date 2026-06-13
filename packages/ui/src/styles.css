@@ -564,6 +564,9 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   height: 24px;
   margin-top: -2px;
 }
+.legacy-workflow-modal {
+  max-width: 520px;
+}
 @media (max-width: 720px) {
   .app-toast {
     left: 10px;
@@ -2217,6 +2220,11 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   background: var(--bg);
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 38%, var(--line-2));
+}
+.wf-badge.deprecated {
+  background: color-mix(in oklch, var(--warn) 12%, var(--bg));
+  color: color-mix(in oklch, var(--warn) 60%, var(--ink-2));
+  border-color: color-mix(in oklch, var(--warn) 34%, var(--line-2));
 }
 .workflow-name-input { flex: 1; min-width: 0; height: 24px; }
 .workflow-rename,

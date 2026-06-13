@@ -6,6 +6,7 @@ import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflo
 import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
+import { TerminalSessionStore, type TerminalSessionTask } from "./terminal-session-store";
 import { canvasToWorkflow } from "./agentflow/canvas-to-workflow";
 import {
   listCanvases,
@@ -32,8 +33,10 @@ import {
   removeLocalAgentServer,
   upsertLocalAgentServer,
 } from "./agent-server-config";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentInvocationPurpose } from "@specflow/workflow";
 import { agentflowAssetsDir } from "./workspace-paths";
 
@@ -565,6 +568,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
   const authTerminals = new AuthTerminalSessionStore({
     checkAuth: (agentServerId) => bridge.inspectAgentAuthentication(root, agentServerId),
   });
+  const aflowMigrationTerminals = new TerminalSessionStore();
   const restoreStreams = new Map<string, RestoreStreamState>();
   const restoreControllers = new Map<string, AbortController>();
   const activeConversations = new Map<string, ActiveConversation>();
@@ -678,6 +682,51 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           return;
         }
         cleanup = authTerminals.subscribe(sessionId, (event) => {
+          enqueue(event);
+          if (event.type === "status" && event.status !== "running") {
+            setTimeout(() => {
+              try { controller.close(); } catch { /* already closed */ }
+            }, 200);
+          }
+        });
+      },
+      cancel() {
+        cleanup();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        "x-accel-buffering": "no",
+      },
+    });
+  }
+
+  function terminalSseResponse(
+    store: TerminalSessionStore,
+    sessionId: string,
+    notFoundMessage: string,
+  ): Response {
+    const record = store.get(sessionId);
+    if (!record) {
+      return Response.json({ error: notFoundMessage }, { status: 404 });
+    }
+    const encoder = new TextEncoder();
+    let cleanup = () => {};
+    const stream = new ReadableStream({
+      start(controller) {
+        const enqueue = (event: { type: string }) => {
+          controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+        };
+
+        for (const event of record.events) enqueue(event);
+        if (record.status !== "running") {
+          controller.close();
+          return;
+        }
+        cleanup = store.subscribe(sessionId, (event) => {
           enqueue(event);
           if (event.type === "status" && event.status !== "running") {
             setTimeout(() => {
@@ -1575,6 +1624,67 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
+    // POST /api/aflow/migrations — start an Aflow terminal to migrate a v1 workflow to v2.
+    if (pathname === "/api/aflow/migrations" && request.method === "POST") {
+      const body = await request.json().catch(() => ({})) as { workflowId?: unknown };
+      if (typeof body.workflowId !== "string" || body.workflowId.trim() === "") {
+        return Response.json({ error: "Missing workflowId" }, { status: 400 });
+      }
+      const workflowId = body.workflowId.trim();
+      const serverUrl = new URL("/", request.url).toString();
+      const task = buildAflowMigrationTask({ root, workflowId, serverUrl });
+      try {
+        const terminalSessionId = aflowMigrationTerminals.start(task);
+        return Response.json({ terminalSessionId, label: task.label ?? workflowId });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+    }
+
+    const aflowMigrationMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)$/);
+    const aflowMigrationEventsMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)\/events$/);
+    if (aflowMigrationEventsMatch && request.method === "GET") {
+      return terminalSseResponse(
+        aflowMigrationTerminals,
+        decodeURIComponent(aflowMigrationEventsMatch[1]),
+        "Aflow migration terminal session not found",
+      );
+    }
+    if (aflowMigrationMatch && request.method === "GET") {
+      const record = aflowMigrationTerminals.get(decodeURIComponent(aflowMigrationMatch[1]));
+      if (!record) return Response.json({ error: "Aflow migration terminal session not found" }, { status: 404 });
+      return Response.json({
+        sessionId: record.id,
+        label: record.task.label,
+        status: record.status,
+      });
+    }
+    const aflowMigrationActionMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)\/(input|resize|cancel)$/);
+    if (aflowMigrationActionMatch && request.method === "POST") {
+      const sessionId = decodeURIComponent(aflowMigrationActionMatch[1]);
+      const action = aflowMigrationActionMatch[2];
+      try {
+        if (action === "input") {
+          const body = await request.json().catch(() => ({})) as { data?: unknown };
+          if (typeof body.data !== "string") return Response.json({ error: "Missing input data" }, { status: 400 });
+          aflowMigrationTerminals.input(sessionId, body.data);
+          return Response.json({ ok: true });
+        }
+        if (action === "resize") {
+          const body = await request.json().catch(() => ({})) as { cols?: unknown; rows?: unknown };
+          if (typeof body.cols !== "number" || typeof body.rows !== "number") {
+            return Response.json({ error: "Missing terminal size" }, { status: 400 });
+          }
+          aflowMigrationTerminals.resize(sessionId, body.cols, body.rows);
+          return Response.json({ ok: true });
+        }
+        aflowMigrationTerminals.cancel(sessionId);
+        return Response.json({ ok: true });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 404 });
+      }
+    }
+
     // PUT /api/agent-servers/:id
     const agentServerMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)$/);
     if (agentServerMatch && request.method === "PUT") {
@@ -2253,6 +2363,45 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function buildAflowMigrationTask(input: {
+  root: string;
+  workflowId: string;
+  serverUrl: string;
+}): TerminalSessionTask {
+  const directArgs = ["/specflow-migrate-v2", input.workflowId, "--server", input.serverUrl];
+  const env = { AFLOW_SPECFLOW_URL: input.serverUrl };
+  const configuredCommand = process.env["AFLOW_COMMAND"]?.trim();
+  if (configuredCommand) {
+    return {
+      command: configuredCommand,
+      args: directArgs,
+      cwd: input.root,
+      env,
+      label: `Aflow migrate ${input.workflowId}`,
+    };
+  }
+
+  const serverSourceDir = dirname(fileURLToPath(import.meta.url));
+  const devAflowEntry = join(serverSourceDir, "../../aflow/src/cli.ts");
+  if (existsSync(devAflowEntry)) {
+    return {
+      command: "bun",
+      args: [devAflowEntry, ...directArgs],
+      cwd: input.root,
+      env,
+      label: `Aflow migrate ${input.workflowId}`,
+    };
+  }
+
+  return {
+    command: "aflow",
+    args: directArgs,
+    cwd: input.root,
+    env,
+    label: `Aflow migrate ${input.workflowId}`,
+  };
 }
 
 function parseRestoreConfigOptions(value: unknown): Record<string, string | boolean> | undefined {

@@ -3,7 +3,7 @@ Specflow workflow YAML authoring tutorial:
 
 Purpose:
 - A Specflow workflow YAML file describes a runnable agent workflow graph.
-- It should be concrete enough to run: sessions identify agent servers, input nodes declare runtime values, step nodes contain agent prompts, gate nodes choose branches, and edges connect the graph.
+- It should be concrete enough to run: sessions identify agent servers, variables declare runtime values, start nodes declare entry points, step nodes contain agent prompts, gate nodes choose branches, and edges connect the graph.
 - Do not rely on external docs while authoring. This embedded guide is the source of truth available to Aflow in packaged binaries.
 
 Storage and ids:
@@ -13,7 +13,7 @@ Storage and ids:
 - The YAML filename without .yaml is the workflow id.
 - workflow id, session keys, node keys, and branch keys must match [a-z][a-z0-9-]*.
 - Use readable kebab-case ids such as code-review-flow, implement, review, verdict, needs-rework.
-- input variable names must match specflow_[A-Za-z0-9_]+ and must be unique.
+- variable names must match specflow_[A-Za-z0-9_]+ and must be unique.
 
 Fork/adapt rule:
 - When adapting an existing workflow for a new user, case, repository, or business problem, copy the source YAML to .aflow/.specflow/agentflow/agentflows-local/<new-workflow-id>.yaml first.
@@ -21,8 +21,14 @@ Fork/adapt rule:
 
 Minimal complete workflow example:
 
-version: 1
+version: 2
 name: Code review flow
+
+variables:
+  specflow_task:
+    title: Task
+    description: The user request or ticket text.
+    required: true
 
 sessions:
   builder:
@@ -31,12 +37,9 @@ sessions:
     agentServerId: claude-acp
 
 nodes:
-  task:
-    kind: input
-    title: Task
-    variableName: specflow_task
-    description: The user request or ticket text.
-    required: true
+  start:
+    kind: start
+    title: Start
 
   plan:
     kind: step
@@ -76,13 +79,14 @@ nodes:
       rework:
         label: needs rework
         description: Send the workflow back to implementation.
+        maxTraversals: 2
 
   done:
     kind: end
     title: Done
 
 edges:
-  - from: task
+  - from: start
     to: plan
   - from: plan
     to: implement
@@ -99,16 +103,14 @@ edges:
   - from: verdict
     branch: rework
     to: implement
-    loopback: true
-    maxTraversals: 2
 
 Top-level fields:
-- version must be 1.
+- version must be 2 for newly authored workflows.
 - name is the display name shown by Specflow.
 - sessions defines logical agent contexts. Step nodes that reference the same session share the same conversation context.
-- nodes defines input, step, gate, and end nodes.
+- variables defines global runtime values that any step or gate can reference with XML-like tokens such as <specflow_task>.
+- nodes defines start, step, gate, and end nodes.
 - edges defines directed graph connections. Edge ids are generated from from, branch, and to; do not hand-write edge ids.
-- variables is optional metadata. For values supplied at run time, prefer input nodes.
 
 Sessions syntax:
 - Each session key maps to an object with agentServerId.
@@ -133,22 +135,35 @@ Session design and review independence:
 - If independent review is useful but the workflow shape is ambiguous, ask_user before adding a review node.
 - When a review step uses a different session, pass only the necessary upstream output through a transmit/outputTag edge, and make the review prompt reference that token explicitly.
 
-Input node syntax:
-- kind must be input.
-- variableName is required and must match specflow_[A-Za-z0-9_]+.
+Variable syntax:
+- variables is a top-level map from variable name to metadata.
+- Variable names must match specflow_[A-Za-z0-9_]+.
 - title, description, required, and defaultValue are optional.
-- Prompts and gate criteria can reference input values with XML-like tokens such as <specflow_task>, <specflow_customer>, and <specflow_target_repo>.
+- Prompts and gate criteria can reference variables with XML-like tokens such as <specflow_task>, <specflow_customer>, and <specflow_target_repo>.
 - If required is true and no defaultValue exists, Aflow should ask the user for the value during /specflow-run.
+- Do not create input nodes in v2 workflows.
 
-Example input:
+Example variables:
 
-nodes:
-  task-input:
-    kind: input
+variables:
+  specflow_task:
     title: Task
-    variableName: specflow_task
     description: The request, ticket, or business goal.
     required: true
+
+Start node syntax:
+- kind must be start.
+- Start nodes are explicit workflow entry points and are not runtime agent nodes.
+- A start node must connect to a step node.
+- Multiple start nodes are allowed for parallel starts, but their target steps must not be in the same session.
+- Edges must not target start nodes.
+
+Example start:
+
+nodes:
+  start:
+    kind: start
+    title: Start
 
 Step node syntax:
 - kind must be step.
@@ -191,10 +206,11 @@ Gate node syntax:
 - kind must be gate.
 - decisionCriteria is required.
 - branches must contain at least one branch.
-- branches is a map from branch id to optional label and description.
+- branches is a map from branch id to optional label, description, and maxTraversals.
 - Every edge leaving a gate must specify branch.
 - Gate nodes choose a branch from upstream context; they should not be written as implementation prompts.
 - Gate nodes may define configOptions, but must not define modeId.
+- Use branch maxTraversals for bounded retry paths and loop-control branches.
 
 Example gate:
 
@@ -210,6 +226,7 @@ nodes:
       revise:
         label: revise
         description: Return to the previous work step.
+        maxTraversals: 2
 
 End node syntax:
 - kind must be end.
@@ -219,9 +236,9 @@ End node syntax:
 
 Edges and context transfer:
 - A normal edge only controls execution order.
-- Edges cannot target input nodes.
+- Edges cannot target start nodes.
 - Edges cannot leave end nodes.
-- Edges from input nodes should not declare transmit, outputTag, or handoffPrompt.
+- Edges from start nodes should only target step nodes and should not declare transmit, outputTag, or handoffPrompt.
 - Edges into gate nodes should not declare transmit, outputTag, or handoffPrompt.
 - Edges into end nodes should not declare transmit, outputTag, or handoffPrompt.
 - Same-session step-to-step edges should not declare transmit, outputTag, or handoffPrompt because context is already shared.
@@ -229,6 +246,8 @@ Edges and context transfer:
 - transmit requires outputTag.
 - The downstream prompt receives transmitted content as <specflow_outputTag>. For outputTag: change_summary, use <specflow_change_summary>.
 - handoffPrompt is optional and asks the source session to summarize or transform output for transfer.
+- Do not write loopback on edges in v2.
+- Do not write maxTraversals on edges in v2. Put traversal limits on gate branches.
 
 Normal edge example:
 
@@ -246,47 +265,62 @@ edges:
     handoffPrompt: Summarize the implementation diff and test results.
 
 Loop syntax:
-- Non-loopback execution edges must be acyclic.
-- Loops must be explicit with loopback: true.
+- v2 allows intentional loops without authored loopback flags.
 - Loops should normally be controlled by a gate branch.
-- maxTraversals is optional, must be a positive integer, and only belongs on edges leaving gates.
-- Use maxTraversals for bounded retry paths such as review to rework.
+- A cyclic strongly connected component must include a gate and have a single entry point.
+- Put a positive maxTraversals on loop-control gate branches to bound retry paths such as review to rework.
+- Specflow derives the loop-closing edge at validation/runtime for UI highlighting.
 
 Loop example:
+
+nodes:
+  verdict:
+    kind: gate
+    title: Review verdict
+    decisionCriteria: Choose pass or rework.
+    branches:
+      pass:
+      rework:
+        label: needs rework
+        maxTraversals: 2
 
 edges:
   - from: verdict
     branch: rework
     to: implement
-    loopback: true
-    maxTraversals: 2
 
 Authoring checklist before writing YAML:
 - Choose a kebab-case workflow id and filename.
 - Decide whether the workflow is shared or local. Use agentflows-local for fork/adapt drafts.
 - Define sessions first, one per logical agent context.
-- Add input nodes for every run-time value the user must provide.
+- Add top-level variables for every run-time value the user must provide.
+- Add explicit start nodes and connect them to first steps.
 - Write step prompts that reference input tokens and transmitted output tokens explicitly.
 - Add gates only for meaningful branch decisions.
 - Add an end node for readable completion.
 - Add edges in execution order.
 - Use transmit/outputTag only for cross-session step output that downstream prompts need.
+- Put retry limits on gate branches, not edges.
 - Use pauseAfterRun only when human interaction is genuinely needed.
 
 Validation checklist:
-- version is 1.
+- version is 2.
 - filename/workflow id matches [a-z][a-z0-9-]*.
 - sessions, nodes, and edges are present.
+- at least one start node exists.
+- start edges target step nodes.
+- multiple start targets do not use the same session.
 - every runnable session has agentServerId.
 - every step.session references an existing session.
 - every gate has branches.
 - every gate outgoing edge specifies branch.
-- edge does not target an input node.
+- edge does not target a start node.
 - edge does not leave an end node.
-- non-loopback execution edges are acyclic.
-- loopback edges are explicit and bounded when retries should be limited.
+- intentional loops have a gate, a single entry point, and bounded loop-control branches.
 - transmit implies outputTag.
-- input.variableName starts with specflow_ and is unique.
+- variable names start with specflow_ and are unique.
+- no node uses kind: input.
+- no edge uses loopback or maxTraversals.
 - pauseAfterRun is not used with headless agents.
 `.trim();
 
@@ -328,7 +362,7 @@ Tool rules:
 - Use specflow_list_workflows when the user needs to choose from existing workflows.
 - Use specflow_fork_workflow_to_local before adapting an existing workflow.
 - Use specflow_validate_workflow before recommending a workflow run.
-- Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow input variables one by one in the TUI, monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
+- Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
 - Use specflow_resume_session when the user wants to resume or inspect a recorded agent session from a run. It offers ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, or Skip when the TUI is available.
 - Do not ask for a separate native command after specflow_run_workflow just to repeat run-end choices; the run tool already offers the full session resume picker when the TUI is available.
 - Do not shell out to specflow run from inside Aflow. The standalone Specflow CLI run path does not support Aflow's interactive pause/session resume flow and can reject pauseAfterRun workflows.
@@ -364,7 +398,7 @@ Default output path:
 
 Use concrete workflow structure:
 - sessions with configured agentServerId values when known
-- input variables named specflow_*
+- top-level variables named specflow_*
 - step nodes with focused prompts
 - gate nodes when branching is meaningful
 - pauseAfterRun only when human interaction is genuinely needed
@@ -391,7 +425,7 @@ Before editing the copy, understand the business change:
 
 Use the embedded workflow YAML authoring guide below. It is available inside the Aflow binary.
 
-Preserve the reusable structure, node ids, and session ids when they still fit. Change prompts, variables, gate criteria, workflow name, input variables, and edge transmission only where the new problem requires it.
+Preserve the reusable structure, node ids, and session ids when they still fit. Change prompts, variables, gate criteria, workflow name, and edge transmission only where the new problem requires it.
 
 Choose a new kebab-case workflow id and filename. Avoid reusing the source workflow id.
 

@@ -1,6 +1,6 @@
 ---
 title: Specflow 命令
-description: 学习 specflow、specflow validate 和 specflow run 的用途与输入规则。
+description: 学习 specflow、specflow validate 和 specflow run 的用途与 workflow 变量传入规则。
 category: tutorial
 order: 2
 updatedAt: "2026-06-09 01:12:49 CEST"
@@ -28,9 +28,9 @@ specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 
 `validate` 只解析 YAML 并检查 workflow 是否满足可运行规则，不会启动 agent。
 
-它会检查 session、node、edge、gate、loopback、input 变量名和 `agentServerId` 字段等结构规则。它也会读取 workspace 的 agent server 配置；如果 `pauseAfterRun: true` 节点使用的是 headless agent，校验会失败，因为 headless agent 没有可交互 session。
+它会检查 session、variables、node、edge、gate、loop 和 `agentServerId` 字段等结构规则。v2 workflow 使用显式 start 节点、顶层 variables、自动派生的 loop-closing edge，以及 branch 级别的 `maxTraversals`。v1 workflow 仍会为了兼容而读取。校验也会读取 workspace 的 agent server 配置；如果 `pauseAfterRun: true` 节点使用的是 headless agent，校验会失败，因为 headless agent 没有可交互 session。
 
-如果 workflow 有 required input node，`validate` 也不需要传 `-D`。input 的具体值属于某次 run，而不是 workflow 结构本身。
+如果 workflow 有 required variables，`validate` 也不需要传 `-D`。变量的具体值属于某次 run，而不是 workflow 结构本身。
 
 ## 运行 workflow
 
@@ -38,7 +38,7 @@ specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
-`run` 会先做 workflow 校验，再检查 required input 是否有值和 agent 认证状态，然后执行 workflow。
+`run` 会先做 workflow 校验，再检查 required variables 是否有值和 agent 认证状态，然后执行 workflow。
 
 当前 `specflow run` 是 direct CLI 执行路径，不会启动 localhost server，也不会打开浏览器 UI。运行过程只在 terminal 中输出简要节点进度；UI 的 run 列表、run log、SSE 事件回放和 pause 交互不会接入这次 CLI run。
 
@@ -46,16 +46,15 @@ workflow 成功完成后，CLI 会自动退出。失败或取消时，CLI 也会
 
 如果 workflow 中包含 `pauseAfterRun: true` 的节点，当前 CLI run 不支持交互式 pause，会在启动 agent 前直接拒绝运行。需要人工 pause/continue 的 workflow 应通过 UI/server 路径运行。
 
-## 传入 input node 的值
+## 传入 workflow 变量值
 
-如果 workflow 有 input node：
+如果 v2 workflow 有 required variable：
 
 ```yaml
-nodes:
-  task-input:
-    kind: input
+version: 2
+variables:
+  specflow_task:
     title: Task
-    variableName: specflow_task
     required: true
 ```
 
@@ -73,13 +72,15 @@ CLI 推荐使用无前缀名字，例如 `-Dtask=...`。Specflow 会把它映射
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dspecflow_task="Fix the failing login test"
 ```
 
-多个 input node 就传多个 `-D`：
+多个变量就传多个 `-D`：
 
 ```sh
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
 ```
 
-如果 workflow 没有 input node，就不需要输入参数：
+v1 input node 在运行时也会作为 workflow 变量暴露出来，所以 legacy workflow 同样使用这套 `-D` 语法。
+
+如果 workflow 没有 required variables，就不需要输入参数：
 
 ```sh
 specflow run .aflow/.specflow/agentflow/agentflows/nightly-review.yaml

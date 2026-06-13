@@ -72,12 +72,12 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_run_workflow",
     label: "Run Workflow",
-    description: "Run a saved Specflow workflow. Missing required input variables are asked one by one in the TUI.",
-    promptSnippet: "Run a saved Specflow workflow and collect missing input variables interactively.",
+    description: "Run a saved Specflow workflow. Missing required workflow variables are asked one by one in the TUI.",
+    promptSnippet: "Run a saved Specflow workflow and collect missing workflow variables interactively.",
     promptGuidelines: [
       "Use after extracting the workflow id from /specflow-run context.",
       "Pass any already-known specflow_* variables in variableValues.",
-      "Let this tool ask missing input variables one by one instead of asking them all at once.",
+      "Let this tool ask missing workflow variables one by one instead of asking them all at once.",
     ],
     parameters: RunWorkflowParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -104,7 +104,7 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         for (const variable of prepared.missingVariables) {
           const answer = await ctx.ui.input(inputQuestion(variable), variable.defaultValue);
           if (answer === undefined) {
-            return textResult("Run cancelled while collecting input variables.", { cancelled: true });
+            return textResult("Run cancelled while collecting workflow variables.", { cancelled: true });
           }
           variableValues[variable.name] = answer;
         }
