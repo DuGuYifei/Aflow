@@ -152,6 +152,7 @@ export interface WorkflowRunOptions {
   runId?: string;
   signal?: AbortSignal;
   resumeFrom?: WorkflowResumeState;
+  checkpoint?: WorkflowExecutionCheckpoint;
   reloadWorkflow?: () => Workflow | Promise<Workflow>;
 }
 
@@ -353,14 +354,25 @@ export class WorkflowExecutor {
         rerunnableGateIds = findRerunnableGateIds(activeWorkflow);
         recurringBranchEdgeIds = findRecurringBranchEdgeIds(activeWorkflow);
       };
-      const pendingInputs = new Map<string, PendingNodeInput>();
-      const queue: QueuedNode[] = findEntryNodes(activeWorkflow).map((node) => ({ nodeId: node.id, traversal: 0 }));
-      const completedNodes = new Set<string>();
-      const completedExecutions = new Set<string>();
-      const skippedNodes = new Set<string>();
-      const inactiveEdges = new Set<string>();
-      const branchTraversals = new Map<string, number>();
-      const interruptedExecutions = new Set<string>();
+      const checkpoint = options.checkpoint;
+      const pendingInputs = new Map<string, PendingNodeInput>(
+        checkpoint
+          ? Object.entries(checkpoint.pendingInputs).map(([key, value]) => [key, {
+              input: [...value.input],
+              edgeValues: { ...value.edgeValues },
+              ...(value.origin ? { origin: { ...value.origin } } : {}),
+            }])
+          : [],
+      );
+      const queue: QueuedNode[] = checkpoint
+        ? checkpoint.queue.map((queued) => ({ ...queued }))
+        : findEntryNodes(activeWorkflow).map((node) => ({ nodeId: node.id, traversal: 0 }));
+      const completedNodes = new Set<string>(checkpoint?.completedNodeIds ?? []);
+      const completedExecutions = new Set<string>(checkpoint?.completedExecutionKeys ?? []);
+      const skippedNodes = new Set<string>(checkpoint?.skippedNodeIds ?? []);
+      const inactiveEdges = new Set<string>(checkpoint?.inactiveEdgeIds ?? []);
+      const branchTraversals = new Map<string, number>(Object.entries(checkpoint?.branchTraversals ?? {}));
+      const interruptedExecutions = new Set<string>(checkpoint?.interruptedExecutionKey ? [checkpoint.interruptedExecutionKey] : []);
 
       // Resume bootstrap: classify each node by its prior status.
       //   - "done"/"success"   → use persisted output, fire downstream edges without re-invoking agent
@@ -390,8 +402,10 @@ export class WorkflowExecutor {
         }
       }
 
-      for (const entryNode of findEntryNodes(activeWorkflow)) {
-        pendingInputs.set(executionKey(entryNode.id, 0), { input: [initialInput], edgeValues: {} });
+      if (!checkpoint) {
+        for (const entryNode of findEntryNodes(activeWorkflow)) {
+          pendingInputs.set(executionKey(entryNode.id, 0), { input: [initialInput], edgeValues: {} });
+        }
       }
 
       while (queue.length > 0) {

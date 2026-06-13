@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { saveCanvas } from "./agentflow/canvas-store";
+import { loadCanvas, saveCanvas } from "./agentflow/canvas-store";
+import { upsertLocalAgentServer } from "./agent-server-config";
 import { loadRun, saveRun, type RunRecord } from "./agentflow/run-store";
 import type { CanvasDoc } from "./agentflow/canvas-doc";
 
@@ -60,6 +61,70 @@ describe("run snapshot editing API", () => {
     expect(reachability.nodes["archived"]).toBe("history_only");
     expect(reachability.nodes["inactive"]).toBe("inactive");
   });
+
+  test("saves a successful run snapshot as a local best-practice workflow", async () => {
+    const root = await tempProject();
+    await saveRun({ ...samplePausedRun(), status: "success" }, root);
+    const handle = createApiHandler(testBridge(), root);
+
+    const response = await handle(new Request("http://specflow.test/api/runs/run1/best-practice", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Snapshot Best Practice" }),
+    }));
+    expect(response?.status).toBe(200);
+    const body = await response!.json() as { workflow: { id: string; name: string; local: boolean } };
+    expect(body.workflow).toMatchObject({
+      id: "snapshot-best-practice",
+      name: "Snapshot Best Practice",
+      local: true,
+    });
+
+    const saved = await loadCanvas("snapshot-best-practice", root);
+    expect(saved.version).toBe(2);
+    expect(saved.name).toBe("Snapshot Best Practice");
+    expect(saved.nodes.map((node) => node.id)).toContain("step-2");
+  });
+
+  test("plays the same paused run from a persisted checkpoint when no live executor exists", async () => {
+    const root = await tempProject();
+    await upsertLocalAgentServer(root, "test-agent", {
+      type: "headless",
+      command: process.execPath,
+      argsTemplate: ["-e", ""],
+    });
+    const run = samplePausedRun();
+    run.nodeStates = {
+      "step-1": "success",
+      "step-2": "pending",
+      done: "pending",
+      archived: "success",
+      inactive: "pending",
+    };
+    run.checkpoint = {
+      queue: [{ nodeId: "step-2", traversal: 0 }],
+      pendingInputs: {
+        "step-2:0": { input: ["ready to finish"], edgeValues: {} },
+      },
+      completedNodeIds: ["step-1"],
+      completedExecutionKeys: ["step-1:0"],
+      skippedNodeIds: [],
+      inactiveEdgeIds: [],
+      branchTraversals: {},
+      createdAt: "2026-06-13T10:00:01.000Z",
+    };
+    await saveRun(run, root);
+    const handle = createApiHandler(testBridge(), root);
+
+    const response = await handle(new Request("http://specflow.test/api/runs/run1/play", { method: "POST" }));
+    expect(response?.status).toBe(200);
+    expect(await response!.json()).toMatchObject({ runId: "run1" });
+
+    const completed = await eventuallyLoadRun(root, "run1", "success");
+    expect(completed.status).toBe("success");
+    expect(completed.nodeStates["step-2"]).toBe("success");
+    expect(completed.checkpoint).toBeUndefined();
+  });
 });
 
 async function tempProject(): Promise<string> {
@@ -71,9 +136,19 @@ function testBridge() {
     ...createSpecflowBridge(),
     listAgentServers: async () => [{
       id: "test-agent",
-      settings: { type: "custom" as const, command: process.execPath, args: ["-e", ""] },
+      settings: { type: "headless" as const, command: process.execPath, argsTemplate: ["-e", ""] },
     }],
   };
+}
+
+async function eventuallyLoadRun(root: string, runId: string, status: RunRecord["status"]): Promise<RunRecord> {
+  let last = await loadRun(runId, root);
+  for (let index = 0; index < 50; index += 1) {
+    if (last.status === status) return last;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    last = await loadRun(runId, root);
+  }
+  return last;
 }
 
 function samplePausedRun(): RunRecord {

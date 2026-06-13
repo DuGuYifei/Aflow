@@ -1,7 +1,7 @@
 import { AgentServerStore, probeAcpAgentCapabilities, type AgentServerCapabilitiesCache } from "@specflow/agent-proxy";
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
-import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent, WorkflowCheckpointEvent } from "@specflow/bridge";
+import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent, WorkflowCheckpointEvent, WorkflowExecutionCheckpoint } from "@specflow/bridge";
 import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
 import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { SkillStore } from "./skills";
@@ -14,6 +14,7 @@ import {
   loadAgentFlow,
   loadOrCreateCanvasLayout,
   saveCanvas,
+  saveAgentFlowAndLayout,
   deleteCanvas,
   splitCanvasDoc,
   combineAgentFlowAndLayout,
@@ -396,6 +397,16 @@ async function reconstructInvocationsFromRunLog(root: string, record: RunRecord)
     }
   }
   return [...byInvocationId.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
+function mergeRunInvocations(
+  existing: RunRecord["agentInvocations"],
+  next: RunRecord["agentInvocations"],
+): RunRecord["agentInvocations"] {
+  const byId = new Map<string, RunRecord["agentInvocations"][number]>();
+  for (const invocation of existing) byId.set(invocation.id, invocation);
+  for (const invocation of next) byId.set(invocation.id, { ...(byId.get(invocation.id) ?? {}), ...invocation });
+  return [...byId.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
 function pickResumableInvocation(record: RunRecord): RunRecord["agentInvocations"][number] | undefined {
@@ -859,6 +870,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     variableValues: Record<string, string>,
     snapshot?: { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc },
     resumeFrom?: { state: WorkflowResumeState; source: RunRecord },
+    playFrom?: { record: RunRecord; checkpoint: WorkflowExecutionCheckpoint },
   ): Promise<Response> {
     let agentflow: AgentFlowDoc;
     let layout: CanvasLayoutDoc;
@@ -902,44 +914,59 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     const workflow = canvasToWorkflow(prepared.doc);
-    const runId = uuidv7();
+    const runId = playFrom?.record.id ?? uuidv7();
     const runController = new AbortController();
     runControllers.set(runId, runController);
-    const existingCount = (await listRuns(workflowId, root)).length;
-    const label = `Run #${existingCount + 1}`;
 
-    const initialNodeStates: Record<string, RunState> = {};
-    for (const node of agentflow.nodes) {
-      initialNodeStates[node.id] = "pending";
-    }
+    let record: RunRecord;
+    if (playFrom) {
+      record = playFrom.record;
+      record.status = "running";
+      record.errorMsg = undefined;
+      record.control = undefined;
+      record.checkpoint = undefined;
+      record.agentflowSnapshot = agentflow;
+      record.canvasSnapshot = layout;
+      record.initialInput = initialInput;
+      record.variableValues = variableValues;
+    } else {
+      const existingCount = (await listRuns(workflowId, root)).length;
+      const label = `Run #${existingCount + 1}`;
 
-    // A continued run inherits completed work only. Interrupted or failed work
-    // belongs to the source run and starts pending until this run re-enters it.
-    const seededNodeStates: Record<string, RunState> = { ...initialNodeStates };
-    if (resumeFrom) {
-      for (const [nodeId, state] of Object.entries(resumeFrom.state.nodeStates)) {
-        if (state === "done" || state === "success") seededNodeStates[nodeId] = "success";
+      const initialNodeStates: Record<string, RunState> = {};
+      for (const node of agentflow.nodes) {
+        initialNodeStates[node.id] = "pending";
       }
+
+      // A continued run inherits completed work only. Interrupted or failed work
+      // belongs to the source run and starts pending until this run re-enters it.
+      const seededNodeStates: Record<string, RunState> = { ...initialNodeStates };
+      if (resumeFrom) {
+        for (const [nodeId, state] of Object.entries(resumeFrom.state.nodeStates)) {
+          if (state === "done" || state === "success") seededNodeStates[nodeId] = "success";
+        }
+      }
+      record = {
+        id: runId,
+        workflowId,
+        label,
+        status: "running",
+        startedAt: new Date().toISOString(),
+        agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "unconfigured",
+        nodeStates: seededNodeStates,
+        nodeOutputs: resumeFrom ? { ...resumeFrom.state.nodeOutputs } : {},
+        agentInvocations: [],
+        agentSessions: [],
+        agentflowSnapshot: agentflow, // store pre-substitution snapshots
+        canvasSnapshot: layout,
+        initialInput,
+        variableValues,
+        ...(resumeFrom ? { resumedFromRunId: resumeFrom.source.id } : {}),
+      };
     }
-    const record: RunRecord = {
-      id: runId,
-      workflowId,
-      label,
-      status: "running",
-      startedAt: new Date().toISOString(),
-      agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "unconfigured",
-      nodeStates: seededNodeStates,
-      nodeOutputs: resumeFrom ? { ...resumeFrom.state.nodeOutputs } : {},
-      agentInvocations: [],
-      agentSessions: [],
-      agentflowSnapshot: agentflow, // store pre-substitution snapshots
-      canvasSnapshot: layout,
-      initialInput,
-      variableValues,
-      ...(resumeFrom ? { resumedFromRunId: resumeFrom.source.id } : {}),
-    };
 
     await saveRun(record, root);
+    const runStatusAt = playFrom ? new Date().toISOString() : record.startedAt;
     if (resumeFrom) {
       resumeFrom.source.resumedByRunId = runId;
       await saveRun(resumeFrom.source, root);
@@ -949,7 +976,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       runId,
       workflowId,
       status: "running",
-      at: record.startedAt,
+      at: runStatusAt,
     });
 
     let lastTermSeq = 0;
@@ -1270,13 +1297,14 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         runId,
         signal: runController.signal,
         ...(resumeFrom ? { resumeFrom: resumeFrom.state } : {}),
+        ...(playFrom ? { checkpoint: playFrom.checkpoint } : {}),
         reloadWorkflow: reloadWorkflowSnapshot,
       })
       .then(async (workflowRun) => {
         timeline.snapshot({ status: "success" });
         await timeline.flush();
         await logWrite;
-        record.agentInvocations = workflowRun.agentInvocations;
+        record.agentInvocations = mergeRunInvocations(record.agentInvocations, workflowRun.agentInvocations);
         await saveRun(record, root);
         await upsertAgentSessionsFromRun(record, root);
       })
@@ -2024,6 +2052,60 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
+    // POST /api/runs/:id/best-practice
+    const runBestPracticeMatch = pathname.match(/^\/api\/runs\/([^/]+)\/best-practice$/);
+    if (runBestPracticeMatch && request.method === "POST") {
+      const id = runBestPracticeMatch[1];
+      let record: RunRecord;
+      try {
+        record = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (record.status !== "success") {
+        return Response.json({ error: "Only successful runs can be saved as best practice" }, { status: 409 });
+      }
+      if (!record.agentflowSnapshot || !record.canvasSnapshot) {
+        return Response.json({ error: "Run snapshot is missing" }, { status: 409 });
+      }
+      if ((record.agentflowSnapshot.version ?? 1) !== 2) {
+        return Response.json({ error: "Only v2 workflow snapshots can be saved as best practice" }, { status: 409 });
+      }
+      let body: { name?: string; shared?: boolean } = {};
+      try { body = await request.json(); } catch { /* ok */ }
+      const name = body.name?.trim() || `${record.agentflowSnapshot.name} best practice`;
+      const existingIds = new Set((await listCanvases(root)).map((entry) => entry.id));
+      let workflowId = keyFromLabel(name, "best-practice");
+      try {
+        assertSymbolKey(workflowId, "workflow key");
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+      if (existingIds.has(workflowId)) {
+        const base = workflowId;
+        let suffix = 2;
+        while (existingIds.has(`${base}-${suffix}`)) suffix += 1;
+        workflowId = `${base}-${suffix}`;
+      }
+      try {
+        assertServerRunnableAgentFlow(record.agentflowSnapshot, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
+        const snapshot = combineAgentFlowAndLayout(record.agentflowSnapshot, record.canvasSnapshot);
+        const { agentflow, layout } = splitCanvasDoc({ ...snapshot, id: workflowId, name });
+        await saveAgentFlowAndLayout(workflowId, { ...agentflow, id: workflowId, name, version: 2 }, { ...layout, workflowId }, root, { local: body.shared !== true });
+        return Response.json({
+          ok: true,
+          workflow: {
+            id: workflowId,
+            name,
+            version: 2,
+            local: body.shared !== true,
+          },
+        });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+    }
+
     // PATCH /api/runs/:id/snapshot
     const runSnapshotMatch = pathname.match(/^\/api\/runs\/([^/]+)\/snapshot$/);
     if (runSnapshotMatch && request.method === "PATCH") {
@@ -2164,7 +2246,21 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       const played = bridge.runControls.play(id);
       if (!played.played) {
-        return Response.json({ error: "Run process is not active" }, { status: 409 });
+        if (runControllers.has(id)) {
+          return Response.json({ error: "Run is not waiting for play yet" }, { status: 409 });
+        }
+        const checkpoint = parseWorkflowExecutionCheckpoint(runRecord.checkpoint);
+        if (!checkpoint) {
+          return Response.json({ error: "Run checkpoint is missing; cannot play" }, { status: 409 });
+        }
+        return handleRun(
+          runRecord.workflowId,
+          runRecord.initialInput,
+          runRecord.variableValues,
+          { agentflow: runRecord.agentflowSnapshot, layout: runRecord.canvasSnapshot },
+          undefined,
+          { record: runRecord, checkpoint },
+        );
       }
       return Response.json({ ok: true, status: "playing", previousStatus: played.kind });
     }
@@ -2610,6 +2706,22 @@ function firstMissingCheckpointNode(record: RunRecord, agentflow: AgentFlowDoc):
     if (!existingNodeIds.has(nodeId)) return nodeId;
   }
   return undefined;
+}
+
+function parseWorkflowExecutionCheckpoint(value: Record<string, unknown> | undefined): WorkflowExecutionCheckpoint | undefined {
+  if (!value) return undefined;
+  if (!Array.isArray(value.queue)
+    || !value.pendingInputs
+    || typeof value.pendingInputs !== "object"
+    || !Array.isArray(value.completedNodeIds)
+    || !Array.isArray(value.completedExecutionKeys)
+    || !Array.isArray(value.skippedNodeIds)
+    || !Array.isArray(value.inactiveEdgeIds)
+    || !value.branchTraversals
+    || typeof value.branchTraversals !== "object") {
+    return undefined;
+  }
+  return value as unknown as WorkflowExecutionCheckpoint;
 }
 
 function requiredCheckpointNodeIds(checkpoint: Record<string, unknown> | undefined): string[] {
