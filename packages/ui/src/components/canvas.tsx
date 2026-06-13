@@ -19,11 +19,13 @@ function nodeAnchorOut(node: WorkflowNode, branchId?: string): { x: number; y: n
     return { x: node.x + node.w, y: node.y + height * positionRatio };
   }
   if (node.kind === 'input') return { x: node.x + (node.w || 200), y: node.y + 36 };
+  if (node.kind === 'start') return { x: node.x + (node.w || 140), y: node.y + 18 };
   return { x: node.x + (node.w || 220), y: node.y + 60 };
 }
 
 function nodeAnchorIn(node: WorkflowNode): { x: number; y: number } {
   if (node.kind === 'gate') return { x: node.x, y: node.y + 110 / 2 };
+  if (node.kind === 'start') return { x: node.x - 2, y: node.y + 18 };
   if (node.kind === 'end')  return { x: node.x - 2, y: node.y + 18 };
   if (node.kind === 'input') return { x: node.x, y: node.y + 36 }; // should not happen; InputNode has no input
   return { x: node.x, y: node.y + 60 };
@@ -43,7 +45,7 @@ function edgeMid(from: { x: number; y: number }, to: { x: number; y: number }, l
   return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
 }
 
-const NODE_H: Record<string, number> = { step: 120, gate: 110, end: 36, input: 72 };
+const NODE_H: Record<string, number> = { start: 36, step: 120, gate: 110, end: 36, input: 72 };
 
 export interface CanvasFitResult {
   zoom: number;
@@ -217,6 +219,34 @@ interface EndCardProps {
   onSelect: (id: string) => void;
 }
 
+interface StartCardProps {
+  node: Extract<WorkflowNode, { kind: 'start' }>;
+  selected: boolean;
+  onMouseDown: (element: React.MouseEvent, id: string) => void;
+  onSelect: (id: string) => void;
+}
+
+function StartCard({ node, selected, onMouseDown, onSelect }: StartCardProps) {
+  const { t } = useI18n();
+  const classNames = ['start-node'];
+  if (selected) classNames.push('selected');
+  if (node.locked) classNames.push('locked');
+
+  return (
+    <div
+      className={classNames.join(' ')}
+      style={{ left: node.x, top: node.y, width: node.w || 140 }}
+      onMouseDown={(event) => onMouseDown(event, node.id)}
+      onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}
+    >
+      <Icon name="play-line" size={11} />
+      <span className={nodeTitleIsFallback(node) ? 'placeholder-title' : undefined}>{node.title || nodeDisplayTitle(node) || t('canvas.start')}</span>
+      {node.locked && <span className="lock-badge"><Icon name="lock" size={10} /></span>}
+      <div className="port out" data-port="out" data-node={node.id} />
+    </div>
+  );
+}
+
 function EndCard({ node, selected, onMouseDown, onSelect }: EndCardProps) {
   const { t } = useI18n();
   const classNames = ['end-node'];
@@ -278,9 +308,11 @@ function InputCard({ node, selected, onMouseDown, onSelect }: InputCardProps) {
 
 // ── canvas ────────────────────────────────────────────────────────────────────
 
-export type CanvasMode = 'select' | 'hand' | 'add-step' | 'add-gate' | 'add-end' | 'add-input';
+export type CanvasMode = 'select' | 'hand' | 'add-start' | 'add-step' | 'add-gate' | 'add-end' | 'add-input';
 
 interface CanvasProps {
+  workflowVersion: 1 | 2;
+  derivedLoopClosingEdgeIds?: string[];
   nodes: WorkflowNode[];
   edges: Edge[];
   sessions: Session[];
@@ -325,7 +357,7 @@ interface MarqueeRect {
 }
 
 function isAddMode(mode: CanvasMode): boolean {
-  return mode === 'add-step' || mode === 'add-gate' || mode === 'add-end' || mode === 'add-input';
+  return mode === 'add-start' || mode === 'add-step' || mode === 'add-gate' || mode === 'add-end' || mode === 'add-input';
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -361,6 +393,8 @@ interface DragEdge {
 }
 
 export function Canvas({
+  workflowVersion,
+  derivedLoopClosingEdgeIds = [],
   nodes, edges, sessions,
   selection, onSelectNode, onSelectNodes, onSelectEdge, onClearSelection,
   runState, showRun, onNodeMove, onNodesMove,
@@ -386,6 +420,7 @@ export function Canvas({
   const dragEdgeRef = useRef<DragEdge | null>(null);
   const suppressClickRef = useRef(false);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const derivedLoopClosingEdgeIdSet = useMemo(() => new Set(derivedLoopClosingEdgeIds), [derivedLoopClosingEdgeIds]);
 
   zoomRef.current   = zoom;
   panRef.current    = pan;
@@ -417,6 +452,14 @@ export function Canvas({
       setDragEdge(null);
     }
   }, [isEdit, mode]);
+
+  useEffect(() => {
+    if ((workflowVersion === 2 && mode === 'add-input') || (workflowVersion === 1 && mode === 'add-start')) {
+      setMode('select');
+      setGhostPos(null);
+      setDragEdge(null);
+    }
+  }, [mode, workflowVersion]);
 
   const fitToView = useCallback(() => {
     if (!wrapRef.current || nodes.length === 0) return;
@@ -546,7 +589,9 @@ export function Canvas({
           if (toId && toId !== dragInfo.fromId) {
             const fromNode = nodesRef.current.find((node) => node.id === dragInfo.fromId);
             const toNode   = nodesRef.current.find((node) => node.id === toId);
-            if (fromNode && toNode && toNode.kind !== 'input') {
+            if (fromNode && toNode && toNode.kind !== 'input' && toNode.kind !== 'start') {
+              const validStartEdge = fromNode.kind !== 'start' || toNode.kind === 'step';
+              if (!validStartEdge) return;
               const edge = {
                 id: edgeKey({ from: dragInfo.fromId, to: toId, branch: dragInfo.branch }),
                 from: dragInfo.fromId,
@@ -555,16 +600,17 @@ export function Canvas({
               };
               const secondGateInput = toNode.kind === 'gate'
                 && fromNode.kind !== 'input'
+                && fromNode.kind !== 'start'
                 && edgesRef.current.some((existing) =>
                   existing.to === toId
-                  && nodesRef.current.find((node) => node.id === existing.from)?.kind !== 'input');
+                  && !['input', 'start'].includes(nodesRef.current.find((node) => node.id === existing.from)?.kind ?? ''));
               const executionCycle = wouldCreateExecutedCycle(edge, edgesRef.current);
               const controlledLoopback = executionCycle && (
                 (fromNode.kind === 'gate' && Boolean(dragInfo.branch))
                 || closesGateControlledCycle(edge, edgesRef.current, nodesRef.current)
               );
               if (!secondGateInput && (!executionCycle || controlledLoopback) && !edgesRef.current.some((existing) => existing.id === edge.id)) {
-                onAddEdge(controlledLoopback ? { ...edge, loopback: true } : edge);
+                onAddEdge(workflowVersion === 1 && controlledLoopback ? { ...edge, loopback: true } : edge);
               }
             }
           }
@@ -595,7 +641,7 @@ export function Canvas({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [mode, clientToCanvas, onAddEdge, onSelectNodes, setPan, onNodeMove, onNodesMove]);
+  }, [mode, workflowVersion, clientToCanvas, onAddEdge, onSelectNodes, setPan, onNodeMove, onNodesMove]);
 
   // ── canvas mousedown ──────────────────────────────────────────────────────
 
@@ -612,13 +658,14 @@ export function Canvas({
       return;
     }
     if (element.button !== 0) return;
-    if (mode !== 'hand' && target.closest('.node, .gate-wrap, .end-node, .input-node, .edge-tag, .edge-hover-target')) return;
+    if (mode !== 'hand' && target.closest('.node, .gate-wrap, .start-node, .end-node, .input-node, .edge-tag, .edge-hover-target')) return;
 
     // In add-mode and edit view: place node at click
     if (isAddMode(mode) && isEdit) {
       const position = clientToCanvas(element.clientX, element.clientY);
       const keyPrefix =
-        mode === 'add-step' ? 'step'
+        mode === 'add-start' ? 'start'
+        : mode === 'add-step' ? 'step'
         : mode === 'add-gate' ? 'gate'
         : mode === 'add-input' ? 'input'
         : 'end';
@@ -626,7 +673,9 @@ export function Canvas({
       const firstSession = sessions[0]?.id ?? null;
 
       let newNode: WorkflowNode;
-      if (mode === 'add-step') {
+      if (mode === 'add-start') {
+        newNode = { kind: 'start', id, alias: 'START', x: position.x - 70, y: position.y - 18, w: 140, title: t('canvas.start'), sessionId: null };
+      } else if (mode === 'add-step') {
         const alias = String(nodesRef.current.filter((node) => node.kind === 'step').length + 1).padStart(2, '0');
         newNode = { kind: 'step', id, alias, x: position.x - 110, y: position.y - 60, w: 220, title: t('canvas.untitled'), prompt: '', sessionId: firstSession };
       } else if (mode === 'add-gate') {
@@ -823,6 +872,9 @@ export function Canvas({
             <marker id="arrow-loopback" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
               <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--ink-3)" />
             </marker>
+            <marker id="arrow-derived-loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+              <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--loop-edge)" />
+            </marker>
             <marker id="arrow-running" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
               <path d="M 0 1 L 9 5 L 0 9 z" fill="var(--running)" />
             </marker>
@@ -835,27 +887,34 @@ export function Canvas({
             const sameSession = isSameSessionContentEdge(edge, nodes, edges);
             const sourceAnchor = nodeAnchorOut(fromNode, edge.branch);
             const targetAnchor = nodeAnchorIn(toNode);
-            const pathData = edgePath(sourceAnchor, targetAnchor, edge.loopback);
+            const derivedLoopClosing = derivedLoopClosingEdgeIdSet.has(edge.id);
+            const loopClosing = edge.loopback || derivedLoopClosing;
+            const pathData = edgePath(sourceAnchor, targetAnchor, loopClosing);
             const isSelected = selection?.kind === 'edge' && selection.id === edge.id;
             const fromState  = runState[edge.from];
             const toState    = runState[edge.to];
             const active = showRun && fromState === 'success' && (toState === 'running' || toState === 'success');
-            const stroke = edge.loopback
+            const stroke = derivedLoopClosing
+              ? 'var(--loop-edge)'
+              : edge.loopback
               ? 'var(--ink-3)'
               : active
                 ? 'var(--running)'
                 : sameSession ? 'var(--ink-3)' : 'var(--ink-2)';
-            const dash = edge.loopback
+            const dash = derivedLoopClosing
+              ? '5 3'
+              : edge.loopback
               ? '4 4'
               : active
                 ? '6 4'
                 : sameSession ? '2 4' : '';
-            const markerId = edge.loopback ? 'arrow-loopback' : active ? 'arrow-running' : 'arrow';
+            const markerId = derivedLoopClosing ? 'arrow-derived-loop' : edge.loopback ? 'arrow-loopback' : active ? 'arrow-running' : 'arrow';
 
             return (
               <g key={edge.id}>
                 <path
                   d={pathData}
+                  className={derivedLoopClosing ? 'edge-derived-loop' : undefined}
                   fill="none"
                   stroke={stroke}
                   strokeWidth={isSelected ? 1.6 : 1.1}
@@ -896,7 +955,9 @@ export function Canvas({
 
           const sourceAnchor = nodeAnchorOut(fromNode, edge.branch);
           const targetAnchor = nodeAnchorIn(toNode);
-          const midpoint = edgeMid(sourceAnchor, targetAnchor, edge.loopback);
+          const derivedLoopClosing = derivedLoopClosingEdgeIdSet.has(edge.id);
+          const loopClosing = edge.loopback || derivedLoopClosing;
+          const midpoint = edgeMid(sourceAnchor, targetAnchor, loopClosing);
 
           // InputNode→Step edge: show the variable name chip
           if (fromNode.kind === 'input') {
@@ -938,11 +999,11 @@ export function Canvas({
           return (
             <div
               key={`tag-${edge.id}`}
-              className={`edge-tag${edge.outputTag ? '' : ' empty'}${isSelected ? ' selected' : ''}`}
+              className={`edge-tag${edge.outputTag ? '' : ' empty'}${isSelected ? ' selected' : ''}${derivedLoopClosing ? ' derived-loop' : ''}`}
               style={{ left: midpoint.x, top: midpoint.y }}
               onClick={(event) => { event.stopPropagation(); selectEdge(edge.id); }}
             >
-              {edge.loopback && <Icon name="rotate" size={10} />}
+              {loopClosing && <Icon name="rotate" size={10} />}
               {edge.transmit && edge.outputTag ? <span className="tag-key">&lt;specflow_{edge.outputTag}&gt;</span> : <span>{t('canvas.noTransfer')}</span>}
             </div>
           );
@@ -957,6 +1018,12 @@ export function Canvas({
               runState={runState[node.id]}
               onMouseDown={onNodeMouseDown} onSelect={selectNode}
               onAddBranch={onAddBranch}
+            />
+          );
+          if (node.kind === 'start') return (
+            <StartCard
+              key={node.id} node={node} selected={selected}
+              onMouseDown={onNodeMouseDown} onSelect={selectNode}
             />
           );
           if (node.kind === 'end') return (
@@ -1005,7 +1072,7 @@ export function Canvas({
           const fromNode = nodeById[edge.from];
           const toNode   = nodeById[edge.to];
           if (!fromNode || !toNode) return null;
-          const midpoint = edgeMid(nodeAnchorOut(fromNode, edge.branch), nodeAnchorIn(toNode), edge.loopback);
+          const midpoint = edgeMid(nodeAnchorOut(fromNode, edge.branch), nodeAnchorIn(toNode), edge.loopback || derivedLoopClosingEdgeIdSet.has(edge.id));
           return (
             <div className="edge-preview" style={{ left: midpoint.x + 20, top: midpoint.y + 14 }}>
               <span className="pp-label">{t('canvas.handoffPrompt')}</span>
@@ -1030,7 +1097,8 @@ export function Canvas({
       {/* toolbar — only in edit view */}
       {isEdit && (
         <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
-          {toolbarModeBtn('add-input', 'input', t('canvas.addRunInputTitle'))}
+          {workflowVersion === 2 && toolbarModeBtn('add-start', 'play-circle', t('canvas.addStartTitle'))}
+          {workflowVersion === 1 && toolbarModeBtn('add-input', 'input', t('canvas.addRunInputTitle'))}
           {toolbarModeBtn('add-step', 'step-node', t('canvas.addStepTitle'), t('canvas.addStepTooltip'))}
           {toolbarModeBtn('add-gate', 'route', t('canvas.addGateTitle'))}
           {toolbarModeBtn('add-end', 'check', t('canvas.addEndTitle'))}
@@ -1083,6 +1151,13 @@ export function Canvas({
 
 function GhostNode({ mode, position }: { mode: CanvasMode; position: { x: number; y: number } }) {
   const { t } = useI18n();
+  if (mode === 'add-start') {
+    return (
+      <div className="ghost-node ghost-start" style={{ left: position.x - 70, top: position.y - 18, width: 140 }}>
+        <Icon name="play-line" size={11} />{t('canvas.start')}
+      </div>
+    );
+  }
   if (mode === 'add-step') {
     return (
       <div className="ghost-node ghost-step" style={{ left: position.x - 110, top: position.y - 60, width: 220 }}>

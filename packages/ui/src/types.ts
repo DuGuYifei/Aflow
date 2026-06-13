@@ -5,6 +5,7 @@ export type Language = 'en' | 'zh-CN';
 
 export interface Variable {
   name: string;           // always prefixed: "specflow_branch"
+  title?: string;
   required?: boolean;
   defaultValue?: string;
   description?: string;
@@ -29,17 +30,23 @@ export interface Workflow {
   name: string;
   meta: string;
   runs: number;
+  version?: 1 | 2;
+  deprecated?: boolean;
   local?: boolean;
   active?: boolean;
 }
 
 export interface RunSnapshot {
   id: string;
+  version?: 1 | 2;
   name: string;
   sessions: Session[];
   nodes: WorkflowNode[];
   edges: Edge[];
   variables?: Variable[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
 }
 
 export interface Run {
@@ -128,6 +135,19 @@ export interface Branch {
   id: string;
   label: string;
   description?: string;
+  maxTraversals?: number;
+}
+
+export interface StartNode {
+  kind: 'start';
+  id: string;
+  alias: string;
+  x: number;
+  y: number;
+  w: number;
+  title: string;
+  sessionId: null;
+  locked?: boolean;
 }
 
 export interface StepNode {
@@ -190,7 +210,7 @@ export interface InputNode {
   locked?: boolean;
 }
 
-export type WorkflowNode = StepNode | GateNode | EndNode | InputNode;
+export type WorkflowNode = StartNode | StepNode | GateNode | EndNode | InputNode;
 
 export interface Edge {
   id: string;
@@ -206,5 +226,6 @@ export interface Edge {
 
 export type Selection =
   | { kind: 'node'; id: string }
+  | { kind: 'variable'; name: string }
   | { kind: 'edge'; id: string }
   | { kind: 'nodes'; ids: string[] };

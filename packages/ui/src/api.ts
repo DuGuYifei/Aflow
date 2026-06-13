@@ -3,17 +3,22 @@ import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
   id: string;
+  version?: 1 | 2;
   name: string;
   sessions: Session[];
   nodes: WorkflowNode[];
   edges: Edge[];
   variables?: Variable[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
 }
 
 export type AgentFlowNode = Omit<WorkflowNode, 'x' | 'y' | 'w'>;
 
 export interface AgentFlowDoc {
   id: string;
+  version?: 1 | 2;
   name: string;
   sessions: Session[];
   nodes: AgentFlowNode[];
@@ -368,6 +373,8 @@ export interface CanvasSummary {
   id: string;
   name: string;
   runs: number;
+  version?: 1 | 2;
+  deprecated?: boolean;
   local?: boolean;
 }
 
@@ -968,6 +975,7 @@ function combineSnapshot(
   const layoutByNode = new Map(layoutOrLegacy.nodes.map((node) => [node.nodeId, node]));
   return {
     id: agentflow.id,
+    version: agentflow.version,
     name: agentflow.name,
     sessions: agentflow.sessions,
     nodes: agentflow.nodes.map((node) => {
@@ -985,6 +993,7 @@ function combineSnapshot(
 }
 
 function defaultWidth(kind: WorkflowNode['kind']): number {
+  if (kind === 'start') return 140;
   if (kind === 'gate') return 200;
   if (kind === 'input') return 200;
   if (kind === 'end') return 140;
@@ -997,6 +1006,8 @@ export function summaryToWorkflow(summary: CanvasSummary): Workflow {
     name: summary.name,
     meta: `${summary.runs} runs`,
     runs: summary.runs,
+    version: summary.version,
+    deprecated: summary.deprecated,
     ...(summary.local ? { local: true } : {}),
   };
 }

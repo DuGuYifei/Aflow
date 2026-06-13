@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent } from 'react';
-import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent } from '../types';
+import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent, Variable } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
 import { branchAccent, edgeKey, isSymbolKey, sessionAccent } from '../appearance';
@@ -26,6 +26,8 @@ interface NodePanelProps {
   sessions: Session[];
   nodes: WorkflowNode[];
   edges: Edge[];
+  variables: Variable[];
+  workflowVersion: 1 | 2;
   viewMode: 'edit' | 'run';
   timelineEvents: TimelineEvent[];
   onClose: () => void;
@@ -37,7 +39,7 @@ interface NodePanelProps {
   onAddEdge: (edge: Edge) => void;
   onDeleteEdge: (id: string) => void;
   onAddBranch: (gateId: string) => void;
-  onEditBranch: (gateId: string, branchId: string, patch: { label?: string; description?: string }) => void;
+  onEditBranch: (gateId: string, branchId: string, patch: { label?: string; description?: string; maxTraversals?: number }) => void;
   onDeleteBranch: (gateId: string, branchId: string) => void;
   onAddPath: (nodeId: string, path?: string) => void;
   onEditPath: (nodeId: string, index: number, value: string) => void;
@@ -52,6 +54,9 @@ export function NodePanel(props: NodePanelProps) {
   const readonly = props.viewMode === 'run';
   if (props.node.kind === 'input') {
     return <InputPanelContent {...props} node={props.node} readonly={readonly} />;
+  }
+  if (props.node.kind === 'start') {
+    return <StartPanelContent {...props} node={props.node} readonly={readonly} />;
   }
   if (props.node.kind === 'gate') {
     return <GatePanelContent {...props} node={props.node} readonly={readonly} />;
@@ -136,15 +141,17 @@ function StepOverview(props: NodePanelProps & {
   session?: Session;
 }) {
   const { t } = useI18n();
-  const { node, run, session, sessions, nodes, edges, readonly } = props;
+  const { node, run, session, sessions, nodes, edges, readonly, variables, workflowVersion } = props;
   const promptRef = useRef<RichPromptInputHandle>(null);
   const { capabilities, refreshing, refresh } = useAgentCapabilities(session?.agentServerId);
   const skills = useSkills();
-  const inputTokens = edges
-    .filter((edge) => edge.to === node.id)
-    .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
-    .filter((candidate): candidate is InputNode => candidate?.kind === 'input')
-    .map((input) => ({ token: input.variableName, hint: input.description }));
+  const inputTokens = workflowVersion === 2
+    ? variables.map((variable) => ({ token: variable.name, hint: variable.description || variable.title }))
+    : edges
+      .filter((edge) => edge.to === node.id)
+      .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
+      .filter((candidate): candidate is InputNode => candidate?.kind === 'input')
+      .map((input) => ({ token: input.variableName, hint: input.description }));
   const outputTokens = edges
     .filter((edge) => edge.to === node.id && edge.transmit && edge.outputTag)
     .map((edge) => ({ token: `specflow_${edge.outputTag}`, hint: t('node.transferredOutputHint') }));
@@ -309,9 +316,12 @@ function NodePaths(props: NodePanelProps & { node: StepNode; readonly: boolean; 
 
 function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?: RunState }; readonly: boolean }) {
   const { t } = useI18n();
-  const { node, run, nodes, edges, readonly } = props;
+  const { node, run, nodes, edges, readonly, variables, workflowVersion } = props;
   const criteriaRef = useRef<HTMLTextAreaElement>(null);
-  const predecessorEdge = edges.find((edge) => edge.to === node.id && nodes.find((candidate) => candidate.id === edge.from)?.kind !== 'input');
+  const predecessorEdge = edges.find((edge) => {
+    const sourceKind = nodes.find((candidate) => candidate.id === edge.from)?.kind;
+    return edge.to === node.id && sourceKind !== 'input' && sourceKind !== 'start';
+  });
   const predecessor = nodes.find((candidate) => candidate.id === predecessorEdge?.from);
   const predecessorSession = predecessor?.kind === 'step'
     ? props.sessions.find((session) => session.id === predecessor.sessionId)
@@ -333,6 +343,20 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.decisionCriteria')}</div>
+      {!readonly && workflowVersion === 2 && variables.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+          {variables.map((variable) => (
+            <button
+              key={variable.name}
+              className="btn sm ghost"
+              title={variable.description || variable.title}
+              onClick={() => insertIntoTextarea(criteriaRef.current, `<${variable.name}>`, (next) => props.onEditNode(node.id, { decisionCriteria: next }))}
+            >
+              {displayPromptVariableName(variable.name)}
+            </button>
+          ))}
+        </div>
+      )}
       <SlashCommandTextarea
         ref={criteriaRef}
         rows={6}
@@ -369,11 +393,60 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
             {!readonly && <button className="icon-btn" disabled={node.branches.length <= 1} title={node.branches.length <= 1 ? t('node.deleteBranchRequired') : t('node.deleteBranch')} onClick={() => props.onDeleteBranch(node.id, branch.id)}><Icon name="trash" size={12} /></button>}
           </div>
           <input className="input" value={branch.description ?? ''} disabled={readonly} placeholder={t('node.branchDescriptionPlaceholder')} onChange={(event) => props.onEditBranch(node.id, branch.id, { description: event.target.value || undefined })} />
+          {workflowVersion === 2 && (
+            <div className="branch-max-row">
+              <label>{t('node.branchMaxTraversals')}</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                step={1}
+                value={branch.maxTraversals ?? ''}
+                disabled={readonly}
+                placeholder="∞"
+                onChange={(event) => {
+                  const rawValue = event.target.value;
+                  const maxTraversals = rawValue
+                    ? Math.max(1, Number.parseInt(rawValue, 10) || 1)
+                    : undefined;
+                  props.onEditBranch(node.id, branch.id, { maxTraversals });
+                }}
+              />
+            </div>
+          )}
         </div>
       ))}
       {!readonly && <button className="btn sm ghost" onClick={() => props.onAddBranch(node.id)}><Icon name="plus" size={12} />{t('node.addBranch')}</button>}
     </RightPanel>
   );
+}
+
+function StartPanelContent(props: NodePanelProps & { node: Extract<WorkflowNode, { kind: 'start' }> & { runState?: RunState }; readonly: boolean }) {
+  const { t } = useI18n();
+  const { node, run, nodes, readonly } = props;
+  return (
+    <RightPanel label={<><Icon name="play-circle" size={11} />{t('node.start')}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
+      {run && <NodeRunStatusBadge status={node.runState} />}
+      <div className="code-hint">{t('node.startHint')}</div>
+      <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
+      <div className="section-title">{t('node.alias')}</div>
+      <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
+    </RightPanel>
+  );
+}
+
+function insertIntoTextarea(element: HTMLTextAreaElement | null, text: string, onChange: (next: string) => void) {
+  if (!element) return;
+  const start = element.selectionStart ?? element.value.length;
+  const end = element.selectionEnd ?? start;
+  const next = `${element.value.slice(0, start)}${text}${element.value.slice(end)}`;
+  onChange(next);
+  const caret = start + text.length;
+  requestAnimationFrame(() => {
+    element.focus();
+    element.setSelectionRange(caret, caret);
+  });
 }
 
 function InputPanelContent(props: NodePanelProps & { node: InputNode & { runState?: RunState }; readonly: boolean }) {

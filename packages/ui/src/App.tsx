@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode } from './types';
+import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable } from './types';
 import { edgeKey, isSymbolKey } from './appearance';
 import {
   fetchCanvases, fetchCanvas, saveCanvas, uploadCanvasAssets, runCanvas,
@@ -30,6 +30,8 @@ import { NodePanel } from './components/node-panel';
 import { ConnectionPanel } from './components/connection-panel';
 import { SessionsBar } from './components/sessions-bar';
 import { RunConfigPanel } from './components/run-config-panel';
+import { VariablesPalette } from './components/variables-palette';
+import { VariablePanel } from './components/variable-panel';
 import { InteractionModal } from './components/interaction-modal';
 import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
@@ -141,6 +143,17 @@ function emptyAgentCapabilities(): AgentServerCapabilities {
   };
 }
 
+function nextVariableName(variables: Variable[]): string {
+  const used = new Set(variables.map((variable) => variable.name));
+  let suffix = variables.length + 1;
+  let name = `specflow_var${suffix}`;
+  while (used.has(name)) {
+    suffix += 1;
+    name = `specflow_var${suffix}`;
+  }
+  return name;
+}
+
 const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
   workflowsWidth: 220,
   runsWidth: 280,
@@ -174,6 +187,10 @@ export function App() {
   const [nodes, setNodes] = useState<WorkflowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [workflowVersion, setWorkflowVersion] = useState<1 | 2>(1);
+  const [workflowVariables, setWorkflowVariables] = useState<Variable[]>([]);
+  const [derivedLoopClosingEdgeIds, setDerivedLoopClosingEdgeIds] = useState<string[]>([]);
+  const [variablesPaletteCollapsed, setVariablesPaletteCollapsed] = useState(false);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const workflowsRef = useRef<Workflow[]>([]);
@@ -248,6 +265,8 @@ export function App() {
   const displayNodes: WorkflowNode[]  = (activeRun?.canvasSnapshot?.nodes  as WorkflowNode[]) ?? nodes;
   const displayEdges: Edge[]          = (activeRun?.canvasSnapshot?.edges  as Edge[])         ?? edges;
   const displaySessions: Session[]    = (activeRun?.canvasSnapshot?.sessions as Session[])    ?? sessions;
+  const displayWorkflowVersion: 1 | 2  = activeRun?.canvasSnapshot?.version ?? workflowVersion;
+  const displayDerivedLoopClosingEdgeIds = activeRun?.canvasSnapshot?.derived?.loopClosingEdgeIds ?? derivedLoopClosingEdgeIds;
 
   const refreshWorkflows = useCallback(async () => {
     const list = await fetchCanvases();
@@ -267,16 +286,20 @@ export function App() {
     });
   }, []);
 
-  // Variables are derived from InputNodes — both in edit and run view.
+  // v1 variables are derived from InputNodes; v2 variables are top-level workflow data.
   const variables = useMemo(
-    () => nodes.filter((node): node is InputNode => node.kind === 'input')
-              .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
-    [nodes],
+    () => workflowVersion === 2
+      ? workflowVariables
+      : nodes.filter((node): node is InputNode => node.kind === 'input')
+        .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
+    [nodes, workflowVariables, workflowVersion],
   );
   const displayVariables = useMemo(
-    () => displayNodes.filter((node): node is InputNode => node.kind === 'input')
-                      .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
-    [displayNodes],
+    () => displayWorkflowVersion === 2
+      ? (activeRun?.canvasSnapshot?.variables ?? workflowVariables)
+      : displayNodes.filter((node): node is InputNode => node.kind === 'input')
+        .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
+    [activeRun?.canvasSnapshot?.variables, displayNodes, displayWorkflowVersion, workflowVariables],
   );
   const hasAgentUpdates = useMemo(
     () => agentServers.some((server) => server.registry?.updateAvailable),
@@ -286,6 +309,8 @@ export function App() {
   const nodesRef     = useRef(nodes);
   const edgesRef     = useRef(edges);
   const sessionsRef  = useRef(sessions);
+  const workflowVariablesRef = useRef(workflowVariables);
+  const workflowVersionRef = useRef(workflowVersion);
   const resumeAfterAuthRef = useRef<undefined | (() => void | Promise<void>)>(undefined);
   const restoreUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
   const runUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
@@ -299,6 +324,8 @@ export function App() {
   useEffect(() => { nodesRef.current     = nodes;     }, [nodes]);
   useEffect(() => { edgesRef.current     = edges;     }, [edges]);
   useEffect(() => { sessionsRef.current  = sessions;  }, [sessions]);
+  useEffect(() => { workflowVariablesRef.current = workflowVariables; }, [workflowVariables]);
+  useEffect(() => { workflowVersionRef.current = workflowVersion; }, [workflowVersion]);
   useEffect(() => { workflowsRef.current = workflows; }, [workflows]);
   useEffect(() => { conversationRef.current = conversation; }, [conversation]);
   useEffect(() => { nodeCopyBufferRef.current = nodeCopyBuffer; }, [nodeCopyBuffer]);
@@ -353,9 +380,12 @@ export function App() {
     setLoadedWorkflowId('');
     if (!activeWorkflow) return;
     fetchCanvas(activeWorkflow).then((canvasDocument) => {
+      setWorkflowVersion(canvasDocument.version ?? 1);
       setNodes(canvasDocument.nodes as WorkflowNode[]);
       setEdges(canvasDocument.edges as Edge[]);
       setSessions(canvasDocument.sessions as Session[]);
+      setWorkflowVariables(canvasDocument.variables ?? []);
+      setDerivedLoopClosingEdgeIds(canvasDocument.derived?.loopClosingEdgeIds ?? []);
       setActiveCanvasName(canvasDocument.name);
       setActiveSessionId(canvasDocument.sessions[0]?.id ?? '');
       setSelection(null);
@@ -389,10 +419,12 @@ export function App() {
     saveTimerRef.current = setTimeout(() => {
       const canvasDocument = {
         id: activeWorkflow,
+        version: workflowVersionRef.current,
         name: activeCanvasName,
         sessions: sessionsRef.current,
         nodes: nodesRef.current,
         edges: edgesRef.current,
+        variables: workflowVariablesRef.current,
       };
       saveCanvas(activeWorkflow, canvasDocument).catch(console.error);
     }, 300);
@@ -456,6 +488,7 @@ export function App() {
       if (current.kind === 'nodes') {
         return { kind: 'nodes', ids: current.ids.map((id) => id === oldId ? nextId : id) };
       }
+      if (current.kind === 'variable') return current;
       const updatedEdge = updatedEdges.find((edge) =>
         edge.id === current.id
         || edgeKey({
@@ -512,7 +545,7 @@ export function App() {
     });
   }, [scheduleSave]);
 
-  const onEditBranch = useCallback((gateId: string, branchId: string, patch: { label?: string; description?: string }) => {
+  const onEditBranch = useCallback((gateId: string, branchId: string, patch: { label?: string; description?: string; maxTraversals?: number }) => {
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         if (node.id !== gateId || node.kind !== 'gate') return node;
@@ -758,10 +791,60 @@ export function App() {
 
   // Variables are declared via InputNodes on the canvas. Editing a variable
   // default value from the SessionsBar patches the InputNode directly.
-  const onEditVariable = useCallback((name: string, patch: Partial<{ defaultValue?: string; description?: string }>) => {
+  const onAddVariable = useCallback(() => {
+    if (workflowVersionRef.current !== 2) return;
+    const name = nextVariableName(workflowVariablesRef.current);
+    const nextVariable: Variable = {
+      name,
+      title: name.replace(/^specflow_/, ''),
+      required: true,
+    };
+    setWorkflowVariables((previousVariables) => {
+      const updated = [...previousVariables, nextVariable];
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+    setRunConfigOpen(false);
+    setSelection({ kind: 'variable', name });
+  }, [scheduleSave]);
+
+  const onEditVariable = useCallback((name: string, patch: Partial<Variable>) => {
+    if (workflowVersionRef.current === 2) {
+      setWorkflowVariables((previousVariables) => {
+        const updated = previousVariables.map((variable) => variable.name === name ? { ...variable, ...patch } : variable);
+        workflowVariablesRef.current = updated;
+        scheduleSave();
+        return updated;
+      });
+      return;
+    }
     const inputNode = nodesRef.current.find((node): node is InputNode => node.kind === 'input' && node.variableName === name);
     if (inputNode) onEditNode(inputNode.id, patch);
-  }, [onEditNode]);
+  }, [onEditNode, scheduleSave]);
+
+  const onRenameVariable = useCallback((oldName: string, newName: string) => {
+    if (workflowVersionRef.current !== 2 || oldName === newName) return;
+    if (workflowVariablesRef.current.some((variable) => variable.name === newName && variable.name !== oldName)) return;
+    setWorkflowVariables((previousVariables) => {
+      const updated = previousVariables.map((variable) => variable.name === oldName ? { ...variable, name: newName } : variable);
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+    setSelection((current) => current?.kind === 'variable' && current.name === oldName ? { kind: 'variable', name: newName } : current);
+  }, [scheduleSave]);
+
+  const onDeleteVariable = useCallback((name: string) => {
+    if (workflowVersionRef.current !== 2) return;
+    setWorkflowVariables((previousVariables) => {
+      const updated = previousVariables.filter((variable) => variable.name !== name);
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+    setSelection((current) => current?.kind === 'variable' && current.name === name ? null : current);
+  }, [scheduleSave]);
 
   // ── logs ──────────────────────────────────────────────────────────────────
 
@@ -771,6 +854,7 @@ export function App() {
 
   const onSelectNode     = (id: string) => { setRunConfigOpen(false); setSelection({ kind: 'node', id }); };
   const onSelectEdge     = (id: string) => { setRunConfigOpen(false); setSelection({ kind: 'edge', id }); };
+  const onSelectVariable = (name: string) => { setRunConfigOpen(false); setSelection({ kind: 'variable', name }); };
   const onSelectNodes    = (ids: string[]) => {
     setRunConfigOpen(false);
     setSelection(ids.length === 1 ? { kind: 'node', id: ids[0]! } : ids.length > 1 ? { kind: 'nodes', ids } : null);
@@ -828,7 +912,8 @@ export function App() {
     if (selection.kind === 'node') onDeleteNode(selection.id);
     if (selection.kind === 'nodes') onDeleteNodes(selection.ids);
     if (selection.kind === 'edge') onDeleteEdge(selection.id);
-  }, [activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, selection, view]);
+    if (selection.kind === 'variable') onDeleteVariable(selection.name);
+  }, [activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, onDeleteVariable, selection, view]);
 
   const onAddSessionRequest = useCallback(() => {
     setBarExpanded(true);
@@ -1069,8 +1154,14 @@ export function App() {
   const onOpenNewRun = useCallback(() => {
     setRunStartError('');
     const defaults: Record<string, string> = {};
-    for (const node of nodesRef.current) {
-      if (node.kind === 'input') defaults[node.variableName] = node.defaultValue ?? '';
+    if (workflowVersionRef.current === 2) {
+      for (const variable of workflowVariablesRef.current) {
+        defaults[variable.name] = variable.defaultValue ?? '';
+      }
+    } else {
+      for (const node of nodesRef.current) {
+        if (node.kind === 'input') defaults[node.variableName] = node.defaultValue ?? '';
+      }
     }
     setRunConfigVars(defaults);
     setRunConfigBusy(false);
@@ -1485,7 +1576,7 @@ export function App() {
   const onCreateWorkflow = useCallback(async (name: string) => {
     try {
       const canvasDocument = await createCanvas(name.trim() || t('app.untitledWorkflow'));
-      const summary = { id: canvasDocument.id, name: canvasDocument.name, runs: 0 };
+      const summary = { id: canvasDocument.id, name: canvasDocument.name, version: canvasDocument.version, runs: 0 };
       setWorkflows((previous) => [summaryToWorkflow(summary), ...previous]);
       setActiveWorkflow(canvasDocument.id);
     } catch (error) {
@@ -1501,10 +1592,12 @@ export function App() {
         clearTimeout(saveTimerRef.current);
         const canvasDocument = {
           id,
+          version: workflowVersionRef.current,
           name: nextName,
           sessions: sessionsRef.current,
           nodes: nodesRef.current,
           edges: edgesRef.current,
+          variables: workflowVariablesRef.current,
         };
         await saveCanvas(id, canvasDocument);
         setActiveCanvasName(nextName);
@@ -1539,6 +1632,11 @@ export function App() {
           nodesRef.current = [];
           setEdges([]);
           edgesRef.current = [];
+          setWorkflowVersion(1);
+          workflowVersionRef.current = 1;
+          setWorkflowVariables([]);
+          workflowVariablesRef.current = [];
+          setDerivedLoopClosingEdgeIds([]);
           setRuns([]);
           setActiveRunId('');
           setSelection(null);
@@ -1557,6 +1655,7 @@ export function App() {
 
   const selectedNode     = selection?.kind === 'node' ? displayNodes.find((node) => node.id === selection.id) : null;
   const selectedEdge     = selection?.kind === 'edge' ? displayEdges.find((edge) => edge.id === selection.id) : null;
+  const selectedVariable = selection?.kind === 'variable' ? displayVariables.find((variable) => variable.name === selection.name) : null;
   const selectedFromNode = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.from) : undefined;
   const selectedToNode   = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.to)   : undefined;
   const selectedTransferSourceNode = selectedEdge ? resolveTransferSource(selectedEdge, displayNodes, displayEdges) : undefined;
@@ -1568,6 +1667,8 @@ export function App() {
     && (
       selection?.kind === 'edge'
         ? edges.some((edge) => edge.id === selection.id)
+        : selection?.kind === 'variable'
+          ? workflowVersion === 2 && workflowVariables.some((variable) => variable.name === selection.name)
         : selectedNodeIds.some((id) => {
             const node = nodes.find((candidate) => candidate.id === id);
             return node && !(node as WorkflowNode & { locked?: boolean }).locked;
@@ -1578,7 +1679,7 @@ export function App() {
     ? { ...selectedNode, runState: runState[selectedNode.id] }
     : null;
 
-  const hasRightPanel = selection?.kind === 'node' || selection?.kind === 'edge';
+  const hasRightPanel = selection?.kind === 'node' || selection?.kind === 'edge' || selection?.kind === 'variable';
   const barH     = barExpanded ? barHeight : 32;
   const rootClass = ['app', 'two-col-left', 'has-bottom-bar', hasRightPanel ? '' : 'no-right'].filter(Boolean).join(' ');
   const leftWidth = sidebarTotalWidth(sidebarLayout);
@@ -1635,6 +1736,8 @@ export function App() {
 
       <div className="canvas-cell" style={{ position: 'relative', overflow: 'hidden', minHeight: 0, height: '100%' }}>
         <Canvas
+          workflowVersion={displayWorkflowVersion}
+          derivedLoopClosingEdgeIds={displayDerivedLoopClosingEdgeIds}
           nodes={displayNodes}
           edges={displayEdges}
           sessions={displaySessions}
@@ -1664,6 +1767,17 @@ export function App() {
           zoom={zoom} setZoom={setZoom}
           pan={pan} setPan={setPan}
         />
+        {displayWorkflowVersion === 2 && (
+          <VariablesPalette
+            variables={displayVariables}
+            selectedName={selection?.kind === 'variable' ? selection.name : undefined}
+            readonly={view === 'run'}
+            collapsed={variablesPaletteCollapsed}
+            onCollapsedChange={setVariablesPaletteCollapsed}
+            onAddVariable={onAddVariable}
+            onSelectVariable={onSelectVariable}
+          />
+        )}
         {activeRun && (
           <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 6 }}>
             <div className="run-pill">
@@ -1729,6 +1843,8 @@ export function App() {
           sessions={displaySessions}
           nodes={displayNodes}
           edges={displayEdges}
+          variables={displayVariables}
+          workflowVersion={displayWorkflowVersion}
           viewMode={view}
           timelineEvents={logEvents}
           onClose={onClearSelection}
@@ -1758,10 +1874,23 @@ export function App() {
           fromNode={selectedFromNode}
           toNode={selectedToNode}
           transferSourceNode={selectedTransferSourceNode}
+          workflowVersion={displayWorkflowVersion}
+          derivedLoopClosingEdgeIds={displayDerivedLoopClosingEdgeIds}
           viewMode={view}
           onClose={onClearSelection}
           onEditEdge={onEditEdge}
           onDeleteEdge={onDeleteEdge}
+        />
+      )}
+      {!runConfigOpen && selection?.kind === 'variable' && selectedVariable && (
+        <VariablePanel
+          variable={selectedVariable}
+          variables={displayVariables}
+          readonly={view === 'run'}
+          onClose={onClearSelection}
+          onEditVariable={onEditVariable}
+          onRenameVariable={onRenameVariable}
+          onDeleteVariable={onDeleteVariable}
         />
       )}
 
