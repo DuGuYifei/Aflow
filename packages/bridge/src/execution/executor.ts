@@ -37,6 +37,7 @@ import { RunPauseStore } from "./pause-store";
 import {
   RunControlStore,
   WorkflowInterruptedError,
+  type PendingCompletionCheckpoint,
   type WorkflowExecutionCheckpoint,
 } from "./run-control-store";
 
@@ -193,6 +194,10 @@ interface NodeExecutionResult {
   output: string;
   origin: TransferOrigin;
   chosenBranchId?: string;
+  nodeRunId?: string;
+  gateDecision?: GateDecision;
+  gateBranches?: GateBranchStatus[];
+  alreadyCommitted?: boolean;
 }
 
 interface PendingNodeInput {
@@ -242,6 +247,8 @@ function createExecutionCheckpoint(input: {
   activeNodeId?: string;
   interruptedNodeId?: string;
   interruptedExecutionKey?: string;
+  suspension?: WorkflowExecutionCheckpoint["suspension"];
+  pendingCompletion?: PendingCompletionCheckpoint;
   reason?: string;
 }): WorkflowExecutionCheckpoint {
   return {
@@ -262,6 +269,8 @@ function createExecutionCheckpoint(input: {
     ...(input.activeNodeId ? { activeNodeId: input.activeNodeId } : {}),
     ...(input.interruptedNodeId ? { interruptedNodeId: input.interruptedNodeId } : {}),
     ...(input.interruptedExecutionKey ? { interruptedExecutionKey: input.interruptedExecutionKey } : {}),
+    ...(input.suspension ? { suspension: input.suspension } : {}),
+    ...(input.pendingCompletion ? { pendingCompletion: input.pendingCompletion } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
     createdAt: new Date().toISOString(),
   };
@@ -408,9 +417,125 @@ export class WorkflowExecutor {
         }
       }
 
+      const commitNodeResult = async (input: {
+        queued: QueuedNode;
+        node: WorkflowNode;
+        nodeResult: NodeExecutionResult;
+      }) => {
+        const key = executionKey(input.queued.nodeId, input.queued.traversal);
+        if (!input.nodeResult.alreadyCommitted) {
+          const nodeRun = input.nodeResult.nodeRunId
+            ? run.nodeRuns.find((candidate) => candidate.id === input.nodeResult.nodeRunId)
+            : [...run.nodeRuns].reverse().find((candidate) => candidate.nodeId === input.node.id);
+          const completedAt = new Date().toISOString();
+          if (nodeRun) {
+            nodeRun.status = "done";
+            nodeRun.output = input.nodeResult.output;
+            nodeRun.completedAt = completedAt;
+            if (input.nodeResult.gateDecision) nodeRun.gateDecision = input.nodeResult.gateDecision;
+          }
+          this.#onNodeStatus?.({
+            runId: run.id,
+            nodeId: input.node.id,
+            status: "done",
+            at: completedAt,
+            output: input.nodeResult.output,
+            ...(input.nodeResult.gateDecision ? { gateDecision: input.nodeResult.gateDecision } : {}),
+            ...(input.nodeResult.gateBranches ? { gateBranches: input.nodeResult.gateBranches } : {}),
+          });
+        }
+
+        completedExecutions.add(key);
+        if (input.queued.traversal === 0) completedNodes.add(input.node.id);
+
+        const outgoingEdges = outgoingEdgesBySource.get(input.node.id) ?? [];
+        let selectedEdges = outgoingEdges;
+        if (input.node.kind === "gate") {
+          const branchKey = `${input.node.id}:${input.nodeResult.chosenBranchId}`;
+          branchTraversals.set(branchKey, (branchTraversals.get(branchKey) ?? 0) + 1);
+          selectedEdges = outgoingEdges.filter((edge) => edge.sourcePortId === input.nodeResult.chosenBranchId);
+          const supportsRerun = rerunnableGateIds.has(input.node.id);
+          const continuesLoop = selectedEdges.some((edge) => recurringBranchEdgeIds.has(edge.id));
+          if ((!supportsRerun || !continuesLoop) && input.queued.traversal === 0) {
+            for (const edge of outgoingEdges) {
+              if (edge.sourcePortId === input.nodeResult.chosenBranchId) continue;
+              deactivateEdgeAndDependents({
+                edge,
+                inactiveEdges,
+                skippedNodes,
+                incomingEdgesByTarget,
+                outgoingEdgesBySource,
+                queue,
+              });
+            }
+          }
+        }
+        for (const edge of selectedEdges) {
+          if (inactiveEdges.has(edge.id)) continue;
+          const targetTraversal = edge.loopback ? input.queued.traversal + 1 : input.queued.traversal;
+          const targetKey = executionKey(edge.targetNodeId, targetTraversal);
+          const target = pendingInputs.get(targetKey) ?? { input: [], edgeValues: {} };
+          if (edge.kind === "gate-input") {
+            target.input.push(input.nodeResult.origin.output);
+            target.origin = input.nodeResult.origin;
+          } else if (edge.kind === "tagged-output") {
+            const taggedContent = await this.#resolveTaggedEdgeContent({
+              workflow,
+              agentRunner,
+              run,
+              edge,
+              origin: input.nodeResult.origin,
+              signal: options.signal,
+            });
+            Object.assign(target.edgeValues, createTaggedEdgeVariable(edge, taggedContent));
+          }
+          pendingInputs.set(targetKey, target);
+          queue.push({ nodeId: edge.targetNodeId, traversal: targetTraversal });
+        }
+      };
+
+      const pendingCompletionToResult = (pendingCompletion: PendingCompletionCheckpoint): NodeExecutionResult => ({
+        output: pendingCompletion.output,
+        origin: pendingCompletion.origin ?? { agentId: "checkpoint", sessionId: pendingCompletion.nodeId, output: pendingCompletion.output },
+        chosenBranchId: pendingCompletion.chosenBranchId,
+        nodeRunId: pendingCompletion.nodeRunId,
+        gateDecision: pendingCompletion.gateDecision,
+        gateBranches: pendingCompletion.gateBranches,
+      });
+
+      const buildPendingCompletion = (input: {
+        queued: QueuedNode;
+        key: string;
+        nodeResult: NodeExecutionResult;
+      }): PendingCompletionCheckpoint => ({
+        nodeId: input.queued.nodeId,
+        traversal: input.queued.traversal,
+        executionKey: input.key,
+        ...(input.nodeResult.nodeRunId ? { nodeRunId: input.nodeResult.nodeRunId } : {}),
+        output: input.nodeResult.output,
+        origin: { ...input.nodeResult.origin },
+        ...(input.nodeResult.chosenBranchId ? { chosenBranchId: input.nodeResult.chosenBranchId } : {}),
+        ...(input.nodeResult.gateDecision ? { gateDecision: input.nodeResult.gateDecision } : {}),
+        ...(input.nodeResult.gateBranches ? { gateBranches: input.nodeResult.gateBranches.map((branch) => ({ ...branch })) } : {}),
+      });
+
+      if (checkpoint?.pendingCompletion) {
+        const node = nodesById.get(checkpoint.pendingCompletion.nodeId);
+        if (!node) throw new Error(`Checkpoint references missing node "${checkpoint.pendingCompletion.nodeId}".`);
+        await commitNodeResult({
+          queued: {
+            nodeId: checkpoint.pendingCompletion.nodeId,
+            traversal: checkpoint.pendingCompletion.traversal,
+          },
+          node,
+          nodeResult: pendingCompletionToResult(checkpoint.pendingCompletion),
+        });
+        await reloadWorkflow();
+      }
+
       while (queue.length > 0) {
         throwIfCancelled(options.signal);
-        if (this.#runControls?.isPauseRequested(run.id)) {
+        if (this.#runControls?.isPauseAtSafePointRequested(run.id)) {
           const checkpoint = createExecutionCheckpoint({
             queue,
             pendingInputs,
@@ -419,6 +544,10 @@ export class WorkflowExecutor {
             skippedNodes,
             inactiveEdges,
             branchTraversals,
+            suspension: {
+              kind: "safe_point_pause",
+              source: "player",
+            },
           });
           await this.#waitForRunPlay({
             run,
@@ -443,7 +572,6 @@ export class WorkflowExecutor {
           continue;
         }
 
-        const outgoingEdges = outgoingEdgesBySource.get(node.id) ?? [];
         const executableNode = node.kind === "gate"
           ? gateWithAvailableBranches(node, branchTraversals)
           : node;
@@ -458,6 +586,14 @@ export class WorkflowExecutor {
           && resumeOutputs.has(node.id);
         const isInterrupted = queued.traversal === 0 && interruptedFromResume.has(node.id);
         let nodeResult: NodeExecutionResult;
+        const activationControl = this.#runControls?.registerActivation({
+          runId: run.id,
+          nodeId: node.id,
+          nodeKind: executableNode.kind,
+          traversal: queued.traversal,
+          executionKey: key,
+          phase: "executing",
+        });
         try {
           if (useResumeShortcut) {
             nodeResult = this.#synthesizeResumeResult({
@@ -483,6 +619,7 @@ export class WorkflowExecutor {
             interruptedExecutions.delete(key);
           }
         } catch (error) {
+          activationControl?.unregister();
           if (!(error instanceof WorkflowInterruptedError)) throw error;
           interruptedExecutions.add(key);
           queue.unshift(queued);
@@ -497,6 +634,15 @@ export class WorkflowExecutor {
             activeNodeId: node.id,
             interruptedNodeId: node.id,
             interruptedExecutionKey: key,
+            suspension: {
+              kind: "interrupt",
+              source: "interrupt",
+              nodeId: node.id,
+              traversal: queued.traversal,
+              executionKey: key,
+              agentInvocationId: error.agentInvocationId,
+              reason: error.message,
+            },
             reason: error.message,
           });
           await this.#waitForRunPlay({
@@ -511,107 +657,95 @@ export class WorkflowExecutor {
           await reloadWorkflow();
           continue;
         }
-        if (node.kind === "agent" && node.pauseAfterRun) {
-          if (!this.#pauses) {
-            throw new Error(`Node "${node.id}" requires interactive pause support.`);
-          }
-          const nodeRun = run.nodeRuns.find((candidate) => candidate.nodeId === node.id);
-          if (!nodeRun) {
-            throw new Error(`Node "${node.id}" has no execution record to pause.`);
-          }
-          const pausedAt = new Date().toISOString();
-          const continuation = this.#pauses.waitForContinuation({
-            runId: run.id,
-            nodeId: node.id,
-            specflowSessionId: node.sessionId,
-            agentServerId: resolveAgentServerId(activeWorkflow.agents.find((agent) => agent.id === node.agentId)!),
-            pausedAt,
-          }, async (prompt, signal) => {
-            const invocation = this.#createInvocation({
-              run,
-              agentId: node.agentId,
-              sessionId: node.sessionId,
-              nodeRun,
-              prompt,
+        try {
+          activationControl?.setPhase("completing");
+          if (nodeResult.nodeRunId) activationControl?.setNodeRunId(nodeResult.nodeRunId);
+          const authoredPause = Boolean((executableNode as WorkflowNode & { pauseAfterRun?: boolean }).pauseAfterRun);
+          const requestedPause = this.#runControls?.consumePauseAfterActivation(run.id, key) === true;
+          if (!useResumeShortcut && (authoredPause || requestedPause)) {
+            const pendingCompletion = buildPendingCompletion({ queued, key, nodeResult });
+            const checkpoint = createExecutionCheckpoint({
+              queue,
+              pendingInputs,
+              completedNodes,
+              completedExecutions,
+              skippedNodes,
+              inactiveEdges,
+              branchTraversals,
+              activeNodeId: node.id,
+              suspension: {
+                kind: "pause_after_activation",
+                source: requestedPause ? "player" : "node_property",
+                nodeId: node.id,
+                traversal: queued.traversal,
+                executionKey: key,
+              },
+              pendingCompletion,
             });
-            return this.#invokeAgent({
-              workflow: activeWorkflow,
-              agentRunner,
-              run,
-              invocation,
-              agentId: node.agentId,
-              prompt,
-              signal: combineAbortSignals(options.signal, signal),
-            });
-          }, options.signal);
-          this.#onNodeStatus?.({
-            runId: run.id,
-            nodeId: node.id,
-            status: "paused",
-            at: pausedAt,
-            output: nodeResult.output,
-          });
-          const intervenedOutput = await continuation;
-          if (intervenedOutput !== undefined) {
-            nodeResult.output = intervenedOutput;
-            nodeResult.origin.output = intervenedOutput;
-          }
-          nodeRun.status = "done";
-          nodeRun.output = nodeResult.output;
-          nodeRun.completedAt = new Date().toISOString();
-          this.#onNodeStatus?.({
-            runId: run.id,
-            nodeId: node.id,
-            status: "done",
-            at: nodeRun.completedAt,
-            output: nodeResult.output,
-          });
-        }
-        completedExecutions.add(key);
-        if (queued.traversal === 0) completedNodes.add(node.id);
-
-        let selectedEdges = outgoingEdges;
-        if (node.kind === "gate") {
-          const branchKey = `${node.id}:${nodeResult.chosenBranchId}`;
-          branchTraversals.set(branchKey, (branchTraversals.get(branchKey) ?? 0) + 1);
-          selectedEdges = outgoingEdges.filter((edge) => edge.sourcePortId === nodeResult.chosenBranchId);
-          const supportsRerun = rerunnableGateIds.has(node.id);
-          const continuesLoop = selectedEdges.some((edge) => recurringBranchEdgeIds.has(edge.id));
-          if ((!supportsRerun || !continuesLoop) && queued.traversal === 0) {
-            for (const edge of outgoingEdges) {
-              if (edge.sourcePortId === nodeResult.chosenBranchId) continue;
-              deactivateEdgeAndDependents({
-                edge,
-                inactiveEdges,
-                skippedNodes,
-                incomingEdgesByTarget,
-                outgoingEdgesBySource,
-                queue,
-              });
+            const pausedAt = new Date().toISOString();
+            const nodeRun = nodeResult.nodeRunId
+              ? run.nodeRuns.find((candidate) => candidate.id === nodeResult.nodeRunId)
+              : undefined;
+            let pauseContinuation: Promise<string | undefined> | undefined;
+            if (nodeRun) {
+              nodeRun.status = "paused";
+              nodeRun.output = nodeResult.output;
             }
-          }
-        }
-        for (const edge of selectedEdges) {
-          if (inactiveEdges.has(edge.id)) continue;
-          const targetTraversal = edge.loopback ? queued.traversal + 1 : queued.traversal;
-          const targetKey = executionKey(edge.targetNodeId, targetTraversal);
-          const target = pendingInputs.get(targetKey) ?? { input: [], edgeValues: {} };
-          if (edge.kind === "gate-input") {
-            target.input.push(nodeResult.origin.output);
-            target.origin = nodeResult.origin;
-          } else if (edge.kind === "tagged-output") {
-            const taggedContent = await this.#resolveTaggedEdgeContent({
-              workflow,
-              agentRunner,
-              run,
-              edge,
-              origin: nodeResult.origin,
-              signal: options.signal,
+            if (this.#pauses && executableNode.kind === "agent" && nodeRun) {
+              pauseContinuation = this.#pauses.waitForContinuation({
+                runId: run.id,
+                nodeId: executableNode.id,
+                specflowSessionId: executableNode.sessionId,
+                agentServerId: resolveAgentServerId(activeWorkflow.agents.find((agent) => agent.id === executableNode.agentId)!),
+                pausedAt,
+              }, async (prompt, signal) => {
+                const invocation = this.#createInvocation({
+                  run,
+                  agentId: executableNode.agentId,
+                  sessionId: executableNode.sessionId,
+                  nodeRun,
+                  prompt,
+                });
+                const output = await this.#invokeAgent({
+                  workflow: activeWorkflow,
+                  agentRunner,
+                  run,
+                  invocation,
+                  agentId: executableNode.agentId,
+                  prompt,
+                  signal: combineAbortSignals(options.signal, signal),
+                });
+                pendingCompletion.output = output;
+                pendingCompletion.origin = { agentId: executableNode.agentId, sessionId: executableNode.sessionId, output };
+                return output;
+              }, options.signal).catch(() => undefined);
+            }
+            this.#onNodeStatus?.({
+              runId: run.id,
+              nodeId: node.id,
+              status: "paused",
+              at: pausedAt,
+              output: nodeResult.output,
+              ...(nodeResult.gateDecision ? { gateDecision: nodeResult.gateDecision } : {}),
+              ...(nodeResult.gateBranches ? { gateBranches: nodeResult.gateBranches } : {}),
             });
-            Object.assign(target.edgeValues, createTaggedEdgeVariable(edge, taggedContent));
+            await this.#waitForRunPlay({
+              run,
+              workflow: activeWorkflow,
+              status: "paused",
+              checkpoint,
+              signal: options.signal,
+              nodeId: node.id,
+            });
+            if (!this.#runControls && pauseContinuation) {
+              await pauseContinuation;
+            }
+            await reloadWorkflow();
+            nodeResult = pendingCompletionToResult(pendingCompletion);
           }
-          pendingInputs.set(targetKey, target);
-          queue.push({ nodeId: edge.targetNodeId, traversal: targetTraversal });
+          await commitNodeResult({ queued, node, nodeResult });
+        } finally {
+          activationControl?.unregister();
         }
       }
 
@@ -706,6 +840,7 @@ export class WorkflowExecutor {
       return {
         output: input.output,
         origin: { agentId: input.node.agentId, sessionId: input.node.sessionId, output: input.output },
+        alreadyCommitted: true,
       };
     }
     if (!input.origin) {
@@ -715,12 +850,16 @@ export class WorkflowExecutor {
         output: input.output,
         origin: { agentId: "gate", sessionId: input.node.id, output: input.output },
         chosenBranchId: input.chosenBranchId,
+        gateDecision: input.chosenBranchId ? { branchId: input.chosenBranchId } : undefined,
+        alreadyCommitted: true,
       };
     }
     return {
       output: input.output,
       origin: input.origin,
       chosenBranchId: input.chosenBranchId,
+      gateDecision: input.chosenBranchId ? { branchId: input.chosenBranchId } : undefined,
+      alreadyCommitted: true,
     };
   }
 
@@ -750,15 +889,11 @@ export class WorkflowExecutor {
     try {
       if (input.node.kind === "agent") {
         const output = await this.#executeAgentNode({ ...input, node: input.node, nodeRun, resumeMode: input.resumeMode });
-        nodeRun.status = input.node.pauseAfterRun ? "paused" : "done";
         nodeRun.output = output;
-        if (!input.node.pauseAfterRun) {
-          nodeRun.completedAt = new Date().toISOString();
-          this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "done", at: nodeRun.completedAt, output });
-        }
         return {
           output,
           origin: { agentId: input.node.agentId, sessionId: input.node.sessionId, output },
+          nodeRunId: nodeRun.id,
         };
       }
       if (!input.origin) throw new Error(`Gate node "${input.node.id}" requires one upstream step output.`);
@@ -800,22 +935,18 @@ export class WorkflowExecutor {
         const traversalsUsed = branch.traversalsUsed + 1;
         return { ...branch, traversalsUsed, available: traversalsUsed < branch.maxTraversals };
       });
-      nodeRun.status = "done";
       nodeRun.output = output;
       nodeRun.gateDecision = decision;
       nodeRun.sessionId = invocation.sessionId;
       nodeRun.agentInvocationId = invocation.id;
-      nodeRun.completedAt = new Date().toISOString();
-      this.#onNodeStatus?.({
-        runId: input.run.id,
-        nodeId: input.node.id,
-        status: "done",
-        at: nodeRun.completedAt,
+      return {
         output,
+        origin: input.origin,
+        chosenBranchId: decision.branchId,
+        nodeRunId: nodeRun.id,
         gateDecision: decision,
         gateBranches,
-      });
-      return { output, origin: input.origin, chosenBranchId: decision.branchId };
+      };
     } catch (error) {
       if (error instanceof WorkflowInterruptedError) {
         nodeRun.status = "interrupted";

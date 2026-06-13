@@ -77,6 +77,7 @@ export function canvasToWorkflow(canvasDocument: AgentFlowDoc): Workflow {
             ? branch.maxTraversals
             : canvasDocument.edges.find((edge) => edge.from === node.id && edge.branch === branch.id)?.maxTraversals ?? 1,
         })),
+        pauseAfterRun: node.pauseAfterRun,
         ...(node.configOptions && Object.keys(node.configOptions).length > 0
           ? { configOptions: node.configOptions }
           : {}),

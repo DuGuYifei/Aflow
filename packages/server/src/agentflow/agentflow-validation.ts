@@ -292,7 +292,7 @@ export function assertInteractivePauseSupported(
 
 export function assertNoPauseNodes(input: AgentFlowDoc): void {
   const canvasDocument = normalizeAgentFlowDraft(input);
-  const pausedNodes = canvasDocument.nodes.filter((node) => node.kind === "step" && node.pauseAfterRun);
+  const pausedNodes = canvasDocument.nodes.filter((node) => (node.kind === "step" || node.kind === "gate") && node.pauseAfterRun);
   if (pausedNodes.length === 0) return;
   throw new Error([
     "specflow run does not support pauseAfterRun nodes.",

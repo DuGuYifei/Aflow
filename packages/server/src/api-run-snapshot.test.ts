@@ -62,6 +62,44 @@ describe("run snapshot editing API", () => {
     expect(reachability.nodes["inactive"]).toBe("inactive");
   });
 
+  test("rejects snapshot edits to history-only and inactive nodes", async () => {
+    const root = await tempProject();
+    await saveRun(samplePausedRun(), root);
+    const handle = createApiHandler(testBridge(), root);
+
+    const historyOnlyPatch = sampleCanvas();
+    historyOnlyPatch.nodes = historyOnlyPatch.nodes.map((node) => node.id === "archived" && node.kind === "step"
+      ? { ...node, prompt: "should not change history only" }
+      : node);
+    const historyOnly = await handle(new Request("http://specflow.test/api/runs/run1/snapshot", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ snapshot: historyOnlyPatch }),
+    }));
+    expect(historyOnly?.status).toBe(409);
+    expect(await historyOnly!.json()).toMatchObject({
+      code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
+      nodeId: "archived",
+      editClass: "history_only",
+    });
+
+    const inactivePatch = sampleCanvas();
+    inactivePatch.nodes = inactivePatch.nodes.map((node) => node.id === "inactive" && node.kind === "step"
+      ? { ...node, prompt: "should not change inactive" }
+      : node);
+    const inactive = await handle(new Request("http://specflow.test/api/runs/run1/snapshot", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ snapshot: inactivePatch }),
+    }));
+    expect(inactive?.status).toBe(409);
+    expect(await inactive!.json()).toMatchObject({
+      code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
+      nodeId: "inactive",
+      editClass: "inactive",
+    });
+  });
+
   test("saves a successful run snapshot as a local best-practice workflow", async () => {
     const root = await tempProject();
     await saveRun({ ...samplePausedRun(), status: "success" }, root);

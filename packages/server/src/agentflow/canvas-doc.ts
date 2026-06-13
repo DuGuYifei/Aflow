@@ -42,6 +42,7 @@ export interface CanvasGateNode {
   title: string;
   decisionCriteria: string;
   branches: CanvasBranch[];
+  pauseAfterRun?: boolean;
   configOptions?: Record<string, string | boolean>;
 }
 

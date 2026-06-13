@@ -19,7 +19,7 @@ import {
   splitCanvasDoc,
   combineAgentFlowAndLayout,
 } from "./agentflow/canvas-store";
-import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunRecord, type RunState } from "./agentflow/run-store";
+import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunControlIntent, type RunRecord, type RunState } from "./agentflow/run-store";
 import {
   listAgentSessions,
   loadAgentSession,
@@ -422,7 +422,7 @@ function pickResumableInvocation(record: RunRecord): RunRecord["agentInvocations
 function buildContinuationPrompt(input: {
   nodeTitle?: string;
   invocationStatus: "running" | "done" | "failed" | "cancelled";
-  runStatus: "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
+  runStatus: "pending" | "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
   errorMsg?: string;
   originalTask?: string;
 }): string {
@@ -769,8 +769,21 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        const enqueue = (type: string, data: unknown) =>
-          controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+        let closed = false;
+        const enqueue = (type: string, data: unknown) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+          } catch (error) {
+            if (!closed) throw error;
+          }
+        };
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          cleanup();
+          try { controller.close(); } catch { /* already closed */ }
+        };
 
         enqueue("hello", { runId });
 
@@ -823,10 +836,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         const unsubscribeRun = eventBus.on(`${runId}:run`, (event) => {
           enqueue("run-status", event);
           const runStatusEvent = event as { status: string };
-          if (runStatusEvent.status !== "running") {
-            setTimeout(() => {
-              try { controller.close(); } catch { /* already closed */ }
-            }, 200);
+          if (isTerminalRunRecordStatus(runStatusEvent.status)) {
+            setTimeout(close, 200);
           }
         });
         const unsubscribeTerminal = eventBus.on(`${runId}:term`, (event) => enqueue("terminal", event));
@@ -839,11 +850,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           enqueue("interaction-requested", interaction);
         }
 
-        if (priorRunStatus && priorRunStatus !== "running") {
-          enqueue("run-status", { runId, status: priorRunStatus, replay: true });
-          setTimeout(() => {
-            try { controller.close(); } catch { /* already closed */ }
-          }, 50);
+        if (priorRunStatus) {
+          let priorControl: RunRecord["control"] | undefined;
+          try {
+            priorControl = (await loadRun(runId, root)).control;
+          } catch {
+            // Keep the replay status even if the run disappears.
+          }
+          enqueue("run-status", { runId, status: priorRunStatus, control: priorControl, replay: true });
+          if (isTerminalRunRecordStatus(priorRunStatus)) setTimeout(close, 50);
         }
 
         cleanup = () => {
@@ -1076,14 +1091,17 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       if (runStatus.status === "running") {
         record.status = "running";
         delete record.control?.pauseRequested;
+        delete record.control?.intent;
         delete record.errorMsg;
       } else if (runStatus.status === "paused") {
         record.status = "paused";
         record.control = { ...(record.control ?? {}), reason: runStatus.error };
+        delete record.control.intent;
       } else if (runStatus.status === "interrupted") {
         record.status = "interrupted";
         record.errorMsg = runStatus.error;
         record.control = { ...(record.control ?? {}), reason: runStatus.error };
+        delete record.control.intent;
       } else if (runStatus.status === "done") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
@@ -1114,7 +1132,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       void saveRun(record, root);
       appendLog({ type: "run_status", ...runStatus });
-      eventBus.emit(`${runId}:run`, { runId, status: record.status, workflowId, error: record.errorMsg });
+      eventBus.emit(`${runId}:run`, { runId, status: record.status, workflowId, error: record.errorMsg, control: record.control });
       if (terminal) offInteractionLog();
     };
 
@@ -1127,6 +1145,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         ...(checkpointEvent.nodeId ? { interruptedNodeId: checkpointEvent.nodeId } : {}),
         ...(checkpointEvent.reason ? { reason: checkpointEvent.reason } : {}),
       };
+      delete record.control.intent;
       if (checkpointEvent.status === "interrupted") {
         record.activeNode = checkpointEvent.nodeId;
         record.errorMsg = checkpointEvent.reason;
@@ -1137,6 +1156,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         status: record.status,
         workflowId,
         error: record.errorMsg,
+        control: record.control,
       });
     };
 
@@ -2129,7 +2149,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400 });
       const missingRequiredNode = firstMissingCheckpointNode(record, parsed.agentflow);
       if (missingRequiredNode) {
-        return Response.json({ error: `Cannot remove checkpoint node "${missingRequiredNode}" from an active run snapshot` }, { status: 409 });
+        return Response.json({
+          code: "SNAPSHOT_EDIT_REQUIRED_NODE_REMOVED",
+          nodeId: missingRequiredNode,
+          error: `Cannot remove checkpoint node "${missingRequiredNode}" from an active run snapshot`,
+        }, { status: 409 });
+      }
+      const reachabilityEditError = validateSnapshotReachabilityPatch(record, parsed.agentflow);
+      if (reachabilityEditError) {
+        return Response.json(reachabilityEditError, { status: 409 });
       }
       try {
         assertServerRunnableAgentFlow(parsed.agentflow, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
@@ -2187,24 +2215,78 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         }
       }
       const runRecord = await loadRun(id, root).catch(() => undefined);
-      if (runRecord && runRecord.status !== "running") {
+      if (!runRecord) return Response.json({ error: "Run not found" }, { status: 404 });
+      if (runRecord.control?.intent) {
+        if (runRecord.control.intent.kind === "pause_after_activation" || runRecord.control.intent.kind === "pause_at_safe_point") {
+          return Response.json({ ok: true, status: runRecord.control.intent.kind === "pause_after_activation" ? "pause_after_requested" : "safe_point_pause_requested", controlIntent: runRecord.control.intent });
+        }
+        return Response.json({
+          code: "RUN_CONTROL_ALREADY_PENDING",
+          error: `Run control is already pending: ${runRecord.control.intent.kind}`,
+          controlIntent: runRecord.control.intent,
+        }, { status: 409 });
+      }
+      if (runRecord.status !== "running") {
         return Response.json({ ok: true, status: runRecord.status });
       }
-      bridge.runControls.requestPause(id);
-      if (runRecord) {
-        runRecord.control = { ...(runRecord.control ?? {}), pauseRequested: true };
-        await saveRun(runRecord, root);
+      const active = bridge.runControls.getActiveActivation(id);
+      const requestedAt = new Date().toISOString();
+      let responseStatus: "pause_after_requested" | "safe_point_pause_requested" = "safe_point_pause_requested";
+      let responseNode: { nodeId: string; nodeKind: "step" | "gate"; executionKey: string; snapshotRevision: number } | undefined;
+      if (active && (active.nodeKind === "agent" || active.nodeKind === "gate")) {
+        const nodeKind = active.nodeKind === "agent" ? "step" : "gate";
+        let changed = false;
+        runRecord.agentflowSnapshot = {
+          ...runRecord.agentflowSnapshot,
+          nodes: runRecord.agentflowSnapshot.nodes.map((node) => {
+            if (node.id !== active.nodeId || (node.kind !== "step" && node.kind !== "gate")) return node;
+            if (node.pauseAfterRun === true) return node;
+            changed = true;
+            return { ...node, pauseAfterRun: true };
+          }),
+        };
+        if (changed) {
+          runRecord.snapshotRevision = (runRecord.snapshotRevision ?? 0) + 1;
+          runRecord.snapshotEditedAt = requestedAt;
+          runRecord.snapshotEditSummary = "Pause after current activation";
+        }
+        const intent: RunControlIntent = {
+          kind: "pause_after_activation",
+          source: "player",
+          nodeId: active.nodeId,
+          executionKey: active.executionKey,
+          requestedAt,
+        };
+        runRecord.control = { ...(runRecord.control ?? {}), intent, pauseRequested: true };
+        bridge.runControls.requestPauseAfterActivation(id, active.executionKey);
+        responseStatus = "pause_after_requested";
+        responseNode = {
+          nodeId: active.nodeId,
+          nodeKind,
+          executionKey: active.executionKey,
+          snapshotRevision: runRecord.snapshotRevision ?? 0,
+        };
+      } else {
+        const intent: RunControlIntent = {
+          kind: "pause_at_safe_point",
+          source: "player",
+          requestedAt,
+        };
+        runRecord.control = { ...(runRecord.control ?? {}), intent, pauseRequested: true };
+        bridge.runControls.requestPauseAtSafePoint(id);
       }
+      await saveRun(runRecord, root);
       bridge.terminalEvents.append({
         runId: id,
         stream: "system",
         chunk: "Run pause requested.\n",
       });
+      eventBus.emit(`${id}:run`, { runId: id, status: runRecord.status, workflowId: runRecord.workflowId, error: runRecord.errorMsg, control: runRecord.control });
       eventBus.emit(`${id}:term`, {
         chunk: "Run pause requested.\n",
         stream: "system",
       });
-      return Response.json({ ok: true, status: "pause_requested" });
+      return Response.json({ ok: true, status: responseStatus, ...(responseNode ?? {}), controlIntent: runRecord.control.intent });
     }
 
     // POST /api/runs/:id/interrupt
@@ -2214,10 +2296,34 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       if (!runControllers.has(id)) {
         return Response.json({ error: "Run process is not active" }, { status: 409 });
       }
+      const runRecord = await loadRun(id, root).catch(() => undefined);
+      if (!runRecord) return Response.json({ error: "Run not found" }, { status: 404 });
+      if (runRecord.control?.intent) {
+        if (runRecord.control.intent.kind === "interrupting") {
+          return Response.json({ ok: true, status: "interrupting", controlIntent: runRecord.control.intent });
+        }
+        return Response.json({
+          code: "RUN_CONTROL_ALREADY_PENDING",
+          error: `Run control is already pending: ${runRecord.control.intent.kind}`,
+          controlIntent: runRecord.control.intent,
+        }, { status: 409 });
+      }
+      if (runRecord.status !== "running") {
+        return Response.json({ error: `Only running runs can interrupt (status: ${runRecord.status})` }, { status: 409 });
+      }
       const interrupted = bridge.runControls.interrupt(id);
       if (!interrupted.interrupted) {
         return Response.json({ error: "No active agent invocation to interrupt" }, { status: 409 });
       }
+      const intent: RunControlIntent = {
+        kind: "interrupting",
+        source: "player",
+        nodeId: interrupted.nodeId ?? "",
+        agentInvocationId: interrupted.agentInvocationId ?? "",
+        requestedAt: new Date().toISOString(),
+      };
+      runRecord.control = { ...(runRecord.control ?? {}), intent, interruptedNodeId: interrupted.nodeId };
+      await saveRun(runRecord, root);
       bridge.interactions.cancelPendingForRun(id, "run interrupted");
       bridge.terminalEvents.append({
         runId: id,
@@ -2228,7 +2334,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         chunk: "Run interrupt requested.\n",
         stream: "system",
       });
-      return Response.json({ ok: true, status: "interrupting", ...interrupted });
+      eventBus.emit(`${id}:run`, { runId: id, status: runRecord.status, workflowId: runRecord.workflowId, error: runRecord.errorMsg, control: runRecord.control });
+      return Response.json({ ok: true, status: "interrupting", ...interrupted, controlIntent: intent });
     }
 
     // POST /api/runs/:id/play
@@ -2242,7 +2349,24 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         return Response.json({ error: "Run not found" }, { status: 404 });
       }
       if (runRecord.status !== "paused" && runRecord.status !== "interrupted") {
+        if (runRecord.status === "running" && runRecord.control?.intent) {
+          return Response.json({
+            code: "RUN_NOT_SUSPENDED_YET",
+            error: "Run is waiting for a pause or interrupt checkpoint before it can play.",
+            controlIntent: runRecord.control.intent,
+          }, { status: 409 });
+        }
         return Response.json({ error: `Only paused or interrupted runs can play (status: ${runRecord.status})` }, { status: 409 });
+      }
+      if (runRecord.pausedNodeId && bridge.pauses.get(id, runRecord.pausedNodeId)) {
+        try {
+          bridge.pauses.continue(id, runRecord.pausedNodeId);
+        } catch (error) {
+          return Response.json({
+            code: "PAUSED_NODE_NOT_READY",
+            error: errorMessage(error),
+          }, { status: 409 });
+        }
       }
       const played = bridge.runControls.play(id);
       if (!played.played) {
@@ -2344,7 +2468,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       try {
         if (pausedActionMatch[3] === "continue") {
-          return Response.json({ ok: true, paused: bridge.pauses.continue(runId, nodeId) });
+          const paused = bridge.pauses.continue(runId, nodeId);
+          const played = bridge.runControls.play(runId);
+          return Response.json({ ok: true, paused, played });
         }
         const body = await request.json() as { prompt?: unknown };
         if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
@@ -2666,6 +2792,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isTerminalRunRecordStatus(status: string): boolean {
+  return status === "success" || status === "error" || status === "stopped" || status === "cancelled";
+}
+
 function parseRunSnapshotPatch(body: unknown):
   | { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc; summary?: string }
   | { error: string } {
@@ -2708,6 +2838,101 @@ function firstMissingCheckpointNode(record: RunRecord, agentflow: AgentFlowDoc):
   return undefined;
 }
 
+function validateSnapshotReachabilityPatch(record: RunRecord, nextAgentflow: AgentFlowDoc): Record<string, unknown> | undefined {
+  const reachability = computeRunReachability(record);
+  const editableClasses = new Set(["current", "future", "history_future"]);
+  const currentNodes = new Map(record.agentflowSnapshot.nodes.map((node) => [node.id, node]));
+  const nextNodes = new Map(nextAgentflow.nodes.map((node) => [node.id, node]));
+  const currentNodeIds = new Set(currentNodes.keys());
+  const nextNodeIds = new Set(nextNodes.keys());
+  if (!sameStringSet(currentNodeIds, nextNodeIds)) {
+    return {
+      code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
+      error: "Adding or deleting nodes in an active run snapshot is not supported.",
+    };
+  }
+  for (const [nodeId, currentNode] of currentNodes.entries()) {
+    const nextNode = nextNodes.get(nodeId);
+    if (!nextNode || stableJson(currentNode) === stableJson(nextNode)) continue;
+    const editClass = reachability.nodes[nodeId] ?? "inactive";
+    if (!editableClasses.has(editClass)) {
+      return {
+        code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
+        nodeId,
+        editClass,
+        error: `Node "${nodeId}" is ${editClass} and cannot be edited for this run.`,
+      };
+    }
+  }
+
+  const currentEdges = new Map(record.agentflowSnapshot.edges.map((edge) => [edge.id, edge]));
+  const nextEdges = new Map(nextAgentflow.edges.map((edge) => [edge.id, edge]));
+  if (!sameStringSet(new Set(currentEdges.keys()), new Set(nextEdges.keys()))) {
+    return {
+      code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
+      error: "Adding or deleting edges in an active run snapshot is not supported.",
+    };
+  }
+  for (const [edgeId, currentEdge] of currentEdges.entries()) {
+    const nextEdge = nextEdges.get(edgeId);
+    if (!nextEdge || stableJson(currentEdge) === stableJson(nextEdge)) continue;
+    if (currentEdge.from !== nextEdge.from || currentEdge.to !== nextEdge.to) {
+      return {
+        code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
+        edgeId,
+        error: "Changing edge endpoints in an active run snapshot is not supported.",
+      };
+    }
+    const fromClass = reachability.nodes[currentEdge.from] ?? "inactive";
+    const toClass = reachability.nodes[currentEdge.to] ?? "inactive";
+    if (!editableClasses.has(fromClass) && !editableClasses.has(toClass)) {
+      return {
+        code: "SNAPSHOT_EDIT_UNREACHABLE_EDGE",
+        edgeId,
+        error: `Edge "${edgeId}" is not on a reachable future path for this run.`,
+      };
+    }
+  }
+
+  const currentSessions = new Map(record.agentflowSnapshot.sessions.map((session) => [session.id, session]));
+  for (const nextSession of nextAgentflow.sessions) {
+    const currentSession = currentSessions.get(nextSession.id);
+    if (!currentSession || stableJson(currentSession) === stableJson(nextSession)) continue;
+    const referencedByEditableNode = record.agentflowSnapshot.nodes.some((node) => {
+      if (node.kind !== "step" || node.sessionId !== nextSession.id) return false;
+      return editableClasses.has(reachability.nodes[node.id] ?? "inactive");
+    });
+    if (!referencedByEditableNode) {
+      return {
+        code: "SNAPSHOT_EDIT_UNREACHABLE_SESSION",
+        sessionId: nextSession.id,
+        error: `Session "${nextSession.id}" is not referenced by an editable node in this run.`,
+      };
+    }
+  }
+  return undefined;
+}
+
+function sameStringSet(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, sortJsonValue(entry)]));
+}
+
 function parseWorkflowExecutionCheckpoint(value: Record<string, unknown> | undefined): WorkflowExecutionCheckpoint | undefined {
   if (!value) return undefined;
   if (!Array.isArray(value.queue)
@@ -2729,6 +2954,14 @@ function requiredCheckpointNodeIds(checkpoint: Record<string, unknown> | undefin
   const ids = new Set<string>();
   if (typeof checkpoint.activeNodeId === "string") ids.add(checkpoint.activeNodeId);
   if (typeof checkpoint.interruptedNodeId === "string") ids.add(checkpoint.interruptedNodeId);
+  const suspension = checkpoint.suspension;
+  if (suspension && typeof suspension === "object" && typeof (suspension as { nodeId?: unknown }).nodeId === "string") {
+    ids.add((suspension as { nodeId: string }).nodeId);
+  }
+  const pendingCompletion = checkpoint.pendingCompletion;
+  if (pendingCompletion && typeof pendingCompletion === "object" && typeof (pendingCompletion as { nodeId?: unknown }).nodeId === "string") {
+    ids.add((pendingCompletion as { nodeId: string }).nodeId);
+  }
   if (Array.isArray(checkpoint.queue)) {
     for (const entry of checkpoint.queue) {
       if (entry && typeof entry === "object" && typeof (entry as { nodeId?: unknown }).nodeId === "string") {

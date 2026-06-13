@@ -7,6 +7,7 @@ import { AgentConversationWindow } from "./agent-conversation-window";
 import { RichPromptInput } from "./rich-prompt-input";
 import { RunConfigPanel } from "./run-config-panel";
 import { PausedNodeComposer } from "./sessions-bar";
+import { RuntimeControlBar } from "./runtime-control-bar";
 
 declare function describe(name: string, callback: () => void): void;
 declare function beforeEach(callback: () => void): void;
@@ -147,6 +148,39 @@ describe("keyboard submit behavior", () => {
     expect(starts).toBe(0);
     keyDown(modal, "Enter");
     expect(starts).toBe(1);
+  });
+
+  test("runtime controls show disabled play while pause is pending", async () => {
+    let stops = 0;
+    render(
+      <I18nProvider>
+        <RuntimeControlBar
+          status="running"
+          controlIntent={{
+            kind: "pause_after_activation",
+            source: "player",
+            nodeId: "node-1",
+            executionKey: "node-1:0",
+            requestedAt: "2026-06-13T00:00:00.000Z",
+          }}
+          busy={false}
+          onPause={() => {}}
+          onInterrupt={() => {}}
+          onPlay={() => {}}
+          onStop={() => { stops += 1; }}
+        />
+      </I18nProvider>,
+    );
+
+    const play = await waitForElement('button[aria-label="Waiting for pause checkpoint"]');
+    expect((play as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector('button[aria-label="Pause after current node"]') === null).toBe(true);
+    expect(document.querySelector('button[aria-label="Interrupt current node"]') === null).toBe(true);
+
+    const stop = await waitForElement('button[aria-label="Stop run"]');
+    expect((stop as HTMLButtonElement).disabled).toBe(false);
+    stop.click();
+    expect(stops).toBe(1);
   });
 
   function render(element: ReactNode): void {

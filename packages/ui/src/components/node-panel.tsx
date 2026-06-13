@@ -392,6 +392,16 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
           });
         }}
       />
+      <div className="section-title">{t('node.humanCheckpoint')}</div>
+      <label className="toggle-row">
+        <input
+          type="checkbox"
+          checked={node.pauseAfterRun === true}
+          disabled={readonly}
+          onChange={(event) => props.onEditNode(node.id, { pauseAfterRun: event.target.checked || undefined })}
+        />
+        {t('node.pauseAfter')}
+      </label>
       <div className="code-hint">{t('node.inputEdgesHint')}</div>
       <div className="section-title">{t('node.branches')}</div>
       {node.branches.map((branch) => (

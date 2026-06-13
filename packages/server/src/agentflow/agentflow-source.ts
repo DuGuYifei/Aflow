@@ -193,6 +193,7 @@ function parseNodes(rawValue: Record<string, unknown>, version: 1 | 2): AgentFlo
         title,
         decisionCriteria: optionalString(node.decisionCriteria) ?? "",
         branches: node.branches === undefined ? [] : parseBranches(asRecord(node.branches, `node "${id}".branches`), id),
+        ...(node.pauseAfterRun === true ? { pauseAfterRun: true } : {}),
         ...(configOptions ? { configOptions } : {}),
       };
     }
@@ -300,6 +301,7 @@ function serializeNode(node: AgentFlowNode): Record<string, unknown> {
     alias: node.alias,
     title: node.title,
     decisionCriteria: node.decisionCriteria,
+    pauseAfterRun: node.pauseAfterRun,
     branches: Object.fromEntries(node.branches.map((branch) => [
       branch.id,
       compact({

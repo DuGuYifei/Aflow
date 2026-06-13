@@ -16,6 +16,10 @@ export type RunStatus = 'running' | 'paused' | 'interrupted' | 'success' | 'erro
 export type RunState = 'running' | 'paused' | 'interrupted' | 'success' | 'error' | 'cancelled' | 'pending';
 export type RunStateMap = Record<string, RunState>;
 export type RuntimeEditClass = 'current' | 'future' | 'history_future' | 'history_only' | 'inactive';
+export type RunControlIntent =
+  | { kind: 'pause_after_activation'; source: 'player'; nodeId: string; executionKey: string; requestedAt: string }
+  | { kind: 'pause_at_safe_point'; source: 'player'; requestedAt: string }
+  | { kind: 'interrupting'; source: 'player'; nodeId: string; agentInvocationId: string; requestedAt: string };
 
 export interface Session {
   id: string;
@@ -81,6 +85,11 @@ export interface Run {
   snapshotRevision?: number;
   snapshotEditedAt?: string;
   snapshotEditSummary?: string;
+  control?: {
+    intent?: RunControlIntent;
+    reason?: string;
+    interruptedNodeId?: string;
+  };
 }
 
 export interface LogLine {
@@ -189,6 +198,7 @@ export interface GateNode {
   title: string;
   decisionCriteria: string;
   branches: Branch[];
+  pauseAfterRun?: boolean;
   locked?: boolean;
   configOptions?: Record<string, string | boolean>;
 }

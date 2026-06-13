@@ -1335,10 +1335,10 @@ export function App() {
       } else if (type === 'interaction-requested') {
         onRunInteractionEvent(data as RunInteraction);
       } else if (type === 'run-status') {
-        const event = data as { status: string; error?: string; replay?: boolean };
+        const event = data as { status: string; error?: string; replay?: boolean; control?: Run['control'] };
         const uiStatus = runStatusFromEvent(event.status);
         setRuns((previous) => previous.map((run) =>
-          run.id === runId ? { ...run, status: uiStatus } : run,
+          run.id === runId ? { ...run, status: uiStatus, control: event.control } : run,
         ));
         if (uiStatus !== 'running') {
           if ((uiStatus === 'paused' || uiStatus === 'interrupted') && !event.replay) {
@@ -1393,6 +1393,7 @@ export function App() {
               nodeOutputs: uiRun.nodeOutputs,
               initialInput: uiRun.initialInput,
               variableValues: uiRun.variableValues,
+              control: uiRun.control,
             }
           : run,
       ));
@@ -1616,7 +1617,12 @@ export function App() {
   const onPauseRun = useCallback(async (id: string) => {
     setRunControlBusy(true);
     try {
-      await apiPauseRun(id);
+      const result = await apiPauseRun(id);
+      if (result.controlIntent) {
+        setRuns((previous) => previous.map((run) =>
+          run.id === id ? { ...run, status: 'running', control: { ...(run.control ?? {}), intent: result.controlIntent } } : run,
+        ));
+      }
       setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.pauseRequested'), stream: 'system' }]);
     } catch (error) {
       console.error('Failed to pause run', error);
@@ -1629,10 +1635,12 @@ export function App() {
   const onInterruptRun = useCallback(async (id: string) => {
     setRunControlBusy(true);
     try {
-      await apiInterruptRun(id);
-      setRuns((previous) => previous.map((run) =>
-        run.id === id ? { ...run, status: 'interrupted' } : run,
-      ));
+      const result = await apiInterruptRun(id);
+      if (result.controlIntent) {
+        setRuns((previous) => previous.map((run) =>
+          run.id === id ? { ...run, status: 'running', control: { ...(run.control ?? {}), intent: result.controlIntent } } : run,
+        ));
+      }
       setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), { type: 'terminal', chunk: t('app.interruptRequested'), stream: 'system' }]);
     } catch (error) {
       console.error('Failed to interrupt run', error);
@@ -1647,7 +1655,7 @@ export function App() {
     try {
       await apiPlayRun(id);
       setRuns((previous) => previous.map((run) =>
-        run.id === id ? { ...run, status: 'running' } : run,
+        run.id === id ? { ...run, status: 'running', control: undefined } : run,
       ));
       setRunReachability(null);
       attachToRun(id, { replay: false });
@@ -2206,6 +2214,7 @@ export function App() {
         {activeRun && (
           <RuntimeControlBar
             status={activeRun.status}
+            controlIntent={activeRun.control?.intent}
             busy={runControlBusy}
             onPause={() => { void onPauseRun(activeRun.id); }}
             onInterrupt={() => { void onInterruptRun(activeRun.id); }}

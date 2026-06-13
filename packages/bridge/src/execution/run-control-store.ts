@@ -1,3 +1,5 @@
+import type { GateDecision } from "@specflow/workflow";
+
 export interface QueuedActivationCheckpoint {
   nodeId: string;
   traversal: number;
@@ -13,6 +15,42 @@ export interface PendingInputCheckpoint {
   };
 }
 
+export interface TransferOriginCheckpoint {
+  agentId: string;
+  sessionId: string;
+  output: string;
+}
+
+export interface GateBranchCheckpoint {
+  branchId: string;
+  label: string;
+  traversalsUsed: number;
+  maxTraversals: number;
+  available: boolean;
+}
+
+export interface PendingCompletionCheckpoint {
+  nodeId: string;
+  traversal: number;
+  executionKey: string;
+  nodeRunId?: string;
+  output: string;
+  origin?: TransferOriginCheckpoint;
+  chosenBranchId?: string;
+  gateDecision?: GateDecision;
+  gateBranches?: GateBranchCheckpoint[];
+}
+
+export interface WorkflowSuspensionCheckpoint {
+  kind: "pause_after_activation" | "interrupt" | "safe_point_pause";
+  source: "player" | "node_property" | "interrupt";
+  nodeId?: string;
+  traversal?: number;
+  executionKey?: string;
+  agentInvocationId?: string;
+  reason?: string;
+}
+
 export interface WorkflowExecutionCheckpoint {
   queue: QueuedActivationCheckpoint[];
   pendingInputs: Record<string, PendingInputCheckpoint>;
@@ -24,6 +62,8 @@ export interface WorkflowExecutionCheckpoint {
   activeNodeId?: string;
   interruptedNodeId?: string;
   interruptedExecutionKey?: string;
+  suspension?: WorkflowSuspensionCheckpoint;
+  pendingCompletion?: PendingCompletionCheckpoint;
   reason?: string;
   createdAt: string;
 }
@@ -44,10 +84,22 @@ interface ActiveInvocationControl {
   controller: AbortController;
 }
 
+export interface ActiveActivationControl {
+  runId: string;
+  nodeId: string;
+  nodeKind: "agent" | "gate";
+  traversal: number;
+  executionKey: string;
+  nodeRunId?: string;
+  phase: "executing" | "completing";
+}
+
 interface RunControlRecord {
-  pauseRequested?: boolean;
+  pauseAtSafePointRequested?: boolean;
+  pauseAfterActivationExecutionKey?: string;
   pending?: PendingPlayback;
   activeInvocation?: ActiveInvocationControl;
+  activeActivation?: ActiveActivationControl;
 }
 
 export class WorkflowInterruptedError extends Error {
@@ -61,14 +113,36 @@ export class RunControlStore {
   readonly #records = new Map<string, RunControlRecord>();
 
   requestPause(runId: string): boolean {
+    return this.requestPauseAtSafePoint(runId);
+  }
+
+  requestPauseAtSafePoint(runId: string): boolean {
     const record = this.#record(runId);
     if (record.pending?.kind === "paused") return false;
-    record.pauseRequested = true;
+    record.pauseAtSafePointRequested = true;
     return true;
   }
 
   isPauseRequested(runId: string): boolean {
-    return this.#records.get(runId)?.pauseRequested === true;
+    return this.isPauseAtSafePointRequested(runId);
+  }
+
+  isPauseAtSafePointRequested(runId: string): boolean {
+    return this.#records.get(runId)?.pauseAtSafePointRequested === true;
+  }
+
+  requestPauseAfterActivation(runId: string, executionKey: string): boolean {
+    const record = this.#record(runId);
+    if (record.pending?.kind === "paused") return false;
+    record.pauseAfterActivationExecutionKey = executionKey;
+    return true;
+  }
+
+  consumePauseAfterActivation(runId: string, executionKey: string): boolean {
+    const record = this.#records.get(runId);
+    if (record?.pauseAfterActivationExecutionKey !== executionKey) return false;
+    record.pauseAfterActivationExecutionKey = undefined;
+    return true;
   }
 
   async waitForPlay(
@@ -78,7 +152,8 @@ export class RunControlStore {
     signal?: AbortSignal,
   ): Promise<void> {
     const record = this.#record(runId);
-    record.pauseRequested = false;
+    record.pauseAtSafePointRequested = false;
+    record.pauseAfterActivationExecutionKey = undefined;
     if (record.pending) throw new Error(`Run "${runId}" is already waiting for play.`);
     return new Promise<void>((resolve, reject) => {
       const pending: PendingPlayback = {
@@ -135,6 +210,31 @@ export class RunControlStore {
         }
       },
     };
+  }
+
+  registerActivation(input: ActiveActivationControl): { unregister: () => void; setPhase: (phase: ActiveActivationControl["phase"]) => void; setNodeRunId: (nodeRunId: string) => void } {
+    const record = this.#record(input.runId);
+    const active: ActiveActivationControl = { ...input };
+    record.activeActivation = active;
+    return {
+      unregister: () => {
+        const current = this.#records.get(input.runId);
+        if (current?.activeActivation === active) {
+          current.activeActivation = undefined;
+        }
+      },
+      setPhase: (phase) => {
+        active.phase = phase;
+      },
+      setNodeRunId: (nodeRunId) => {
+        active.nodeRunId = nodeRunId;
+      },
+    };
+  }
+
+  getActiveActivation(runId: string): ActiveActivationControl | undefined {
+    const active = this.#records.get(runId)?.activeActivation;
+    return active ? { ...active } : undefined;
   }
 
   interrupt(runId: string): { interrupted: boolean; nodeId?: string; agentInvocationId?: string } {

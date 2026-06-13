@@ -11,9 +11,31 @@ import type { AgentSessionRecord } from "./agent-session-store";
 import { runsDir } from "../workspace-paths";
 
 export type RunState = "running" | "paused" | "interrupted" | "success" | "error" | "pending" | "cancelled";
-export type RunRecordStatus = "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
+export type RunRecordStatus = "pending" | "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
+
+export type RunControlIntent =
+  | {
+      kind: "pause_after_activation";
+      source: "player";
+      nodeId: string;
+      executionKey: string;
+      requestedAt: string;
+    }
+  | {
+      kind: "pause_at_safe_point";
+      source: "player";
+      requestedAt: string;
+    }
+  | {
+      kind: "interrupting";
+      source: "player";
+      nodeId: string;
+      agentInvocationId: string;
+      requestedAt: string;
+    };
 
 export interface RunControlState {
+  intent?: RunControlIntent;
   pauseRequested?: boolean;
   interruptedNodeId?: string;
   reason?: string;

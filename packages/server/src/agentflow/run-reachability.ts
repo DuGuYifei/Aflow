@@ -14,6 +14,8 @@ interface CheckpointShape {
   queue?: Array<{ nodeId?: unknown }>;
   activeNodeId?: unknown;
   interruptedNodeId?: unknown;
+  suspension?: { nodeId?: unknown };
+  pendingCompletion?: { nodeId?: unknown };
   completedNodeIds?: unknown;
   inactiveEdgeIds?: unknown;
   branchTraversals?: unknown;
@@ -21,9 +23,15 @@ interface CheckpointShape {
 
 export function computeRunReachability(record: RunRecord): RunReachability {
   const checkpoint = (record.checkpoint ?? {}) as CheckpointShape;
-  const currentNodeIds = compactStrings([checkpoint.activeNodeId, checkpoint.interruptedNodeId]);
+  const currentNodeIds = compactStrings([
+    checkpoint.activeNodeId,
+    checkpoint.interruptedNodeId,
+    checkpoint.suspension?.nodeId,
+    checkpoint.pendingCompletion?.nodeId,
+  ]);
   const frontier = new Set<string>([
     ...currentNodeIds,
+    ...(typeof checkpoint.pendingCompletion?.nodeId === "string" ? [checkpoint.pendingCompletion.nodeId] : []),
     ...(Array.isArray(checkpoint.queue)
       ? checkpoint.queue.map((entry) => typeof entry.nodeId === "string" ? entry.nodeId : undefined).filter(isString)
       : []),

@@ -12,6 +12,7 @@ import type {
 } from "@specflow/workflow";
 import { WorkflowExecutor, type AgentRunner, type NodeStatusEvent } from "./executor";
 import { RunPauseStore } from "./pause-store";
+import { RunControlStore } from "./run-control-store";
 import { TerminalEventStore } from "./terminal-store";
 
 const agentId = "agent-server-codex-acp";
@@ -583,6 +584,107 @@ describe("WorkflowExecutor", () => {
     expect(prompts).toEqual(["source", "revise it", "target <input>revised</input>"]);
   });
 
+  test("player pause after active activation stops before downstream propagation", async () => {
+    const runId = "run-player-pause";
+    const runControls = new RunControlStore();
+    const nodeStatuses: string[] = [];
+    const runStatuses: string[] = [];
+    const prompts: string[] = [];
+    let sourceStarted: (() => void) | undefined;
+    let releaseSource: ((output: string) => void) | undefined;
+    const sourceStartedPromise = new Promise<void>((resolve) => { sourceStarted = resolve; });
+    const executor = new WorkflowExecutor({
+      runControls,
+      onNodeStatus: (event) => nodeStatuses.push(`${event.nodeId}:${event.status}`),
+      onRunStatus: (event) => runStatuses.push(event.status),
+      agentRunner: async (request): Promise<AgentCommandResult> => {
+        prompts.push(request.prompt);
+        if (request.prompt === "source") {
+          sourceStarted?.();
+          const output = await new Promise<string>((resolve) => { releaseSource = resolve; });
+          return { agentServerId: request.agentServerId, exitCode: 0, output };
+        }
+        return { agentServerId: request.agentServerId, exitCode: 0, output: "target done" };
+      },
+    });
+
+    const runPromise = executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source"), agentNode("target", "target <specflow_input>")],
+        edges: [tagged("edge", "source", "target", "input")],
+      }),
+      "",
+      { runId },
+    );
+
+    await sourceStartedPromise;
+    const active = await waitForValue(() => runControls.getActiveActivation(runId));
+    runControls.requestPauseAfterActivation(runId, active.executionKey);
+    releaseSource?.("draft");
+    await waitForValue(() => runStatuses.includes("paused") ? true : undefined);
+
+    expect(prompts).toEqual(["source"]);
+    expect(nodeStatuses).toEqual(["source:running", "source:paused"]);
+
+    expect(runControls.play(runId).played).toBe(true);
+    const run = await runPromise;
+    expect(run.status).toBe("done");
+    expect(prompts).toEqual(["source", "target <input>draft</input>"]);
+    expect(nodeStatuses).toEqual(["source:running", "source:paused", "source:done", "target:running", "target:done"]);
+  });
+
+  test("player pause after active gate stops before branch propagation", async () => {
+    const runId = "run-player-gate-pause";
+    const runControls = new RunControlStore();
+    const nodeStatuses: string[] = [];
+    const prompts: string[] = [];
+    let releaseGate: ((output: string) => void) | undefined;
+    const executor = new WorkflowExecutor({
+      runControls,
+      onNodeStatus: (event) => nodeStatuses.push(`${event.nodeId}:${event.status}`),
+      agentRunner: async (request): Promise<AgentCommandResult> => {
+        prompts.push(request.prompt);
+        if (request.prompt === "source") {
+          return { agentServerId: request.agentServerId, exitCode: 0, output: "ready" };
+        }
+        if (request.forkFromWorkflowSessionId) {
+          const output = await new Promise<string>((resolve) => { releaseGate = resolve; });
+          return { agentServerId: request.agentServerId, exitCode: 0, output };
+        }
+        return { agentServerId: request.agentServerId, exitCode: 0, output: "passed" };
+      },
+    });
+
+    const runPromise = executor.run(
+      createWorkflow({
+        nodes: [agentNode("source", "source"), gateNode("gate", ["pass"]), agentNode("pass", "pass <specflow_input>")],
+        edges: [
+          gateInput("source-gate", "source", "gate"),
+          trigger("gate-pass", "gate", "pass", "pass"),
+        ],
+      }),
+      "",
+      { runId },
+    );
+
+    const activeGate = await waitForValue(() => {
+      const active = runControls.getActiveActivation(runId);
+      return active?.nodeId === "gate" ? active : undefined;
+    });
+    runControls.requestPauseAfterActivation(runId, activeGate.executionKey);
+    releaseGate?.(JSON.stringify({ branchId: "pass" }));
+    await waitForValue(() => nodeStatuses.includes("gate:paused") ? true : undefined);
+
+    expect(prompts).toHaveLength(2);
+    expect(nodeStatuses).toEqual(["source:running", "source:done", "gate:running", "gate:paused"]);
+
+    expect(runControls.play(runId).played).toBe(true);
+    const run = await runPromise;
+    expect(run.status).toBe("done");
+    expect(prompts.at(-1)).toBe("pass ");
+    expect(nodeStatuses).toEqual(["source:running", "source:done", "gate:running", "gate:paused", "gate:done", "pass:running", "pass:done"]);
+  });
+
   test("records external ACP session metadata on agent invocations", async () => {
     const executor = new WorkflowExecutor({
       agentRunner: async (request) => {
@@ -1045,4 +1147,13 @@ function createAgentRunner(handler: (request: AgentCommandRequest) => string): A
       output,
     };
   };
+}
+
+async function waitForValue<T>(read: () => T | undefined): Promise<T> {
+  for (let index = 0; index < 50; index += 1) {
+    const value = read();
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Timed out waiting for value.");
 }

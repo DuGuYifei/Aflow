@@ -1,4 +1,4 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent } from './types';
 import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
@@ -61,6 +61,11 @@ export interface ApiRunRecord {
   snapshotRevision?: number;
   snapshotEditedAt?: string;
   snapshotEditSummary?: string;
+  control?: {
+    intent?: RunControlIntent;
+    reason?: string;
+    interruptedNodeId?: string;
+  };
 }
 
 export interface AgentSessionInvocationRef {
@@ -784,14 +789,16 @@ export async function continueWorkflowRun(runId: string): Promise<{ runId: strin
 
 export const resumeWorkflowRun = continueWorkflowRun;
 
-export async function pauseRun(id: string): Promise<void> {
+export async function pauseRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent; snapshotRevision?: number }> {
   const response = await fetch(`/api/runs/${id}/pause`, { method: 'POST' });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to pause run'));
+  return response.json();
 }
 
-export async function interruptRun(id: string): Promise<void> {
+export async function interruptRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent }> {
   const response = await fetch(`/api/runs/${id}/interrupt`, { method: 'POST' });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to interrupt run'));
+  return response.json();
 }
 
 export async function playRun(id: string): Promise<void> {
@@ -982,6 +989,7 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
     snapshotRevision: runRecord.snapshotRevision,
     snapshotEditedAt: runRecord.snapshotEditedAt,
     snapshotEditSummary: runRecord.snapshotEditSummary,
+    control: runRecord.control,
   };
 }
 

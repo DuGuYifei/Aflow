@@ -51,6 +51,46 @@ describe("paused node interaction API", () => {
     }));
     expect(replay?.status).toBe(409);
   });
+
+  test("workflow play waits for an active paused-node prompt to finish", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-paused-api-"));
+    const bridge = createSpecflowBridge();
+    const handle = createApiHandler(bridge, root);
+    const run = sampleRun();
+    run.status = "paused";
+    run.pausedNodeId = "node-1";
+    await saveRun(run, root);
+    let promptStarted = false;
+    let releasePrompt: ((output: string) => void) | undefined;
+    const continuation = bridge.pauses.waitForContinuation({
+      runId: "run1",
+      nodeId: "node-1",
+      specflowSessionId: "s1",
+      agentServerId: "codex-acp",
+      pausedAt: "2026-05-24T10:00:00.000Z",
+    }, async () => {
+      promptStarted = true;
+      return await new Promise<string>((resolve) => { releasePrompt = resolve; });
+    });
+
+    const promptResponse = handle(new Request("http://specflow.test/api/runs/run1/paused-nodes/node-1/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "review" }),
+    }));
+    await waitFor(() => promptStarted);
+
+    const played = await handle(new Request("http://specflow.test/api/runs/run1/play", {
+      method: "POST",
+    }));
+    expect(played?.status).toBe(409);
+    expect(await played?.json()).toEqual(expect.objectContaining({ code: "PAUSED_NODE_NOT_READY" }));
+
+    releasePrompt?.("reviewed");
+    expect(await (await promptResponse)?.json()).toEqual({ output: "reviewed" });
+    bridge.pauses.cancelForRun("run1", "done");
+    await expect(continuation).rejects.toThrow("done");
+  });
 });
 
 function sampleRun(): RunRecord {
@@ -70,4 +110,12 @@ function sampleRun(): RunRecord {
     initialInput: "",
     variableValues: {},
   };
+}
+
+async function waitFor(read: () => boolean): Promise<void> {
+  for (let index = 0; index < 50; index += 1) {
+    if (read()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Timed out waiting for condition");
 }
