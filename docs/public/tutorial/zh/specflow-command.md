@@ -3,7 +3,7 @@ title: Specflow 命令
 description: 学习 specflow、specflow validate 和 specflow run 的用途与 workflow 变量传入规则。
 category: tutorial
 order: 2
-updatedAt: "2026-06-09 01:12:49 CEST"
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - cli
   - command
@@ -42,9 +42,9 @@ specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 
 当前 `specflow run` 是 direct CLI 执行路径，不会启动 localhost server，也不会打开浏览器 UI。运行过程只在 terminal 中输出简要节点进度；UI 的 run 列表、run log、SSE 事件回放和 pause 交互不会接入这次 CLI run。
 
-workflow 成功完成后，CLI 会自动退出。失败或取消时，CLI 也会退出，并返回非零 exit code。
+workflow 成功完成后，CLI 会自动退出。失败或被 stop 时，CLI 也会退出，并返回非零 exit code。
 
-如果 workflow 中包含 `pauseAfterRun: true` 的节点，当前 CLI run 不支持交互式 pause，会在启动 agent 前直接拒绝运行。需要人工 pause/continue 的 workflow 应通过 UI/server 路径运行。
+如果 workflow 中包含 `pauseAfterRun: true` 的节点，当前 CLI run 不支持交互式 Pause/Play，会在启动 agent 前直接拒绝运行。需要人工 Pause、Interrupt、Play、Stop 或 Continue 控制的 workflow 应通过 UI/server 路径运行。固定术语见 [Specflow 术语表](glossary.md)。
 
 ## 传入 workflow 变量值
 

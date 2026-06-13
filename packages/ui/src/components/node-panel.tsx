@@ -29,6 +29,8 @@ interface NodePanelProps {
   variables: Variable[];
   workflowVersion: 1 | 2;
   viewMode: 'edit' | 'run';
+  readonly?: boolean;
+  editImpactLabel?: string;
   timelineEvents: TimelineEvent[];
   onClose: () => void;
   onEditNode: (id: string, patch: Record<string, unknown>) => void;
@@ -51,7 +53,7 @@ interface NodePanelProps {
 
 export function NodePanel(props: NodePanelProps) {
   const [tab, setTab] = useState('overview');
-  const readonly = props.viewMode === 'run';
+  const readonly = props.readonly ?? props.viewMode === 'run';
   if (props.node.kind === 'input') {
     return <InputPanelContent {...props} node={props.node} readonly={readonly} />;
   }
@@ -62,7 +64,7 @@ export function NodePanel(props: NodePanelProps) {
     return <GatePanelContent {...props} node={props.node} readonly={readonly} />;
   }
   if (props.node.kind === 'end') {
-    return <EndPanelContent node={props.node} run={props.run} nodes={props.nodes} readonly={readonly} onClose={props.onClose} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />;
+    return <EndPanelContent node={props.node} run={props.run} nodes={props.nodes} readonly={readonly} editImpactLabel={props.editImpactLabel} onClose={props.onClose} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />;
   }
   return <StepPanelContent {...props} node={props.node} readonly={readonly} tab={tab} setTab={setTab} />;
 }
@@ -81,6 +83,11 @@ function NodeRunStatusBadge({ status }: { status?: RunState }) {
       <span className="value">{state}</span>
     </div>
   );
+}
+
+function EditImpactNote({ label }: { label?: string }) {
+  if (!label) return null;
+  return <div className="edit-impact-note">{label}</div>;
 }
 
 function NodeLockToggle({ node, readonly, onEditNode }: {
@@ -127,6 +134,7 @@ function StepPanelContent(props: NodePanelProps & {
   );
   return (
     <RightPanel label={label} title={<PanelNodeTitle node={node} />} onClose={props.onClose} tabs={tabs} activeTab={tab} onTabChange={setTab}>
+      <EditImpactNote label={props.editImpactLabel} />
       {tab === 'overview' && <StepOverview {...props} session={session} />}
       {tab === 'logs' && <NodeLogs events={nodeLogEvents} />}
       {tab === 'images' && <NodeImages {...props} />}
@@ -331,6 +339,7 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
   const skills = useSkills();
   return (
     <RightPanel label={<><Icon name="route" size={11} /> {t('node.gateLabel', { alias: node.alias })}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
+      <EditImpactNote label={props.editImpactLabel} />
       {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">
         {t('node.gateHint')}
@@ -426,6 +435,7 @@ function StartPanelContent(props: NodePanelProps & { node: Extract<WorkflowNode,
   const { node, run, nodes, readonly } = props;
   return (
     <RightPanel label={<><Icon name="play-circle" size={11} />{t('node.start')}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
+      <EditImpactNote label={props.editImpactLabel} />
       {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">{t('node.startHint')}</div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
@@ -456,6 +466,7 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode & { runStat
   const stepNodes = nodes.filter((candidate): candidate is StepNode => candidate.kind === 'step');
   return (
     <RightPanel label={<><Icon name="tag" size={11} />{t('node.runInputLabel', { alias: node.alias })}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
+      <EditImpactNote label={props.editImpactLabel} />
       {run && <NodeRunStatusBadge status={node.runState} />}
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
       <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
@@ -510,10 +521,11 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode & { runStat
   );
 }
 
-function EndPanelContent({ node, run, nodes, readonly, onClose, onEditNode, onRenameNode }: { node: Extract<WorkflowNode, { kind: 'end' }> & { runState?: RunState }; run?: Run; nodes: WorkflowNode[]; readonly: boolean; onClose: () => void; onEditNode: (id: string, patch: Record<string, unknown>) => void; onRenameNode: (oldId: string, newId: string) => void }) {
+function EndPanelContent({ node, run, nodes, readonly, editImpactLabel, onClose, onEditNode, onRenameNode }: { node: Extract<WorkflowNode, { kind: 'end' }> & { runState?: RunState }; run?: Run; nodes: WorkflowNode[]; readonly: boolean; editImpactLabel?: string; onClose: () => void; onEditNode: (id: string, patch: Record<string, unknown>) => void; onRenameNode: (oldId: string, newId: string) => void }) {
   const { t } = useI18n();
   return (
     <RightPanel label={<><Icon name="check" size={11} />{t('node.end')}</>} title={<PanelNodeTitle node={node} />} onClose={onClose}>
+      <EditImpactNote label={editImpactLabel} />
       {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">{t('node.endHint')}</div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={onEditNode} />

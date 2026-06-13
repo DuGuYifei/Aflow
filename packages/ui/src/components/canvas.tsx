@@ -106,6 +106,7 @@ function StepCard({ node, session, selected, runState, onMouseDown, onSelect, on
   if (selected)               classNames.push('selected');
   if (runState === 'running') classNames.push('running');
   if (runState === 'paused')  classNames.push('paused');
+  if (runState === 'interrupted') classNames.push('interrupted');
   if (runState === 'success') classNames.push('success');
   if (runState === 'error')   classNames.push('error');
   if (node.locked)            classNames.push('locked');
@@ -124,6 +125,7 @@ function StepCard({ node, session, selected, runState, onMouseDown, onSelect, on
         <span className="node-state-icon">
           {runState === 'running' && <><Icon name="loader" size={11} style={{ animation: 'spin 1.4s linear infinite' }} />{t('canvas.running')}</>}
           {runState === 'paused'  && <><span style={{ color: 'var(--warn)' }}>{t('canvas.paused')}</span><button className="btn sm primary node-continue" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onContinue?.(); }}>{t('canvas.continue')}</button></>}
+          {runState === 'interrupted' && <><Icon name="alert" size={11} style={{ color: 'var(--err)' }} />{t('canvas.interrupted')}</>}
           {runState === 'success' && <><Icon name="check"  size={11} style={{ color: 'oklch(0.55 0.13 145)' }} />{t('canvas.done')}</>}
           {runState === 'error'   && <><Icon name="alert"  size={11} style={{ color: 'var(--err)' }} />{t('canvas.failed')}</>}
           {runState === 'pending' && <span style={{ color: 'var(--ink-3)' }}>{t('canvas.queued')}</span>}
@@ -161,6 +163,7 @@ function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch
   const classNames = ['gate-wrap'];
   if (selected)               classNames.push('selected');
   if (runState === 'running') classNames.push('running');
+  if (runState === 'interrupted') classNames.push('interrupted');
   if (runState === 'success') classNames.push('success');
   if (runState === 'error')   classNames.push('error');
   if (node.locked)            classNames.push('locked');

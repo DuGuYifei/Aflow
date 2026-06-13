@@ -1,4 +1,4 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability } from './types';
 import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
@@ -24,6 +24,9 @@ export interface AgentFlowDoc {
   nodes: AgentFlowNode[];
   edges: Edge[];
   variables?: Variable[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
 }
 
 export interface CanvasLayoutDoc {
@@ -38,7 +41,7 @@ export interface ApiRunRecord {
   workflowId: string;
   label: string;
   ticket?: string;
-  status: "running" | "success" | "error" | "cancelled";
+  status: "running" | "paused" | "interrupted" | "success" | "error" | "stopped" | "cancelled";
   activeNode?: string;
   pausedNodeId?: string;
   startedAt: string;
@@ -55,6 +58,9 @@ export interface ApiRunRecord {
   variableValues?: Record<string, string>;
   resumedFromRunId?: string;
   resumedByRunId?: string;
+  snapshotRevision?: number;
+  snapshotEditedAt?: string;
+  snapshotEditSummary?: string;
 }
 
 export interface AgentSessionInvocationRef {
@@ -770,10 +776,27 @@ export async function fetchResumableSession(runId: string): Promise<ResumableSes
  * nodes are skipped using their recorded output, interrupted nodes get a
  * continuation prompt against their existing ACP session.
  */
-export async function resumeWorkflowRun(runId: string): Promise<{ runId: string }> {
-  const response = await fetch(`/api/runs/${runId}/resume-workflow`, { method: 'POST' });
-  if (!response.ok) await throwRunStartError(response, 'Failed to resume workflow');
+export async function continueWorkflowRun(runId: string): Promise<{ runId: string }> {
+  const response = await fetch(`/api/runs/${runId}/continue`, { method: 'POST' });
+  if (!response.ok) await throwRunStartError(response, 'Failed to continue workflow');
   return response.json();
+}
+
+export const resumeWorkflowRun = continueWorkflowRun;
+
+export async function pauseRun(id: string): Promise<void> {
+  const response = await fetch(`/api/runs/${id}/pause`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to pause run'));
+}
+
+export async function interruptRun(id: string): Promise<void> {
+  const response = await fetch(`/api/runs/${id}/interrupt`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to interrupt run'));
+}
+
+export async function playRun(id: string): Promise<void> {
+  const response = await fetch(`/api/runs/${id}/play`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to play run'));
 }
 
 export async function promptPausedNode(runId: string, nodeId: string, prompt: string, signal?: AbortSignal): Promise<{ output: string }> {
@@ -796,9 +819,44 @@ export async function deleteRun(id: string): Promise<void> {
   await fetch(`/api/runs/${id}`, { method: 'DELETE' });
 }
 
-export async function cancelRun(id: string): Promise<void> {
-  const response = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
-  if (!response.ok) throw new Error(`Failed to cancel run: ${response.status}`);
+export async function stopRun(id: string): Promise<void> {
+  const response = await fetch(`/api/runs/${id}/stop`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to stop run'));
+}
+
+export const cancelRun = stopRun;
+
+export async function patchRunSnapshot(
+  runId: string,
+  snapshot: CanvasDoc,
+  summary?: string,
+): Promise<{ ok: boolean; snapshotRevision: number; snapshot: CanvasDoc; reachability: RunReachability }> {
+  const response = await fetch(`/api/runs/${runId}/snapshot`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ snapshot, ...(summary ? { summary } : {}) }),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to update run snapshot'));
+  return response.json();
+}
+
+export async function fetchRunReachability(runId: string): Promise<RunReachability> {
+  const response = await fetch(`/api/runs/${runId}/reachability`);
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to fetch run reachability'));
+  return response.json();
+}
+
+export async function saveRunBestPractice(
+  runId: string,
+  options: { name?: string; shared?: boolean } = {},
+): Promise<{ ok: boolean; workflow: CanvasSummary }> {
+  const response = await fetch(`/api/runs/${runId}/best-practice`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to save best practice'));
+  return response.json();
 }
 
 export async function rerunRun(
@@ -907,7 +965,7 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
     workflowId: runRecord.workflowId,
     label: runRecord.label,
     ticket: runRecord.ticket ?? '',
-    status: runRecord.status,
+    status: runRecord.status === 'cancelled' ? 'stopped' : runRecord.status,
     activeNode: runRecord.activeNode,
     pausedNodeId: runRecord.pausedNodeId,
     time: formatTime(runRecord.startedAt),
@@ -921,6 +979,9 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
     variableValues: runRecord.variableValues,
     resumedFromRunId: runRecord.resumedFromRunId,
     resumedByRunId: runRecord.resumedByRunId,
+    snapshotRevision: runRecord.snapshotRevision,
+    snapshotEditedAt: runRecord.snapshotEditedAt,
+    snapshotEditSummary: runRecord.snapshotEditSummary,
   };
 }
 
@@ -1055,6 +1116,7 @@ function combineSnapshot(
     }),
     edges: agentflow.edges,
     variables: agentflow.variables,
+    derived: agentflow.derived,
   };
 }
 

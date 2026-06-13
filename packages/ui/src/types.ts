@@ -12,9 +12,10 @@ export interface Variable {
 }
 
 export type Density = 'comfortable' | 'compact';
-export type RunStatus = 'running' | 'success' | 'error' | 'cancelled' | 'idle' | 'pending';
-export type RunState = 'running' | 'paused' | 'success' | 'error' | 'cancelled' | 'pending';
+export type RunStatus = 'running' | 'paused' | 'interrupted' | 'success' | 'error' | 'stopped' | 'cancelled' | 'idle' | 'pending';
+export type RunState = 'running' | 'paused' | 'interrupted' | 'success' | 'error' | 'cancelled' | 'pending';
 export type RunStateMap = Record<string, RunState>;
+export type RuntimeEditClass = 'current' | 'future' | 'history_future' | 'history_only' | 'inactive';
 
 export interface Session {
   id: string;
@@ -49,6 +50,13 @@ export interface RunSnapshot {
   };
 }
 
+export interface RunReachability {
+  nodes: Record<string, RuntimeEditClass>;
+  currentNodeIds: string[];
+  futureNodeIds: string[];
+  completedNodeIds: string[];
+}
+
 export interface Run {
   id: string;
   workflowId?: string;
@@ -70,6 +78,9 @@ export interface Run {
   variableValues?: Record<string, string>;
   resumedFromRunId?: string;
   resumedByRunId?: string;
+  snapshotRevision?: number;
+  snapshotEditedAt?: string;
+  snapshotEditSummary?: string;
 }
 
 export interface LogLine {

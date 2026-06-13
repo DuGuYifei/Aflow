@@ -206,8 +206,10 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .status-dot.success { background: var(--ok); }
 .status-dot.error { background: var(--err); }
 .status-dot.cancelled { background: var(--warn); }
+.status-dot.stopped { background: var(--warn); }
 .status-dot.running { background: var(--running); box-shadow: 0 0 0 0 var(--running); animation: pulse 1.6s ease-out infinite; }
 .status-dot.paused { background: var(--warn); }
+.status-dot.interrupted { background: var(--err); }
 .status-dot.pending { background: var(--ink-4); }
 .status-dot.idle { background: transparent; border: 1.5px solid var(--ink-4); }
 
@@ -248,11 +250,16 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-color: color-mix(in oklch, var(--warn) 44%, var(--line));
   background: color-mix(in oklch, var(--warn) 10%, var(--bg));
 }
+.run-status-badge.interrupted {
+  border-color: color-mix(in oklch, var(--err) 42%, var(--line));
+  background: color-mix(in oklch, var(--err) 8%, var(--bg));
+}
 .run-status-badge.error {
   border-color: color-mix(in oklch, var(--err) 42%, var(--line));
   background: color-mix(in oklch, var(--err) 8%, var(--bg));
 }
-.run-status-badge.cancelled {
+.run-status-badge.cancelled,
+.run-status-badge.stopped {
   border-color: var(--line);
   background: var(--bg-panel);
 }
@@ -378,6 +385,98 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   color: var(--bg);
 }
 .canvas-toolbar button.mode-active:hover { background: var(--ink); color: var(--bg); opacity: 0.92; }
+
+.quick-tooltip {
+  position: relative;
+}
+.quick-tooltip[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translate(-50%, 2px);
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 40;
+}
+.quick-tooltip[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 3px);
+  transform: translate(-50%, 2px);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 40;
+}
+.quick-tooltip[data-tooltip]:hover::after,
+.quick-tooltip[data-tooltip]:focus-visible::after,
+.quick-tooltip[data-tooltip]:hover::before,
+.quick-tooltip[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.runtime-control-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--bg-elev) 96%, transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(8px);
+}
+.runtime-control-button {
+  width: 34px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  background: transparent;
+  cursor: pointer;
+}
+.runtime-control-button:hover {
+  color: var(--ink);
+  background: var(--line-2);
+}
+.runtime-control-button.primary {
+  color: var(--bg);
+  background: var(--ink);
+}
+.runtime-control-button.primary:hover {
+  color: var(--bg);
+  background: var(--ink);
+  opacity: 0.92;
+}
+.runtime-control-button.danger:hover {
+  color: var(--err);
+  border-color: color-mix(in oklch, var(--err) 35%, var(--line));
+}
+.runtime-control-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
 .canvas-toolbar .zoom-label {
   font-family: var(--font-mono); font-size: 11px;
   color: var(--ink-2);
@@ -608,6 +707,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
    not by tinting the whole node. Borders stay neutral so text stays readable. */
 .node.running { border-color: var(--ink-3); }
 .node.paused { border-color: var(--warn); }
+.node.interrupted { border-color: var(--err); }
 .node.success { border-color: var(--line); }
 .node.error { border-color: var(--err); }
 .node-continue { margin-left: 5px; }
@@ -622,6 +722,20 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   padding: 1px 5px;
   border-radius: 3px;
   letter-spacing: 0.02em;
+}
+
+.edit-impact-note {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 10px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in oklch, var(--running) 35%, var(--line));
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: color-mix(in oklch, var(--running) 7%, var(--bg));
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 700;
 }
 .node-state-icon { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--ink-3); font-size: 11px; font-family: var(--font-mono); }
 .node-title {

@@ -8,6 +8,7 @@ interface VariablePanelProps {
   variable: Variable;
   variables: Variable[];
   readonly: boolean;
+  editImpactLabel?: string;
   onClose: () => void;
   onEditVariable: (name: string, patch: Partial<Variable>) => void;
   onRenameVariable: (oldName: string, newName: string) => void;
@@ -31,6 +32,7 @@ export function VariablePanel({
   variable,
   variables,
   readonly,
+  editImpactLabel,
   onClose,
   onEditVariable,
   onRenameVariable,
@@ -66,6 +68,7 @@ export function VariablePanel({
 
   return (
     <RightPanel label={<><Icon name="tag" size={11} />{t('variables.variableLabel')}</>} title={variable.title || `<${variable.name}>`} onClose={onClose}>
+      {editImpactLabel && <div className="edit-impact-note">{editImpactLabel}</div>}
       <div className="code-hint">{t('variables.globalHint')}</div>
       <div className="section-title">{t('variables.key')}</div>
       <input

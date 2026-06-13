@@ -1,9 +1,9 @@
 ---
 title: Aflow Agent Tutorial
-description: Learn how to use Aflow Agent to create, adapt, validate, run, and resume Specflow workflows.
+description: Learn how to use Aflow Agent to create, adapt, validate, run, and continue Specflow workflows.
 category: tutorial
 order: 4
-updatedAt: "2026-06-09 01:12:49 CEST"
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - aflow
   - agent
@@ -96,7 +96,7 @@ When a workflow reaches a `pauseAfterRun: true` node, Aflow switches the interfa
 
 The user can continue chatting with that agent in the pause interface, or confirm that the workflow should continue. This is useful for human confirmation, business judgment, and inspecting intermediate artifacts.
 
-### Resume Workflow Runs
+### Continue Workflow Runs
 
 In Aflow, enter:
 
@@ -104,7 +104,7 @@ In Aflow, enter:
 /specflow-resume
 ```
 
-This resumes a workflow run that was cancelled, failed, or interrupted. Aflow reads the run state from the Specflow server, repairs running/cancelled state when needed, and continues from a recoverable point.
+This command keeps its legacy name, but its workflow-run action is Continue: it creates a continuation run from a stopped, failed, or interrupted source run. Aflow reads the run state from the Specflow server, repairs stale running/stopped state when needed, and continues from a recoverable point.
 
 ### Resume Node Agent Sessions
 

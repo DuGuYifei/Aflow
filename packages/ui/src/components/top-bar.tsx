@@ -8,9 +8,6 @@ interface TopBarProps {
   runLabel?: string;
   workflowName?: string;
   onNewRun?: () => void;
-  onRerun?: () => void;
-  onCancelRun?: () => void;
-  canCancelRun?: boolean;
   onAgentServers?: () => void;
   hasAgentUpdates?: boolean;
   view: 'edit' | 'run';
@@ -23,9 +20,6 @@ export function TopBar({
   runLabel,
   workflowName,
   onNewRun,
-  onRerun,
-  onCancelRun,
-  canCancelRun,
   onAgentServers,
   hasAgentUpdates,
   view,
@@ -100,17 +94,6 @@ export function TopBar({
           <Icon name="moon" size={12} />
         </button>
       </div>
-
-      {view === 'run' && onRerun && (
-        <button className="btn sm" onClick={onRerun} title={t('topbar.runAgainTitle')}>
-          <Icon name="rotate" size={11} />{t('topbar.runAgain')}
-        </button>
-      )}
-      {view === 'run' && canCancelRun && onCancelRun && (
-        <button className="btn sm" onClick={onCancelRun} title={t('topbar.cancelRunTitle')}>
-          <Icon name="x" size={11} />{t('topbar.cancelRun')}
-        </button>
-      )}
       {view === 'edit' && (
         <button className="btn sm primary" onClick={onNewRun}>
           <Icon name="play-circle" size={12} />{t('topbar.startRun')}

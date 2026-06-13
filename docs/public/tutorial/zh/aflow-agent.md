@@ -1,9 +1,9 @@
 ---
 title: Aflow Agent 使用教程
-description: 学习如何用 Aflow Agent 创建、改写、校验、运行和恢复 Specflow workflows。
+description: 学习如何用 Aflow Agent 创建、改写、校验、运行和继续 Specflow workflows。
 category: tutorial
 order: 4
-updatedAt: "2026-06-09 01:12:49 CEST"
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - aflow
   - agent
@@ -96,7 +96,7 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 
 用户可以在 pause 界面里继续给该 agent 发消息，也可以确认继续 workflow。适合需要人工确认、补充业务判断、检查中间产物的节点。
 
-### 恢复 workflow run
+### Continue workflow run
 
 在 Aflow 里输入：
 
@@ -104,7 +104,7 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 /specflow-resume
 ```
 
-这个命令用于恢复一个被 cancel、失败或中断的 workflow run。Aflow 会从 Specflow server 读取 run 状态，必要时修复 running/cancelled 状态，并从可恢复的位置继续。
+这个命令保留了旧名字，但 workflow run 层面的语义是 Continue：从 stopped、failed 或 interrupted 的源 run 创建一个 continuation run。Aflow 会从 Specflow server 读取 run 状态，必要时修复陈旧的 running/stopped 状态，并从可恢复的位置继续。
 
 ### 恢复节点 agent session
 

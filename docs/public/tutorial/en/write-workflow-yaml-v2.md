@@ -198,7 +198,7 @@ Common fields:
 
 - `session` must reference an existing session key.
 - `prompt` is the instruction sent to the agent.
-- `pauseAfterRun: true` pauses after the node runs, which lets a human inspect or continue. The current `specflow run` CLI does not support interactive pause; use the UI/server or Aflow run path for pause/continue workflows.
+- `pauseAfterRun: true` pauses after the node runs, which lets a human inspect and then Play the same run. The current `specflow run` CLI does not support interactive Pause/Play; use the UI/server or Aflow run path for workflows that need manual run control.
 - `paths` associates files or directories.
 - `images` associates image resources. Each item includes `path` and optional `label` and `mimeType`.
 - `modeId` sets the ACP session mode before this node prompt runs.
