@@ -9,7 +9,7 @@ import type {
   CanvasNodeLayout,
 } from "./canvas-doc";
 import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
-import { analyzeAgentFlowLoops } from "./loop-analysis";
+import { analyzeAgentFlowLoops } from "./v2/loop-analysis";
 import {
   agentflowsDir,
   canvasDir,

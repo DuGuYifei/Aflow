@@ -14,7 +14,7 @@ import type {
   CanvasSession,
 } from "./canvas-doc";
 import { contentSourceForEdge, findAgentFlowNode, hasTransferProperties } from "./canvas-edge-semantics";
-import { analyzeAgentFlowLoops } from "./loop-analysis";
+import { analyzeAgentFlowLoops } from "./v2/loop-analysis";
 
 export const DEFAULT_AGENT_SERVER_ID = "unconfigured";
 

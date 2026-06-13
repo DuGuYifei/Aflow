@@ -1,4 +1,4 @@
-import type { AgentFlowDoc, CanvasEdge } from "./canvas-doc";
+import type { AgentFlowDoc, CanvasEdge } from "../canvas-doc";
 
 export interface LoopAnalysis {
   loopClosingEdgeIds: string[];
