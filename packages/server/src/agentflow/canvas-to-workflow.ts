@@ -14,6 +14,7 @@ import type {
   CanvasSession,
 } from "./canvas-doc";
 import { contentSourceForEdge, findAgentFlowNode, hasTransferProperties } from "./canvas-edge-semantics";
+import { analyzeAgentFlowLoops } from "./loop-analysis";
 
 export const DEFAULT_AGENT_SERVER_ID = "unconfigured";
 
@@ -34,6 +35,12 @@ function agentIdForServer(agentServerId: string): string {
 export function canvasToWorkflow(canvasDocument: AgentFlowDoc): Workflow {
   const endNodeIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "end").map((node) => node.id));
   const inputNodeIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.id));
+  const startNodeIds = new Set(canvasDocument.nodes.filter((node) => node.kind === "start").map((node) => node.id));
+  const derivedLoopbackEdgeIds = new Set(
+    (canvasDocument.version ?? 1) === 2
+      ? analyzeAgentFlowLoops(canvasDocument).loopClosingEdgeIds
+      : [],
+  );
   const agentServerIds = new Set<string>(canvasDocument.sessions.map(agentServerIdForSession));
 
   const agents: Workflow["agents"] = [...agentServerIds].map((agentServerId) => ({
@@ -52,7 +59,7 @@ export function canvasToWorkflow(canvasDocument: AgentFlowDoc): Workflow {
   }));
 
   const nodes: Workflow["nodes"] = canvasDocument.nodes
-    .filter((node) => node.kind !== "end" && node.kind !== "input")
+    .filter((node) => node.kind !== "start" && node.kind !== "end" && node.kind !== "input")
     .map((node) => {
       if (node.kind === "step") return buildAgentNode(node, canvasDocument);
       return {
@@ -66,7 +73,9 @@ export function canvasToWorkflow(canvasDocument: AgentFlowDoc): Workflow {
           id: branch.id,
           label: branch.label,
           description: branch.description,
-          maxTraversals: canvasDocument.edges.find((edge) => edge.from === node.id && edge.branch === branch.id)?.maxTraversals ?? 1,
+          maxTraversals: (canvasDocument.version ?? 1) === 2
+            ? branch.maxTraversals
+            : canvasDocument.edges.find((edge) => edge.from === node.id && edge.branch === branch.id)?.maxTraversals ?? 1,
         })),
         ...(node.configOptions && Object.keys(node.configOptions).length > 0
           ? { configOptions: node.configOptions }
@@ -77,7 +86,8 @@ export function canvasToWorkflow(canvasDocument: AgentFlowDoc): Workflow {
   const edges: Workflow["edges"] = canvasDocument.edges
     .filter((edge) => !endNodeIds.has(edge.to) && !endNodeIds.has(edge.from))
     .filter((edge) => !inputNodeIds.has(edge.from))
-    .map((edge) => buildEdge(edge, canvasDocument));
+    .filter((edge) => !startNodeIds.has(edge.from))
+    .map((edge) => buildEdge(edge, canvasDocument, derivedLoopbackEdgeIds));
 
   return { id: canvasDocument.id, name: canvasDocument.name, agents, sessions, nodes, edges };
 }
@@ -113,9 +123,14 @@ function buildAgentNode(node: AgentFlowStepNode, canvasDocument: AgentFlowDoc): 
   };
 }
 
-function buildEdge(edge: CanvasEdge, canvasDocument: AgentFlowDoc): TriggerEdge | GateInputEdge | TaggedOutputEdge {
+function buildEdge(
+  edge: CanvasEdge,
+  canvasDocument: AgentFlowDoc,
+  derivedLoopbackEdgeIds: Set<string>,
+): TriggerEdge | GateInputEdge | TaggedOutputEdge {
   const source = findAgentFlowNode(canvasDocument, edge.from);
   const target = findAgentFlowNode(canvasDocument, edge.to);
+  const loopback = edge.loopback === true || derivedLoopbackEdgeIds.has(edge.id);
 
   if (target.kind === "gate") {
     return {
@@ -123,7 +138,7 @@ function buildEdge(edge: CanvasEdge, canvasDocument: AgentFlowDoc): TriggerEdge 
       kind: "gate-input",
       sourceNodeId: edge.from,
       targetNodeId: edge.to,
-      ...(edge.loopback ? { loopback: true } : {}),
+      ...(loopback ? { loopback: true } : {}),
       ...(edge.maxTraversals != null ? { maxTraversals: edge.maxTraversals } : {}),
     };
   }
@@ -144,7 +159,7 @@ function buildEdge(edge: CanvasEdge, canvasDocument: AgentFlowDoc): TriggerEdge 
       sourceNodeId: edge.from,
       targetNodeId: edge.to,
       sourcePortId: edge.branch,
-      ...(edge.loopback ? { loopback: true } : {}),
+      ...(loopback ? { loopback: true } : {}),
       ...(edge.maxTraversals != null ? { maxTraversals: edge.maxTraversals } : {}),
     };
   }
@@ -158,7 +173,7 @@ function buildEdge(edge: CanvasEdge, canvasDocument: AgentFlowDoc): TriggerEdge 
       sourceNodeId: edge.from,
       targetNodeId: edge.to,
       sourcePortId: edge.branch,
-      ...(edge.loopback ? { loopback: true } : {}),
+      ...(loopback ? { loopback: true } : {}),
       ...(edge.maxTraversals != null ? { maxTraversals: edge.maxTraversals } : {}),
     };
   }
@@ -172,7 +187,7 @@ function buildEdge(edge: CanvasEdge, canvasDocument: AgentFlowDoc): TriggerEdge 
     sourceNodeId: edge.from,
     targetNodeId: edge.to,
     sourcePortId: edge.branch,
-    ...(edge.loopback ? { loopback: true } : {}),
+    ...(loopback ? { loopback: true } : {}),
     ...(edge.maxTraversals != null ? { maxTraversals: edge.maxTraversals } : {}),
     outputTag: {
       identifier: edge.outputTag,

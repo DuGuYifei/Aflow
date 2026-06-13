@@ -229,7 +229,11 @@ function assignDefine(target: Record<string, string>, rawValue: string): void {
 }
 
 export function normalizeVariableValues(canvasDocument: AgentFlowDoc, values: Record<string, string>): Record<string, string> {
-  const names = new Set(canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.variableName));
+  const names = new Set(
+    (canvasDocument.version ?? 1) === 2
+      ? (canvasDocument.variables ?? []).map((variable) => variable.name)
+      : canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.variableName),
+  );
   const normalized: Record<string, string> = {};
   for (const [key, value] of Object.entries(values)) {
     const fullKey = key.startsWith("specflow_") ? key : `specflow_${key}`;

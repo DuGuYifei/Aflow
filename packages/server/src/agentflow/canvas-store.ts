@@ -9,6 +9,7 @@ import type {
   CanvasNodeLayout,
 } from "./canvas-doc";
 import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
+import { analyzeAgentFlowLoops } from "./loop-analysis";
 import {
   agentflowsDir,
   canvasDir,
@@ -23,15 +24,15 @@ function canvasPath(id: string, root: string) {
   return join(canvasDir(root), `${id}.json`);
 }
 
-export async function listCanvases(root: string): Promise<{ id: string; name: string; local?: boolean }[]> {
-  const results = new Map<string, { id: string; name: string; local?: boolean }>();
+export async function listCanvases(root: string): Promise<{ id: string; name: string; version: 1 | 2; local?: boolean; deprecated?: boolean }[]> {
+  const results = new Map<string, { id: string; name: string; version: 1 | 2; local?: boolean; deprecated?: boolean }>();
   await collectCanvases(results, agentflowsDir(root), false);
   await collectCanvases(results, localAgentflowsDir(root), true);
   return [...results.values()];
 }
 
 async function collectCanvases(
-  results: Map<string, { id: string; name: string; local?: boolean }>,
+  results: Map<string, { id: string; name: string; version: 1 | 2; local?: boolean; deprecated?: boolean }>,
   directory: string,
   local: boolean,
 ): Promise<void> {
@@ -46,7 +47,14 @@ async function collectCanvases(
       const rawValue = await readFile(join(directory, file), "utf8");
       const id = basename(file, ".yaml");
       const canvasDocument = parseAgentFlowSource(rawValue, id);
-      results.set(id, { id: canvasDocument.id, name: canvasDocument.name, ...(local ? { local: true } : {}) });
+      const version = canvasDocument.version ?? 1;
+      results.set(id, {
+        id: canvasDocument.id,
+        name: canvasDocument.name,
+        version,
+        ...(version === 1 ? { deprecated: true } : {}),
+        ...(local ? { local: true } : {}),
+      });
     } catch {
       // skip malformed
     }
@@ -170,6 +178,7 @@ export function splitCanvasDoc(canvasDocument: CanvasDoc): { agentflow: AgentFlo
   return {
     agentflow: {
       id: canvasDocument.id,
+      version: canvasDocument.version ?? 1,
       name: canvasDocument.name,
       sessions: canvasDocument.sessions,
       nodes,
@@ -189,6 +198,7 @@ export function combineAgentFlowAndLayout(
   const generatedByNode = new Map(generated.nodes.map((node) => [node.nodeId, node]));
   return {
     id: agentflow.id,
+    version: agentflow.version ?? 1,
     name: agentflow.name,
     sessions: agentflow.sessions,
     nodes: agentflow.nodes.map((node) => {
@@ -202,11 +212,20 @@ export function combineAgentFlowAndLayout(
     }),
     edges: agentflow.edges,
     variables: agentflow.variables,
+    ...((agentflow.version ?? 1) === 2
+      ? { derived: { loopClosingEdgeIds: analyzeAgentFlowLoops(agentflow).loopClosingEdgeIds } }
+      : {}),
   };
 }
 
 export function generateCanvasLayout(agentflow: AgentFlowDoc): CanvasLayoutDoc {
-  const ignoredEdges = new Set(agentflow.edges.filter((edge) => edge.loopback).map((edge) => edge.id));
+  const derivedLoopClosingEdgeIds = (agentflow.version ?? 1) === 2
+    ? analyzeAgentFlowLoops(agentflow).loopClosingEdgeIds
+    : [];
+  const ignoredEdges = new Set([
+    ...agentflow.edges.filter((edge) => edge.loopback).map((edge) => edge.id),
+    ...derivedLoopClosingEdgeIds,
+  ]);
   const incoming = new Map<string, string[]>();
   const outgoing = new Map<string, string[]>();
   for (const node of agentflow.nodes) {
@@ -231,7 +250,7 @@ export function generateCanvasLayout(agentflow: AgentFlowDoc): CanvasLayoutDoc {
     visiting.add(nodeId);
     const node = byId.get(nodeId);
     const parents = incoming.get(nodeId) ?? [];
-    const value = node?.kind === "input" || parents.length === 0
+    const value = node?.kind === "input" || node?.kind === "start" || parents.length === 0
       ? 0
       : Math.max(...parents.map((parentId) => computeRank(parentId) + 1));
     visiting.delete(nodeId);
@@ -313,6 +332,7 @@ function stripLayout(node: CanvasNode): AgentFlowNode {
 }
 
 function defaultWidth(kind: AgentFlowNode["kind"]): number {
+  if (kind === "start") return 140;
   if (kind === "gate") return 200;
   if (kind === "input") return 200;
   if (kind === "end") return 140;

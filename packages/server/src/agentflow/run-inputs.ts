@@ -27,23 +27,31 @@ export function prepareCanvasRun(
   const overrides = input.variableValues ?? {};
   const variables: RunInputVariable[] = [];
   const effectiveValues: Record<string, string> = {};
+  const declaredVariables = canvasDocument.version === 2
+    ? (canvasDocument.variables ?? [])
+    : canvasDocument.nodes
+      .filter((node) => node.kind === "input")
+      .map((node) => ({
+        name: node.variableName,
+        required: node.required,
+        defaultValue: node.defaultValue,
+        description: node.description,
+      }));
 
-  for (const node of canvasDocument.nodes) {
-    if (node.kind !== "input") continue;
-
-    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, node.variableName);
-    const overrideValue = overrides[node.variableName];
-    const value = hasOverride ? overrideValue : node.defaultValue ?? "";
-    const required = node.required !== false;
+  for (const variable of declaredVariables) {
+    const hasOverride = Object.prototype.hasOwnProperty.call(overrides, variable.name);
+    const overrideValue = overrides[variable.name];
+    const value = hasOverride ? overrideValue : variable.defaultValue ?? "";
+    const required = variable.required !== false;
     const isMissing = required && value.trim() === "";
     const source = isMissing ? "missing" : hasOverride ? "override" : "default";
 
-    effectiveValues[node.variableName] = value;
+    effectiveValues[variable.name] = value;
     variables.push({
-      name: node.variableName,
+      name: variable.name,
       required,
-      defaultValue: node.defaultValue,
-      description: node.description,
+      defaultValue: variable.defaultValue,
+      description: variable.description,
       value,
       source,
     });

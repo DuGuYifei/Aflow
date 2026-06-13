@@ -437,6 +437,8 @@ edges: []
     expect(canvases.find((canvas) => canvas.id === "local-draft")).toEqual({
       id: "local-draft",
       name: "Local draft",
+      version: 1,
+      deprecated: true,
       local: true,
     });
     expect((await loadCanvas("local-draft", root)).name).toBe("Local draft");
@@ -528,6 +530,121 @@ edges:
     const source = layout.nodes.find((node) => node.nodeId === "source")!;
     const target = layout.nodes.find((node) => node.nodeId === "target")!;
     expect(target.x - (source.x + source.w)).toBeGreaterThan(280);
+  });
+
+  it("parses v2 workflows with start nodes, global variables, and derived loops", () => {
+    const canvasDocument = parseAgentFlowSource(`version: 2
+name: V2 Review
+sessions:
+  writer:
+    agentServerId: codex-acp
+  reviewer:
+    agentServerId: claude-acp
+variables:
+  specflow_task:
+    title: Task
+    required: true
+    description: User task.
+nodes:
+  start:
+    kind: start
+    title: Start
+  write:
+    kind: step
+    title: Write
+    session: writer
+    prompt: Write <specflow_task>.
+  review:
+    kind: step
+    title: Review
+    session: reviewer
+    prompt: Review <specflow_result>.
+  verdict:
+    kind: gate
+    title: Verdict
+    decisionCriteria: Choose pass or rework.
+    branches:
+      pass:
+      rework:
+        maxTraversals: 2
+  done:
+    kind: end
+    title: Done
+edges:
+  - from: start
+    to: write
+  - from: write
+    to: review
+    transmit: true
+    outputTag: result
+  - from: review
+    to: verdict
+  - from: verdict
+    branch: pass
+    to: done
+  - from: verdict
+    branch: rework
+    to: review
+`, "v2-review");
+
+    expect(canvasDocument.version).toBe(2);
+    expect(canvasDocument.variables?.[0]).toMatchObject({ name: "specflow_task", title: "Task", required: true });
+    assertRunnableAgentFlow(canvasDocument);
+
+    const layout = generateCanvasLayout(canvasDocument);
+    expect(layout.nodes.find((node) => node.nodeId === "start")?.x).toBe(60);
+
+    const root = parse(stringifyAgentFlowSource(canvasDocument)) as Record<string, unknown>;
+    expect(root.version).toBe(2);
+    expect(root.variables).toEqual({
+      specflow_task: {
+        title: "Task",
+        required: true,
+        description: "User task.",
+      },
+    });
+    expect(JSON.stringify(root.edges)).not.toContain("loopback");
+  });
+
+  it("rejects v2 removed edge and input-node fields", () => {
+    const inputNode = `version: 2
+name: Bad input
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  start:
+    kind: start
+  task:
+    kind: input
+    variableName: specflow_task
+edges: []
+`;
+    expect(() => parseAgentFlowSource(inputNode, "bad-input")).toThrow("cannot use kind: input");
+
+    const loopbackEdge = `version: 2
+name: Bad loopback
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  start:
+    kind: start
+  work:
+    kind: step
+    session: main
+    prompt: Work.
+edges:
+  - from: start
+    to: work
+  - from: work
+    to: work
+    loopback: true
+`;
+    expect(() => parseAgentFlowSource(loopbackEdge, "bad-loopback")).toThrow("cannot define loopback");
+
+    const edgeMax = loopbackEdge.replace("loopback: true", "maxTraversals: 2");
+    expect(() => parseAgentFlowSource(edgeMax, "bad-edge-max")).toThrow("cannot define maxTraversals");
   });
 });
 

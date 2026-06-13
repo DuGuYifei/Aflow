@@ -122,4 +122,44 @@ describe("canvasToWorkflow", () => {
       expect(e5.outputTag.promptReference).toBe("specflow_review_findings");
     }
   });
+
+  it("compiles v2 start and derived loop edges without authored loopback", () => {
+    const workflow = canvasToWorkflow({
+      id: "v2-review",
+      version: 2,
+      name: "V2 Review",
+      sessions: [
+        { id: "writer", name: "writer", agentServerId: "codex-acp" },
+        { id: "reviewer", name: "reviewer", agentServerId: "claude-acp" },
+      ],
+      nodes: [
+        { kind: "start", id: "start", alias: "START", title: "Start", sessionId: null },
+        { kind: "step", id: "write", alias: "01", title: "Write", prompt: "Write.", sessionId: "writer" },
+        { kind: "step", id: "review", alias: "02", title: "Review", prompt: "Review.", sessionId: "reviewer" },
+        {
+          kind: "gate",
+          id: "verdict",
+          alias: "G1",
+          title: "Verdict",
+          decisionCriteria: "Choose pass or rework.",
+          branches: [{ id: "pass", label: "pass" }, { id: "rework", label: "rework", maxTraversals: 2 }],
+        },
+        { kind: "end", id: "done", alias: "END", title: "Done", sessionId: null },
+      ],
+      edges: [
+        { id: "edge:start:->write", from: "start", to: "write" },
+        { id: "edge:write:->review", from: "write", to: "review" },
+        { id: "edge:review:->verdict", from: "review", to: "verdict" },
+        { id: "edge:verdict:pass->done", from: "verdict", branch: "pass", to: "done" },
+        { id: "edge:verdict:rework->review", from: "verdict", branch: "rework", to: "review" },
+      ],
+    });
+
+    expect(workflow.nodes.map((node) => node.id)).toEqual(["write", "review", "verdict"]);
+    expect(workflow.edges.map((edge) => edge.id)).not.toContain("edge:start:->write");
+    expect(workflow.edges.find((edge) => edge.id === "edge:verdict:rework->review")).toMatchObject({ loopback: true });
+    const verdict = workflow.nodes.find((node) => node.id === "verdict");
+    expect(verdict?.kind === "gate" && verdict.branches.find((branch) => branch.id === "rework")?.maxTraversals).toBe(2);
+    expect(verdict?.kind === "gate" && verdict.branches.find((branch) => branch.id === "pass")?.maxTraversals).toBeUndefined();
+  });
 });

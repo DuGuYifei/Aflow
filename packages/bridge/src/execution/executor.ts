@@ -1135,7 +1135,7 @@ function executionKey(nodeId: string, traversal: number): string {
 
 function gateWithAvailableBranches(node: Extract<WorkflowNode, { kind: "gate" }>, traversals: Map<string, number>): Extract<WorkflowNode, { kind: "gate" }> {
   const branches = node.branches.filter((branch) =>
-    (traversals.get(`${node.id}:${branch.id}`) ?? 0) < (branch.maxTraversals ?? 1));
+    (traversals.get(`${node.id}:${branch.id}`) ?? 0) < (branch.maxTraversals ?? Number.MAX_SAFE_INTEGER));
   if (branches.length === 0) {
     throw new Error(`Gate node "${node.id}" has exhausted all branch traversal limits.`);
   }
@@ -1144,7 +1144,7 @@ function gateWithAvailableBranches(node: Extract<WorkflowNode, { kind: "gate" }>
 
 function gateBranchStatuses(node: Extract<WorkflowNode, { kind: "gate" }>, traversals: Map<string, number>): GateBranchStatus[] {
   return node.branches.map((branch) => {
-    const maxTraversals = branch.maxTraversals ?? 1;
+    const maxTraversals = branch.maxTraversals ?? Number.MAX_SAFE_INTEGER;
     const traversalsUsed = traversals.get(`${node.id}:${branch.id}`) ?? 0;
     return {
       branchId: branch.id,

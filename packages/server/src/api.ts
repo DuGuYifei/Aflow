@@ -1697,10 +1697,21 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       const canvasDocument: CanvasDoc = {
         id,
+        version: 2,
         name,
         sessions: [],
-        nodes: [],
+        nodes: [{
+          kind: "start",
+          id: "start",
+          alias: "START",
+          title: "Start",
+          x: 60,
+          y: 80,
+          w: 140,
+          sessionId: null,
+        }],
         edges: [],
+        variables: [],
       };
       await saveCanvas(id, canvasDocument, root);
       return Response.json(canvasDocument);

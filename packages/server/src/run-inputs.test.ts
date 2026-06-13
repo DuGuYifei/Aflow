@@ -66,6 +66,30 @@ describe("prepareCanvasRun", () => {
       source: "default",
     });
   });
+
+  it("uses top-level v2 variables instead of input nodes", () => {
+    const prepared = prepareCanvasRun({
+      id: "v2-simple",
+      version: 2,
+      name: "V2 Simple",
+      sessions: [{ id: "s1", name: "codex", agentServerId: "codex-acp" }],
+      variables: [{ name: "specflow_value", required: true }],
+      nodes: [
+        { kind: "start", id: "start", alias: "START", title: "Start", sessionId: null },
+        {
+          kind: "step",
+          id: "n1",
+          alias: "01",
+          title: "Add one",
+          prompt: "1 + <specflow_value> = ?",
+          sessionId: "s1",
+        },
+      ],
+      edges: [{ id: "e-start", from: "start", to: "n1" }],
+    }, { variableValues: { specflow_value: "2" } });
+    expect(prepared.missingVariables).toHaveLength(0);
+    expect(findStep(prepared.doc, "n1").prompt).toBe("1 + 2 = ?");
+  });
 });
 
 function findStep(input: AgentFlowDoc, id: string): AgentFlowStepNode {
