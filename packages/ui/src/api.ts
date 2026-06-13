@@ -789,7 +789,7 @@ export async function continueWorkflowRun(runId: string): Promise<{ runId: strin
 
 export const resumeWorkflowRun = continueWorkflowRun;
 
-export async function pauseRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent; snapshotRevision?: number }> {
+export async function pauseRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent }> {
   const response = await fetch(`/api/runs/${id}/pause`, { method: 'POST' });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to pause run'));
   return response.json();

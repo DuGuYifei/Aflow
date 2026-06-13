@@ -44,9 +44,8 @@ describe("run control API", () => {
       kind: "pause_after_activation",
       nodeId: "node-1",
     });
-    expect(pausedRecord.agentflowSnapshot.nodes.find((node) => node.id === "node-1")).toMatchObject({
-      pauseAfterRun: true,
-    });
+    expect(pausedRecord.agentflowSnapshot.nodes.find((node) => node.id === "node-1")).not.toHaveProperty("pauseAfterRun");
+    expect(pausedRecord.snapshotRevision).toBeUndefined();
 
     const interrupt = await handle(new Request(`http://specflow.test/api/runs/${runId}/interrupt`, { method: "POST" }));
     expect(interrupt?.status).toBe(409);

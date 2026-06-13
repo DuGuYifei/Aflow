@@ -2232,24 +2232,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       const active = bridge.runControls.getActiveActivation(id);
       const requestedAt = new Date().toISOString();
       let responseStatus: "pause_after_requested" | "safe_point_pause_requested" = "safe_point_pause_requested";
-      let responseNode: { nodeId: string; nodeKind: "step" | "gate"; executionKey: string; snapshotRevision: number } | undefined;
+      let responseNode: { nodeId: string; nodeKind: "step" | "gate"; executionKey: string } | undefined;
       if (active && (active.nodeKind === "agent" || active.nodeKind === "gate")) {
         const nodeKind = active.nodeKind === "agent" ? "step" : "gate";
-        let changed = false;
-        runRecord.agentflowSnapshot = {
-          ...runRecord.agentflowSnapshot,
-          nodes: runRecord.agentflowSnapshot.nodes.map((node) => {
-            if (node.id !== active.nodeId || (node.kind !== "step" && node.kind !== "gate")) return node;
-            if (node.pauseAfterRun === true) return node;
-            changed = true;
-            return { ...node, pauseAfterRun: true };
-          }),
-        };
-        if (changed) {
-          runRecord.snapshotRevision = (runRecord.snapshotRevision ?? 0) + 1;
-          runRecord.snapshotEditedAt = requestedAt;
-          runRecord.snapshotEditSummary = "Pause after current activation";
-        }
         const intent: RunControlIntent = {
           kind: "pause_after_activation",
           source: "player",
@@ -2264,7 +2249,6 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           nodeId: active.nodeId,
           nodeKind,
           executionKey: active.executionKey,
-          snapshotRevision: runRecord.snapshotRevision ?? 0,
         };
       } else {
         const intent: RunControlIntent = {
