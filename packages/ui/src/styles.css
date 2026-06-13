@@ -462,15 +462,36 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 }
 .runtime-control-button.primary {
   color: var(--bg);
-  background: var(--ink);
+  background: var(--ok);
+  border-color: color-mix(in oklch, var(--ok) 42%, var(--line));
 }
 .runtime-control-button.primary:hover {
   color: var(--bg);
-  background: var(--ink);
+  background: color-mix(in oklch, var(--ok) 88%, var(--ink));
   opacity: 0.92;
+}
+.runtime-control-button.success {
+  color: var(--ok);
+}
+.runtime-control-button.success:hover {
+  color: var(--ok);
+  background: color-mix(in oklch, var(--ok) 12%, var(--line-2));
+  border-color: color-mix(in oklch, var(--ok) 34%, var(--line));
+}
+.runtime-control-button.warning {
+  color: color-mix(in oklch, var(--warn) 82%, var(--ink));
+}
+.runtime-control-button.warning:hover {
+  color: color-mix(in oklch, var(--warn) 82%, var(--ink));
+  background: color-mix(in oklch, var(--warn) 14%, var(--line-2));
+  border-color: color-mix(in oklch, var(--warn) 38%, var(--line));
+}
+.runtime-control-button.danger {
+  color: var(--err);
 }
 .runtime-control-button.danger:hover {
   color: var(--err);
+  background: color-mix(in oklch, var(--err) 10%, var(--line-2));
   border-color: color-mix(in oklch, var(--err) 35%, var(--line));
 }
 .runtime-control-button:disabled {

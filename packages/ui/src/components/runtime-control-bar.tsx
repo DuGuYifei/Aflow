@@ -30,10 +30,10 @@ export function RuntimeControlBar({
     label: string,
     icon: IconName,
     action: () => void,
-    options: { primary?: boolean; danger?: boolean; disabled?: boolean } = {},
+    options: { primary?: boolean; success?: boolean; warning?: boolean; danger?: boolean; disabled?: boolean } = {},
   ) => (
     <button
-      className={`runtime-control-button quick-tooltip${options.primary ? ' primary' : ''}${options.danger ? ' danger' : ''}`}
+      className={`runtime-control-button quick-tooltip${options.primary ? ' primary' : ''}${options.success ? ' success' : ''}${options.warning ? ' warning' : ''}${options.danger ? ' danger' : ''}`}
       data-tooltip={label}
       disabled={busy || options.disabled}
       aria-label={label}
@@ -47,8 +47,8 @@ export function RuntimeControlBar({
     <div className="runtime-control-bar" role="toolbar" aria-label={t('runtime.controls')}>
       {status === 'running' && !suspending && (
         <>
-          {control(t('runtime.pause'), 'pause', onPause)}
-          {control(t('runtime.interrupt'), 'interrupt-turn', onInterrupt)}
+          {control(t('runtime.pause'), 'pause', onPause, { success: true })}
+          {control(t('runtime.interrupt'), 'interrupt-turn', onInterrupt, { warning: true })}
           {control(t('runtime.stop'), 'stop-square', onStop, { danger: true })}
         </>
       )}
