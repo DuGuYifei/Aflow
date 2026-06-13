@@ -76,7 +76,7 @@ function TransferPanel({ edge, fromNode, toNode, transferSourceNode, viewMode, o
       <div className="section-title">{t('connection.transferOutput')}</div>
       <div className="output-card" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button className={`switch${transmit ? ' on' : ''}`} disabled={readonly} onClick={() => setTransmit(!transmit)} />
-        <span>{transmit ? t('connection.passContent') : t('connection.activateWithoutContent')}</span>
+        <span>{t('connection.passContent')}</span>
       </div>
       {transmit && (
         <>
