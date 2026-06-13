@@ -2295,7 +2295,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .variables-palette {
   position: absolute;
   left: 14px;
-  top: 52px;
+  top: 84px;
   z-index: 7;
   width: 304px;
   max-width: min(304px, calc(100% - 28px));
