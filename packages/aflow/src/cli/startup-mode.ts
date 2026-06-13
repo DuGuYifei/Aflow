@@ -7,8 +7,8 @@ interface StartupModeOption {
 }
 
 export const STARTUP_MODE_OPTIONS: StartupModeOption[] = [
-  { mode: "native", label: "Native Aflow", description: "Start the original Aflow agent TUI" },
-  { mode: "specflow", label: "Specflow", description: "Open the Agentflow canvas server" },
+  { mode: "native", label: "Native Aflow", description: "Open the Aflow agent TUI for workflow authoring and execution" },
+  { mode: "specflow", label: "Specflow", description: "Open the Specflow Agentflow canvas server" },
   { mode: "designer", label: "Designer", description: "Open the design workbench at /design" },
 ];
 

@@ -19,17 +19,22 @@ Usage:
   aflow [options] [@files...] [messages...]
   aflow /specflow-validate <workflow-id|path> [--server URL]
   aflow /specflow-migrate-v2 <workflow-id|path> [--server URL]
-  aflow /specflow-run <workflow-id> [--input TEXT] [-Dname=value] [--server URL]
+  aflow /specflow-run <workflow-id> [--context TEXT] [-Dspecflow_name=value] [--server URL]
   aflow /specflow-resume <run-id> [--server URL]
   aflow /specflow-resume-session <run-id> [--server URL]
 
 Slash commands inside the TUI:
-  /specflow-create            Create a workflow from a business goal
-  /specflow-fork-adapt        Copy a workflow to agentflows-local and adapt it
+  /specflow-create            Create a Specflow v2 workflow from a business goal
+  /specflow-fork-adapt        Copy a workflow to agentflows-local and adapt it as a v2 draft
   /specflow-validate          Validate a workflow after inferring or asking for the target
-  /specflow-run               Run a workflow and ask missing variables one by one
+  /specflow-run               Run a workflow and ask missing specflow_* variables one by one
   /specflow-resume            Resume a cancelled or failed Specflow run
   /specflow-resume-session    Choose ACP/native resume for a recorded agent session
+
+Direct /specflow-run options:
+  -Dspecflow_name=value       Supply a declared workflow variable
+  --context <text>            Optional freeform run context, separate from workflow variables
+  --input <text>              Deprecated alias for --context
 
 Pi-compatible options:
   --model <pattern>           Select model, supports provider/model and :thinking

@@ -77,11 +77,12 @@ export function registerWorkflowFileTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_write_workflow",
     label: "Write Workflow",
-    description: "Write complete Specflow workflow YAML into the workspace. Defaults to agentflows-local.",
-    promptSnippet: "Persist a workflow YAML draft or adaptation deterministically.",
+    description: "Write complete Specflow workflow YAML into the workspace. Defaults to agentflows-local. New authored workflows should use Specflow Agentflow v2.",
+    promptSnippet: "Persist a complete v2 workflow YAML draft or adaptation deterministically.",
     promptGuidelines: [
       "Use local=true for drafts and fork/adapt outputs.",
       "Pass the complete YAML document, not a patch.",
+      "For new or rewritten workflows, write version: 2 with explicit start nodes, top-level variables, and no authored edge loopback or edge maxTraversals.",
     ],
     parameters: WorkflowWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -104,11 +105,12 @@ export function registerWorkflowFileTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_fork_workflow_to_local",
     label: "Fork Workflow",
-    description: "Copy a workflow to agentflows-local before adapting it.",
-    promptSnippet: "Fork/adapt must copy the source workflow to agentflows-local before editing.",
+    description: "Copy a workflow to agentflows-local before adapting it. The copied draft can then be updated to the current v2 format.",
+    promptSnippet: "Fork/adapt must copy the source workflow to agentflows-local before editing or migrating it.",
     promptGuidelines: [
       "Call this before modifying an existing workflow for a new problem.",
       "After this tool returns, edit the copied local workflow instead of the source.",
+      "When rewriting a copied draft, prefer version: 2 unless the user explicitly asks to preserve legacy v1 format.",
     ],
     parameters: WorkflowForkParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

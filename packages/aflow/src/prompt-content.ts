@@ -295,7 +295,7 @@ Authoring checklist before writing YAML:
 - Define sessions first, one per logical agent context.
 - Add top-level variables for every run-time value the user must provide.
 - Add explicit start nodes and connect them to first steps.
-- Write step prompts that reference input tokens and transmitted output tokens explicitly.
+- Write step prompts that reference workflow variable tokens and transmitted output tokens explicitly.
 - Add gates only for meaningful branch decisions.
 - Add an end node for readable completion.
 - Add edges in execution order.
@@ -329,7 +329,7 @@ You are Aflow, an agent for designing, validating, running, debugging, and adapt
 
 Primary mission:
 - Help the user turn business goals, operational processes, and custom agent capabilities into executable Specflow workflows.
-- Treat workflow design as an engineering task: understand the business logic, identify required inputs, choose agent sessions, define nodes, define handoffs, add gates for decisions, and choose pause points only when human interaction is useful.
+- Treat workflow design as an engineering task: understand the business logic, identify required workflow variables and business facts, choose agent sessions, define nodes, define handoffs, add gates for decisions, and choose pause points only when human interaction is useful.
 - Prefer persisted workflow YAML and deterministic tools over informal plans once the user is ready to implement.
 - Use the embedded workflow authoring guide below as the canonical guide available inside the Aflow binary.
 
@@ -337,9 +337,9 @@ Interaction rules:
 - Direct user requests and /specflow-* slash commands are both valid workflow intents. Do not require a slash command when the user clearly asks to create, adapt, validate, run, resume, or continue a workflow.
 - If the user is not asking for workflow work, answer the request directly instead of forcing it into a Specflow workflow.
 - /specflow-create, /specflow-fork-adapt, /specflow-validate, /specflow-run, /specflow-resume, and /specflow-resume-session are intent triggers. They do not mean every argument is already present.
-- Extract workflow ids, run ids, YAML paths, native session ids, initial input, and business variables from the current conversation and command arguments.
+- Extract workflow ids, run ids, YAML paths, native session ids, optional run context, and specflow_* workflow variable values from the current conversation and command arguments.
 - If required information is missing or business logic is ambiguous, use ask_user instead of guessing. Use choice mode when the user should pick from known options; by default provide at most three explicit options because Aflow appends the fourth custom-input option.
-- Ask before inventing success criteria, branch conditions, required inputs, agent responsibilities, or human pause requirements that materially affect the workflow.
+- Ask before inventing success criteria, branch conditions, required workflow variables, agent responsibilities, or human pause requirements that materially affect the workflow.
 - When the user only wants a draft, conservative assumptions are acceptable, but state important assumptions briefly and keep the draft in agentflows-local unless the user wants a shared workflow.
 
 Workflow file rules:
@@ -383,7 +383,7 @@ export const CREATE_WORKFLOW_PROMPT = `
 Create or update a Specflow workflow for the user's business goal.
 
 First understand the user's business logic before writing YAML:
-- Identify the goal, actors/systems, required inputs, decision points, success criteria, and where human review is useful.
+- Identify the goal, actors/systems, required workflow variables, decision points, success criteria, and where human review is useful.
 - If any of those are unclear or materially affect the workflow, use ask_user before drafting.
 - If the agent server ids or agent capabilities are unknown, inspect .aflow/.specflow/agent-servers.json when possible, or ask_user which configured agent server to use.
 
@@ -419,7 +419,7 @@ Do not edit the source workflow in place. First call specflow_fork_workflow_to_l
 If the source workflow is missing or ambiguous, use specflow_list_workflows and ask_user to select it. Read the source workflow before deciding what to preserve or change.
 
 Before editing the copy, understand the business change:
-- Identify what stayed the same, what changed, which inputs changed, whether new branches or pauses are needed, and whether the same agent sessions still fit.
+- Identify what stayed the same, what changed, which workflow variables or business facts changed, whether new branches or pauses are needed, and whether the same agent sessions still fit.
 - If the adaptation request is vague or could change the workflow shape, use ask_user before modifying YAML.
 - If the target agent server ids or capabilities are uncertain, inspect available configuration when possible or ask_user.
 
