@@ -15,6 +15,8 @@ import {
   loadOrCreateCanvasLayout,
   saveCanvas,
   deleteCanvas,
+  splitCanvasDoc,
+  combineAgentFlowAndLayout,
 } from "./agentflow/canvas-store";
 import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunRecord, type RunState } from "./agentflow/run-store";
 import {
@@ -26,6 +28,7 @@ import {
 import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange, listRunTimelineRestoreEvents } from "./agentflow/run-log-store";
 import { prepareCanvasRun } from "./agentflow/run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
+import { computeRunReachability } from "./agentflow/run-reachability";
 import { assertServerRunnableAgentFlow } from "./agentflow/agentflow-validation";
 import { assertSymbolKey, keyFromLabel } from "./agentflow/agentflow-source";
 import {
@@ -2021,6 +2024,73 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
+    // PATCH /api/runs/:id/snapshot
+    const runSnapshotMatch = pathname.match(/^\/api\/runs\/([^/]+)\/snapshot$/);
+    if (runSnapshotMatch && request.method === "PATCH") {
+      const id = runSnapshotMatch[1];
+      let record: RunRecord;
+      try {
+        record = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (record.status !== "paused" && record.status !== "interrupted") {
+        return Response.json({ error: "Only paused or interrupted run snapshots can be edited" }, { status: 409 });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      const parsed = parseRunSnapshotPatch(body);
+      if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400 });
+      const missingRequiredNode = firstMissingCheckpointNode(record, parsed.agentflow);
+      if (missingRequiredNode) {
+        return Response.json({ error: `Cannot remove checkpoint node "${missingRequiredNode}" from an active run snapshot` }, { status: 409 });
+      }
+      try {
+        assertServerRunnableAgentFlow(parsed.agentflow, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
+        const prepared = prepareCanvasRun(parsed.agentflow, {
+          initialInput: record.initialInput,
+          variableValues: record.variableValues,
+        });
+        if (prepared.missingVariables.length > 0) {
+          return Response.json({
+            error: "Run snapshot is missing required variable values",
+            missingVariables: prepared.missingVariables.map((variable) => variable.name),
+          }, { status: 409 });
+        }
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+      record.agentflowSnapshot = parsed.agentflow;
+      record.canvasSnapshot = parsed.layout;
+      record.snapshotRevision = (record.snapshotRevision ?? 0) + 1;
+      record.snapshotEditedAt = new Date().toISOString();
+      record.snapshotEditSummary = parsed.summary;
+      await saveRun(record, root);
+      const reachability = computeRunReachability(record);
+      const snapshot = combineAgentFlowAndLayout(record.agentflowSnapshot, record.canvasSnapshot);
+      return Response.json({
+        ok: true,
+        snapshotRevision: record.snapshotRevision,
+        snapshot,
+        reachability,
+      });
+    }
+
+    // GET /api/runs/:id/reachability
+    const runReachabilityMatch = pathname.match(/^\/api\/runs\/([^/]+)\/reachability$/);
+    if (runReachabilityMatch && request.method === "GET") {
+      try {
+        const record = await loadRun(runReachabilityMatch[1], root);
+        return Response.json(computeRunReachability(record));
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+    }
+
     // POST /api/runs/:id/pause
     const runPauseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/pause$/);
     if (runPauseMatch && request.method === "POST") {
@@ -2498,6 +2568,63 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function parseRunSnapshotPatch(body: unknown):
+  | { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc; summary?: string }
+  | { error: string } {
+  if (!body || typeof body !== "object") return { error: "Request body must be an object" };
+  const raw = body as Record<string, unknown>;
+  const summary = typeof raw.summary === "string"
+    ? raw.summary
+    : typeof raw.snapshotEditSummary === "string"
+      ? raw.snapshotEditSummary
+      : undefined;
+  if (raw.snapshot && typeof raw.snapshot === "object") {
+    const snapshot = raw.snapshot as CanvasDoc;
+    if (typeof snapshot.id !== "string" || !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.edges) || !Array.isArray(snapshot.sessions)) {
+      return { error: "snapshot must be a complete canvas document" };
+    }
+    const { agentflow, layout } = splitCanvasDoc(snapshot);
+    return { agentflow, layout, summary };
+  }
+  const agentflow = raw.agentflowSnapshot;
+  const layout = raw.canvasSnapshot;
+  if (!agentflow || typeof agentflow !== "object" || !layout || typeof layout !== "object") {
+    return { error: "Provide either snapshot or agentflowSnapshot + canvasSnapshot" };
+  }
+  const agentflowDoc = agentflow as AgentFlowDoc;
+  const layoutDoc = layout as CanvasLayoutDoc;
+  if (typeof agentflowDoc.id !== "string" || !Array.isArray(agentflowDoc.nodes) || !Array.isArray(agentflowDoc.edges) || !Array.isArray(agentflowDoc.sessions)) {
+    return { error: "agentflowSnapshot is invalid" };
+  }
+  if (typeof layoutDoc.workflowId !== "string" || !Array.isArray(layoutDoc.nodes)) {
+    return { error: "canvasSnapshot is invalid" };
+  }
+  return { agentflow: agentflowDoc, layout: layoutDoc, summary };
+}
+
+function firstMissingCheckpointNode(record: RunRecord, agentflow: AgentFlowDoc): string | undefined {
+  const existingNodeIds = new Set(agentflow.nodes.map((node) => node.id));
+  for (const nodeId of requiredCheckpointNodeIds(record.checkpoint)) {
+    if (!existingNodeIds.has(nodeId)) return nodeId;
+  }
+  return undefined;
+}
+
+function requiredCheckpointNodeIds(checkpoint: Record<string, unknown> | undefined): string[] {
+  if (!checkpoint) return [];
+  const ids = new Set<string>();
+  if (typeof checkpoint.activeNodeId === "string") ids.add(checkpoint.activeNodeId);
+  if (typeof checkpoint.interruptedNodeId === "string") ids.add(checkpoint.interruptedNodeId);
+  if (Array.isArray(checkpoint.queue)) {
+    for (const entry of checkpoint.queue) {
+      if (entry && typeof entry === "object" && typeof (entry as { nodeId?: unknown }).nodeId === "string") {
+        ids.add((entry as { nodeId: string }).nodeId);
+      }
+    }
+  }
+  return [...ids];
 }
 
 function buildAflowMigrationTask(input: {
