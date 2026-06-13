@@ -23,7 +23,7 @@ describe("connectOrStartSpecflowServer", () => {
       expect(await pathExists(join(root, ".aflow/.specflow/agentflow/canvas"))).toBe(true);
       expect(await pathExists(join(root, ".aflow/.specflow/agentflow/runs"))).toBe(true);
       expect(await pathExists(join(root, ".aflow/.specflow/agentflow/run-logs"))).toBe(true);
-      expect(await pathExists(join(root, ".aflow/.specflow/agentflow/agentflows-local/example-code-frontend-flow.yaml"))).toBe(true);
+      expect(await pathExists(join(root, ".aflow/.specflow/agentflow/agentflows-local/example-v2-review-loop.yaml"))).toBe(true);
     } finally {
       connection.server?.stop();
     }

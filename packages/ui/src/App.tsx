@@ -287,7 +287,7 @@ export function App() {
     }
     setActiveWorkflow((current) => {
       if (current && nextWorkflows.some((workflow) => workflow.id === current)) return current;
-      const initial = nextWorkflows.find((workflow) => workflow.id === 'example-code-frontend-flow') ?? nextWorkflows[0];
+      const initial = nextWorkflows.find((workflow) => workflow.id === 'example-v2-review-loop') ?? nextWorkflows[0];
       return initial?.id ?? '';
     });
   }, []);
