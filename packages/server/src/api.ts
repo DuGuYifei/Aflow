@@ -1,7 +1,7 @@
 import { AgentServerStore, probeAcpAgentCapabilities, type AgentServerCapabilitiesCache } from "@specflow/agent-proxy";
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
-import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
+import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent, WorkflowCheckpointEvent } from "@specflow/bridge";
 import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
 import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { SkillStore } from "./skills";
@@ -408,7 +408,7 @@ function pickResumableInvocation(record: RunRecord): RunRecord["agentInvocations
 function buildContinuationPrompt(input: {
   nodeTitle?: string;
   invocationStatus: "running" | "done" | "failed" | "cancelled";
-  runStatus: "running" | "success" | "error" | "cancelled";
+  runStatus: "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
   errorMsg?: string;
   originalTask?: string;
 }): string {
@@ -416,8 +416,8 @@ function buildContinuationPrompt(input: {
   const lines: string[] = [];
   if (input.invocationStatus === "running") {
     lines.push(`Specflow detected that the previous run was interrupted while ${node} was still in progress.`);
-  } else if (input.invocationStatus === "cancelled" || input.runStatus === "cancelled") {
-    lines.push(`Specflow detected that the previous run was cancelled after ${node} completed.`);
+  } else if (input.invocationStatus === "cancelled" || input.runStatus === "stopped") {
+    lines.push(`Specflow detected that the previous run was stopped after ${node} completed.`);
   } else if (input.runStatus === "error") {
     lines.push(`Specflow detected that the previous run failed after ${node} completed${input.errorMsg ? `: ${input.errorMsg}` : ""}.`);
   } else {
@@ -1009,6 +1009,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         nodeStatus.status === "done" ? "success" :
         nodeStatus.status === "failed" ? "error" :
         nodeStatus.status === "paused" ? "paused" :
+        nodeStatus.status === "interrupted" ? "interrupted" :
         nodeStatus.status === "cancelled" ? "cancelled" :
         nodeStatus.status === "running" ? "running" : "pending";
 
@@ -1019,6 +1020,10 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       record.nodeStates[nodeStatus.nodeId] = uiStatus;
       if (uiStatus === "running") record.activeNode = nodeStatus.nodeId;
       if (uiStatus === "paused") record.pausedNodeId = nodeStatus.nodeId;
+      if (uiStatus === "interrupted") {
+        record.activeNode = nodeStatus.nodeId;
+        record.control = { ...(record.control ?? {}), interruptedNodeId: nodeStatus.nodeId };
+      }
       if (uiStatus === "success" && record.pausedNodeId === nodeStatus.nodeId) record.pausedNodeId = undefined;
 
       if (nodeStatus.status === "done" && (nodeStatus as NodeStatusEvent & { output?: string }).output) {
@@ -1037,33 +1042,80 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     };
 
     const onRunStatus = (runStatus: RunStatusEvent) => {
-      if (runStatus.status === "done") {
+      const terminal = runStatus.status === "done" || runStatus.status === "failed" || runStatus.status === "cancelled";
+      if (runStatus.status === "running") {
+        record.status = "running";
+        delete record.control?.pauseRequested;
+        delete record.errorMsg;
+      } else if (runStatus.status === "paused") {
+        record.status = "paused";
+        record.control = { ...(record.control ?? {}), reason: runStatus.error };
+      } else if (runStatus.status === "interrupted") {
+        record.status = "interrupted";
+        record.errorMsg = runStatus.error;
+        record.control = { ...(record.control ?? {}), reason: runStatus.error };
+      } else if (runStatus.status === "done") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
         record.duration = formatDuration(record.startedAt, completedAt);
         record.status = "success";
+        delete record.control;
+        delete record.checkpoint;
       } else if (runStatus.status === "failed") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
         record.duration = formatDuration(record.startedAt, completedAt);
         record.status = "error";
         record.errorMsg = runStatus.error;
+        delete record.control;
       } else if (runStatus.status === "cancelled") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
         record.duration = formatDuration(record.startedAt, completedAt);
-        record.status = "cancelled";
+        record.status = "stopped";
         record.errorMsg = runStatus.error;
+        delete record.control;
       }
       flushTerminalEvents();
-      if (record.status !== "running") {
+      if (terminal) {
         bridge.interactions.cancelPendingForRun(runId, `run ${record.status}`);
         bridge.pauses.cancelForRun(runId, `run ${record.status}`);
+        bridge.runControls.clear(runId);
       }
       void saveRun(record, root);
       appendLog({ type: "run_status", ...runStatus });
       eventBus.emit(`${runId}:run`, { runId, status: record.status, workflowId, error: record.errorMsg });
-      offInteractionLog();
+      if (terminal) offInteractionLog();
+    };
+
+    const onCheckpoint = async (checkpointEvent: WorkflowCheckpointEvent) => {
+      record.status = checkpointEvent.status;
+      record.checkpoint = checkpointEvent.checkpoint as unknown as Record<string, unknown>;
+      record.control = {
+        ...(record.control ?? {}),
+        ...(checkpointEvent.status === "paused" ? { pauseRequested: false } : {}),
+        ...(checkpointEvent.nodeId ? { interruptedNodeId: checkpointEvent.nodeId } : {}),
+        ...(checkpointEvent.reason ? { reason: checkpointEvent.reason } : {}),
+      };
+      if (checkpointEvent.status === "interrupted") {
+        record.activeNode = checkpointEvent.nodeId;
+        record.errorMsg = checkpointEvent.reason;
+      }
+      await saveRun(record, root);
+      eventBus.emit(`${runId}:run`, {
+        runId,
+        status: record.status,
+        workflowId,
+        error: record.errorMsg,
+      });
+    };
+
+    const reloadWorkflowSnapshot = () => {
+      const nextPrepared = prepareCanvasRun(record.agentflowSnapshot, {
+        initialInput: record.initialInput,
+        variableValues: record.variableValues,
+      });
+      return canvasToWorkflow(nextPrepared.doc);
     };
 
     const executor = new WorkflowExecutor({
@@ -1071,6 +1123,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       terminalEvents: bridge.terminalEvents,
       onNodeStatus,
       onRunStatus,
+      onCheckpoint,
       onAgentLifecycle: (event) => {
         const {
           runId,
@@ -1207,12 +1260,14 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       },
       interactions: bridge.interactions,
       pauses: bridge.pauses,
+      runControls: bridge.runControls,
     });
 
     void executor.run(workflow, prepared.initialInput, {
         runId,
         signal: runController.signal,
         ...(resumeFrom ? { resumeFrom: resumeFrom.state } : {}),
+        reloadWorkflow: reloadWorkflowSnapshot,
       })
       .then(async (workflowRun) => {
         timeline.snapshot({ status: "success" });
@@ -1228,7 +1283,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         // with valid acpSessionIds. Rebuild explicitly so resume lookups don't
         // have to fix this up after the fact.
         try {
-          timeline.snapshot({ status: record.status === "cancelled" ? "cancelled" : "failed" });
+          timeline.snapshot({ status: record.status === "stopped" ? "cancelled" : "failed" });
           await timeline.flush();
           await logWrite;
           await upsertAgentSessionsFromRun(record, root);
@@ -1966,15 +2021,93 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
-    // POST /api/runs/:id/cancel
-    const runCancelMatch = pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
-    if (runCancelMatch && request.method === "POST") {
-      const id = runCancelMatch[1];
+    // POST /api/runs/:id/pause
+    const runPauseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/pause$/);
+    if (runPauseMatch && request.method === "POST") {
+      const id = runPauseMatch[1];
       const controller = runControllers.get(id);
       if (!controller) {
         try {
           const runRecord = await loadRun(id, root);
-          if (runRecord.status === "running") {
+          return Response.json({ error: `Run process is not active (status: ${runRecord.status})` }, { status: 409 });
+        } catch {
+          return Response.json({ error: "Run not found" }, { status: 404 });
+        }
+      }
+      const runRecord = await loadRun(id, root).catch(() => undefined);
+      if (runRecord && runRecord.status !== "running") {
+        return Response.json({ ok: true, status: runRecord.status });
+      }
+      bridge.runControls.requestPause(id);
+      if (runRecord) {
+        runRecord.control = { ...(runRecord.control ?? {}), pauseRequested: true };
+        await saveRun(runRecord, root);
+      }
+      bridge.terminalEvents.append({
+        runId: id,
+        stream: "system",
+        chunk: "Run pause requested.\n",
+      });
+      eventBus.emit(`${id}:term`, {
+        chunk: "Run pause requested.\n",
+        stream: "system",
+      });
+      return Response.json({ ok: true, status: "pause_requested" });
+    }
+
+    // POST /api/runs/:id/interrupt
+    const runInterruptMatch = pathname.match(/^\/api\/runs\/([^/]+)\/interrupt$/);
+    if (runInterruptMatch && request.method === "POST") {
+      const id = runInterruptMatch[1];
+      if (!runControllers.has(id)) {
+        return Response.json({ error: "Run process is not active" }, { status: 409 });
+      }
+      const interrupted = bridge.runControls.interrupt(id);
+      if (!interrupted.interrupted) {
+        return Response.json({ error: "No active agent invocation to interrupt" }, { status: 409 });
+      }
+      bridge.interactions.cancelPendingForRun(id, "run interrupted");
+      bridge.terminalEvents.append({
+        runId: id,
+        stream: "system",
+        chunk: "Run interrupt requested.\n",
+      });
+      eventBus.emit(`${id}:term`, {
+        chunk: "Run interrupt requested.\n",
+        stream: "system",
+      });
+      return Response.json({ ok: true, status: "interrupting", ...interrupted });
+    }
+
+    // POST /api/runs/:id/play
+    const runPlayMatch = pathname.match(/^\/api\/runs\/([^/]+)\/play$/);
+    if (runPlayMatch && request.method === "POST") {
+      const id = runPlayMatch[1];
+      let runRecord: RunRecord;
+      try {
+        runRecord = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (runRecord.status !== "paused" && runRecord.status !== "interrupted") {
+        return Response.json({ error: `Only paused or interrupted runs can play (status: ${runRecord.status})` }, { status: 409 });
+      }
+      const played = bridge.runControls.play(id);
+      if (!played.played) {
+        return Response.json({ error: "Run process is not active" }, { status: 409 });
+      }
+      return Response.json({ ok: true, status: "playing", previousStatus: played.kind });
+    }
+
+    // POST /api/runs/:id/stop (compat: /cancel)
+    const runStopMatch = pathname.match(/^\/api\/runs\/([^/]+)\/(?:stop|cancel)$/);
+    if (runStopMatch && request.method === "POST") {
+      const id = runStopMatch[1];
+      const controller = runControllers.get(id);
+      if (!controller) {
+        try {
+          const runRecord = await loadRun(id, root);
+          if (runRecord.status === "running" || runRecord.status === "paused" || runRecord.status === "interrupted") {
             return Response.json({ error: "Run process is not active" }, { status: 409 });
           }
           return Response.json({ ok: true, status: runRecord.status });
@@ -1982,18 +2115,20 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           return Response.json({ error: "Run not found" }, { status: 404 });
         }
       }
-      bridge.interactions.cancelPendingForRun(id, "run cancelled");
+      bridge.interactions.cancelPendingForRun(id, "run stopped");
+      bridge.pauses.cancelForRun(id, "run stopped");
       bridge.terminalEvents.append({
         runId: id,
         stream: "system",
-        chunk: "Run cancellation requested.\n",
+        chunk: "Run stop requested.\n",
       });
       controller.abort();
+      bridge.runControls.clear(id);
       eventBus.emit(`${id}:term`, {
-        chunk: "Run cancellation requested.\n",
+        chunk: "Run stop requested.\n",
         stream: "system",
       });
-      return Response.json({ ok: true, status: "cancelling" });
+      return Response.json({ ok: true, status: "stopping" });
     }
 
     // GET /api/runs/:id/logs
@@ -2038,7 +2173,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch {
         return Response.json({ error: "Run not found" }, { status: 404 });
       }
-      if (record.status !== "running" || !bridge.pauses.get(runId, nodeId)) {
+      if ((record.status !== "running" && record.status !== "paused") || !bridge.pauses.get(runId, nodeId)) {
         return Response.json({ error: "Node is not currently authorized for paused interaction" }, { status: 409 });
       }
       try {
@@ -2278,11 +2413,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
-    // POST /api/runs/:id/resume-workflow — start a new run that picks up where
+    // POST /api/runs/:id/continue (compat: /resume-workflow) — start a new run that picks up where
     // the source run left off: completed nodes get short-circuited with their
     // recorded outputs, interrupted nodes are re-invoked with a continuation
     // prompt against their existing ACP sessions.
-    const resumeWorkflowMatch = pathname.match(/^\/api\/runs\/([^/]+)\/resume-workflow$/);
+    const resumeWorkflowMatch = pathname.match(/^\/api\/runs\/([^/]+)\/(?:continue|resume-workflow)$/);
     if (resumeWorkflowMatch && request.method === "POST") {
       const id = resumeWorkflowMatch[1];
       let source: RunRecord;
@@ -2291,11 +2426,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch {
         return Response.json({ error: "Run not found" }, { status: 404 });
       }
-      if (source.status === "running") {
-        return Response.json({ error: "Cannot resume a run that is still running" }, { status: 409 });
+      if (source.status === "running" || source.status === "paused" || source.status === "interrupted") {
+        return Response.json({ error: "Cannot continue a run that is still active" }, { status: 409 });
       }
-      if (source.status !== "cancelled" && source.status !== "error") {
-        return Response.json({ error: "Only cancelled or failed runs can be resumed" }, { status: 409 });
+      if (source.status !== "stopped" && source.status !== "error") {
+        return Response.json({ error: "Only stopped or failed runs can be continued" }, { status: 409 });
       }
       if (source.resumedByRunId) {
         return Response.json({

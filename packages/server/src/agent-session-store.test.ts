@@ -100,7 +100,7 @@ describe("agent session store", () => {
   it("indexes cancelled ACP invocations as cancelled sessions", async () => {
     const root = await tempProject();
     const run = sampleRun("run-cancelled");
-    run.status = "cancelled";
+    run.status = "stopped";
     run.agentInvocations = [
       {
         ...run.agentInvocations[0]!,

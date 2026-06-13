@@ -70,7 +70,7 @@ describe("run store snapshots", () => {
       id: "interrupted-run",
       workflowId: canvasDocument.id,
       label: "Interrupted",
-      status: "cancelled",
+      status: "running",
       startedAt: "2026-05-19T10:00:00.000Z",
       completedAt: "2026-05-19T10:01:00.000Z",
       agent: "codex-acp",

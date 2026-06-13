@@ -34,6 +34,11 @@ import { parseGateDecision } from "./gate-evaluator";
 import { TerminalEventStore } from "./terminal-store";
 import { RunInteractionStore, type RunInteractionContext } from "./interaction-store";
 import { RunPauseStore } from "./pause-store";
+import {
+  RunControlStore,
+  WorkflowInterruptedError,
+  type WorkflowExecutionCheckpoint,
+} from "./run-control-store";
 
 export interface NodeStatusEvent {
   runId: string;
@@ -114,9 +119,11 @@ export interface WorkflowExecutorOptions {
   terminalEvents?: TerminalEventStore;
   interactions?: RunInteractionStore;
   pauses?: RunPauseStore;
+  runControls?: RunControlStore;
   agentRunner?: AgentRunner;
   onNodeStatus?: (event: NodeStatusEvent) => void;
   onRunStatus?: (event: RunStatusEvent) => void;
+  onCheckpoint?: (event: WorkflowCheckpointEvent) => void | Promise<void>;
   onAgentLifecycle?: (event: AgentLifecycleStatusEvent) => void;
   onAgentSessionUpdate?: (event: AgentSessionUpdateStatusEvent) => void;
   onAgentPrompt?: (event: AgentPromptStatusEvent) => void;
@@ -145,6 +152,17 @@ export interface WorkflowRunOptions {
   runId?: string;
   signal?: AbortSignal;
   resumeFrom?: WorkflowResumeState;
+  reloadWorkflow?: () => Workflow | Promise<Workflow>;
+}
+
+export interface WorkflowCheckpointEvent {
+  runId: string;
+  workflowId: string;
+  status: "paused" | "interrupted";
+  checkpoint: WorkflowExecutionCheckpoint;
+  at: string;
+  nodeId?: string;
+  reason?: string;
 }
 
 /**
@@ -212,14 +230,52 @@ function combineAbortSignals(left: AbortSignal | undefined, right: AbortSignal |
   return controller.signal;
 }
 
+function createExecutionCheckpoint(input: {
+  queue: QueuedNode[];
+  pendingInputs: Map<string, PendingNodeInput>;
+  completedNodes: Set<string>;
+  completedExecutions: Set<string>;
+  skippedNodes: Set<string>;
+  inactiveEdges: Set<string>;
+  branchTraversals: Map<string, number>;
+  activeNodeId?: string;
+  interruptedNodeId?: string;
+  interruptedExecutionKey?: string;
+  reason?: string;
+}): WorkflowExecutionCheckpoint {
+  return {
+    queue: input.queue.map((queued) => ({ ...queued })),
+    pendingInputs: Object.fromEntries([...input.pendingInputs.entries()].map(([key, value]) => [
+      key,
+      {
+        input: [...value.input],
+        edgeValues: { ...value.edgeValues },
+        ...(value.origin ? { origin: { ...value.origin } } : {}),
+      },
+    ])),
+    completedNodeIds: [...input.completedNodes],
+    completedExecutionKeys: [...input.completedExecutions],
+    skippedNodeIds: [...input.skippedNodes],
+    inactiveEdgeIds: [...input.inactiveEdges],
+    branchTraversals: Object.fromEntries(input.branchTraversals),
+    ...(input.activeNodeId ? { activeNodeId: input.activeNodeId } : {}),
+    ...(input.interruptedNodeId ? { interruptedNodeId: input.interruptedNodeId } : {}),
+    ...(input.interruptedExecutionKey ? { interruptedExecutionKey: input.interruptedExecutionKey } : {}),
+    ...(input.reason ? { reason: input.reason } : {}),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export class WorkflowExecutor {
   readonly #cwd: string;
   readonly #terminalEvents: TerminalEventStore;
   readonly #interactions: RunInteractionStore;
   readonly #pauses: RunPauseStore | undefined;
+  readonly #runControls: RunControlStore | undefined;
   readonly #agentRunnerOverride: AgentRunner | undefined;
   readonly #onNodeStatus: ((event: NodeStatusEvent) => void) | undefined;
   readonly #onRunStatus: ((event: RunStatusEvent) => void) | undefined;
+  readonly #onCheckpoint: ((event: WorkflowCheckpointEvent) => void | Promise<void>) | undefined;
   readonly #onAgentLifecycle: ((event: AgentLifecycleStatusEvent) => void) | undefined;
   readonly #onAgentSessionUpdate: ((event: AgentSessionUpdateStatusEvent) => void) | undefined;
   readonly #onAgentPrompt: ((event: AgentPromptStatusEvent) => void) | undefined;
@@ -231,9 +287,11 @@ export class WorkflowExecutor {
     this.#terminalEvents = options.terminalEvents ?? new TerminalEventStore();
     this.#interactions = options.interactions ?? new RunInteractionStore();
     this.#pauses = options.pauses;
+    this.#runControls = options.runControls;
     this.#agentRunnerOverride = options.agentRunner;
     this.#onNodeStatus = options.onNodeStatus;
     this.#onRunStatus = options.onRunStatus;
+    this.#onCheckpoint = options.onCheckpoint;
     this.#onAgentLifecycle = options.onAgentLifecycle;
     this.#onAgentSessionUpdate = options.onAgentSessionUpdate;
     this.#onAgentPrompt = options.onAgentPrompt;
@@ -280,18 +338,29 @@ export class WorkflowExecutor {
 
     try {
       throwIfCancelled(options.signal);
-      const nodesById = new Map(workflow.nodes.map((node) => [node.id, node]));
-      const incomingEdgesByTarget = groupEdgesByTarget(workflow.edges);
-      const outgoingEdgesBySource = groupEdgesBySource(workflow.edges);
+      let activeWorkflow = workflow;
+      let nodesById = new Map(activeWorkflow.nodes.map((node) => [node.id, node]));
+      let incomingEdgesByTarget = groupEdgesByTarget(activeWorkflow.edges);
+      let outgoingEdgesBySource = groupEdgesBySource(activeWorkflow.edges);
+      let rerunnableGateIds = findRerunnableGateIds(activeWorkflow);
+      let recurringBranchEdgeIds = findRecurringBranchEdgeIds(activeWorkflow);
+      const reloadWorkflow = async () => {
+        if (!options.reloadWorkflow) return;
+        activeWorkflow = await options.reloadWorkflow();
+        nodesById = new Map(activeWorkflow.nodes.map((node) => [node.id, node]));
+        incomingEdgesByTarget = groupEdgesByTarget(activeWorkflow.edges);
+        outgoingEdgesBySource = groupEdgesBySource(activeWorkflow.edges);
+        rerunnableGateIds = findRerunnableGateIds(activeWorkflow);
+        recurringBranchEdgeIds = findRecurringBranchEdgeIds(activeWorkflow);
+      };
       const pendingInputs = new Map<string, PendingNodeInput>();
-      const queue: QueuedNode[] = findEntryNodes(workflow).map((node) => ({ nodeId: node.id, traversal: 0 }));
-      const rerunnableGateIds = findRerunnableGateIds(workflow);
-      const recurringBranchEdgeIds = findRecurringBranchEdgeIds(workflow);
+      const queue: QueuedNode[] = findEntryNodes(activeWorkflow).map((node) => ({ nodeId: node.id, traversal: 0 }));
       const completedNodes = new Set<string>();
       const completedExecutions = new Set<string>();
       const skippedNodes = new Set<string>();
       const inactiveEdges = new Set<string>();
       const branchTraversals = new Map<string, number>();
+      const interruptedExecutions = new Set<string>();
 
       // Resume bootstrap: classify each node by its prior status.
       //   - "done"/"success"   → use persisted output, fire downstream edges without re-invoking agent
@@ -321,12 +390,32 @@ export class WorkflowExecutor {
         }
       }
 
-      for (const entryNode of findEntryNodes(workflow)) {
+      for (const entryNode of findEntryNodes(activeWorkflow)) {
         pendingInputs.set(executionKey(entryNode.id, 0), { input: [initialInput], edgeValues: {} });
       }
 
       while (queue.length > 0) {
         throwIfCancelled(options.signal);
+        if (this.#runControls?.isPauseRequested(run.id)) {
+          const checkpoint = createExecutionCheckpoint({
+            queue,
+            pendingInputs,
+            completedNodes,
+            completedExecutions,
+            skippedNodes,
+            inactiveEdges,
+            branchTraversals,
+          });
+          await this.#waitForRunPlay({
+            run,
+            workflow: activeWorkflow,
+            status: "paused",
+            checkpoint,
+            signal: options.signal,
+          });
+          await reloadWorkflow();
+          continue;
+        }
         const queued = queue.shift();
         if (!queued) continue;
         const key = executionKey(queued.nodeId, queued.traversal);
@@ -355,27 +444,58 @@ export class WorkflowExecutor {
           && resumeOutputs.has(node.id);
         const isInterrupted = queued.traversal === 0 && interruptedFromResume.has(node.id);
         let nodeResult: NodeExecutionResult;
-        if (useResumeShortcut) {
-          nodeResult = this.#synthesizeResumeResult({
-            run,
-            node,
-            output: resumeOutputs.get(node.id)!,
-            chosenBranchId: node.kind === "gate" ? resumeGateDecisions.get(node.id)?.branchId : undefined,
-            origin: pending.origin,
+        try {
+          if (useResumeShortcut) {
+            nodeResult = this.#synthesizeResumeResult({
+              run,
+              node,
+              output: resumeOutputs.get(node.id)!,
+              chosenBranchId: node.kind === "gate" ? resumeGateDecisions.get(node.id)?.branchId : undefined,
+              origin: pending.origin,
+            });
+          } else {
+            nodeResult = await this.#executeNode({
+              agentRunner,
+              workflow: activeWorkflow,
+              run,
+              node: executableNode,
+              gateBranches: node.kind === "gate" ? gateBranchStatuses(node, branchTraversals) : undefined,
+              input: pending.input.filter(Boolean).join("\n\n"),
+              edgeValues: pending.edgeValues,
+              origin: pending.origin,
+              signal: options.signal,
+              resumeMode: isInterrupted || interruptedExecutions.has(key) ? "continuation" : undefined,
+            });
+            interruptedExecutions.delete(key);
+          }
+        } catch (error) {
+          if (!(error instanceof WorkflowInterruptedError)) throw error;
+          interruptedExecutions.add(key);
+          queue.unshift(queued);
+          const checkpoint = createExecutionCheckpoint({
+            queue,
+            pendingInputs,
+            completedNodes,
+            completedExecutions,
+            skippedNodes,
+            inactiveEdges,
+            branchTraversals,
+            activeNodeId: node.id,
+            interruptedNodeId: node.id,
+            interruptedExecutionKey: key,
+            reason: error.message,
           });
-        } else {
-          nodeResult = await this.#executeNode({
-            agentRunner,
-            workflow,
+          await this.#waitForRunPlay({
             run,
-            node: executableNode,
-            gateBranches: node.kind === "gate" ? gateBranchStatuses(node, branchTraversals) : undefined,
-            input: pending.input.filter(Boolean).join("\n\n"),
-            edgeValues: pending.edgeValues,
-            origin: pending.origin,
+            workflow: activeWorkflow,
+            status: "interrupted",
+            checkpoint,
             signal: options.signal,
-            resumeMode: isInterrupted ? "continuation" : undefined,
+            nodeId: node.id,
+            reason: error.message,
           });
+          await reloadWorkflow();
+          continue;
         }
         if (node.kind === "agent" && node.pauseAfterRun) {
           if (!this.#pauses) {
@@ -390,7 +510,7 @@ export class WorkflowExecutor {
             runId: run.id,
             nodeId: node.id,
             specflowSessionId: node.sessionId,
-            agentServerId: resolveAgentServerId(workflow.agents.find((agent) => agent.id === node.agentId)!),
+            agentServerId: resolveAgentServerId(activeWorkflow.agents.find((agent) => agent.id === node.agentId)!),
             pausedAt,
           }, async (prompt, signal) => {
             const invocation = this.#createInvocation({
@@ -401,7 +521,7 @@ export class WorkflowExecutor {
               prompt,
             });
             return this.#invokeAgent({
-              workflow,
+              workflow: activeWorkflow,
               agentRunner,
               run,
               invocation,
@@ -496,6 +616,43 @@ export class WorkflowExecutor {
     } finally {
       await sessionPool?.closeAll();
     }
+  }
+
+  async #waitForRunPlay(input: {
+    run: WorkflowRun;
+    workflow: Workflow;
+    status: "paused" | "interrupted";
+    checkpoint: WorkflowExecutionCheckpoint;
+    signal?: AbortSignal;
+    nodeId?: string;
+    reason?: string;
+  }): Promise<void> {
+    if (!this.#runControls) return;
+    const at = new Date().toISOString();
+    await this.#onCheckpoint?.({
+      runId: input.run.id,
+      workflowId: input.workflow.id,
+      status: input.status,
+      checkpoint: input.checkpoint,
+      at,
+      nodeId: input.nodeId,
+      reason: input.reason,
+    });
+    this.#onRunStatus?.({
+      runId: input.run.id,
+      workflowId: input.workflow.id,
+      status: input.status,
+      at,
+      error: input.reason,
+    });
+    await this.#runControls.waitForPlay(input.run.id, input.status, input.checkpoint, input.signal);
+    const resumedAt = new Date().toISOString();
+    this.#onRunStatus?.({
+      runId: input.run.id,
+      workflowId: input.workflow.id,
+      status: "running",
+      at: resumedAt,
+    });
   }
 
   #synthesizeResumeResult(input: {
@@ -646,6 +803,13 @@ export class WorkflowExecutor {
       });
       return { output, origin: input.origin, chosenBranchId: decision.branchId };
     } catch (error) {
+      if (error instanceof WorkflowInterruptedError) {
+        nodeRun.status = "interrupted";
+        nodeRun.error = error.message;
+        nodeRun.completedAt = new Date().toISOString();
+        this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "interrupted", at: nodeRun.completedAt });
+        throw error;
+      }
       nodeRun.status = "failed";
       nodeRun.error = error instanceof Error ? error.message : String(error);
       nodeRun.completedAt = new Date().toISOString();
@@ -895,6 +1059,14 @@ export class WorkflowExecutor {
       at: new Date().toISOString(),
     });
     let result: AgentCommandResult;
+    const invocationControl = this.#runControls?.registerInvocation({
+      runId: input.run.id,
+      nodeId: input.invocation.nodeId,
+      agentInvocationId: input.invocation.id,
+    });
+    const effectiveSignal = invocationControl
+      ? combineAbortSignals(input.signal, invocationControl.signal)
+      : input.signal;
     try {
       result = await input.agentRunner({
         agentServerId,
@@ -904,7 +1076,7 @@ export class WorkflowExecutor {
         runId: input.run.id,
         workflowSessionId: input.invocation.sessionId,
         forkFromWorkflowSessionId: input.forkFromSessionId,
-        signal: input.signal,
+        signal: effectiveSignal,
         ...(input.modeId ? { modeId: input.modeId } : {}),
         ...(input.configOptions && Object.keys(input.configOptions).length > 0 ? { configOptions: input.configOptions } : {}),
         ...(input.mcpServers && input.mcpServers.length > 0 ? { mcpServers: input.mcpServers } : {}),
@@ -957,12 +1129,23 @@ export class WorkflowExecutor {
         ),
       });
     } catch (error) {
-      input.invocation.status = input.signal?.aborted || error instanceof WorkflowCancelledError
+      const interrupted = invocationControl?.signal.aborted && !input.signal?.aborted;
+      input.invocation.status = input.signal?.aborted || interrupted || error instanceof WorkflowCancelledError
         ? "cancelled"
         : "failed";
       input.invocation.error = error instanceof Error ? error.message : String(error);
       input.invocation.completedAt = new Date().toISOString();
+      invocationControl?.unregister();
+      if (interrupted) {
+        throw new WorkflowInterruptedError(input.invocation.nodeId, input.invocation.id);
+      }
       throw error;
+    }
+    invocationControl?.unregister();
+    if (invocationControl?.signal.aborted && !input.signal?.aborted) {
+      input.invocation.status = "cancelled";
+      input.invocation.completedAt = new Date().toISOString();
+      throw new WorkflowInterruptedError(input.invocation.nodeId, input.invocation.id);
     }
     if (input.signal?.aborted) throw new WorkflowCancelledError();
     input.invocation.agentServerId = result.agentServerId;
