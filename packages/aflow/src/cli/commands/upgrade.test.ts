@@ -15,6 +15,7 @@ describe("aflow upgrade direct command", () => {
     });
 
     expect(commands).toEqual([AFLOW_UPGRADE_COMMAND]);
+    expect(commands[0]).toContain("set -o pipefail");
     expect(messages.join("\n")).toContain("latest stable version");
   });
 

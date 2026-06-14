@@ -1,7 +1,7 @@
 import type { DirectCommandContext } from "../direct-dispatch";
 
 export const AFLOW_UPGRADE_COMMAND =
-  "curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash";
+  "set -o pipefail; curl -fsSL https://raw.githubusercontent.com/DuGuYifei/Aflow/install-v2/install/install.sh | bash";
 
 export type UpgradeCommandRunner = (command: string, context: DirectCommandContext) => Promise<number>;
 
