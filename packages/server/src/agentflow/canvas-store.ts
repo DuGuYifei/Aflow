@@ -7,14 +7,24 @@ import type {
   CanvasLayoutDoc,
   CanvasNode,
   CanvasNodeLayout,
+  WorkflowDiagnostic,
 } from "./canvas-doc";
 import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow-source";
-import { analyzeAgentFlowLoops } from "./v2/loop-analysis";
+import { collectAgentFlowDiagnostics } from "./agentflow-validation";
 import {
   agentflowsDir,
   canvasDir,
   localAgentflowsDir,
 } from "../workspace-paths";
+
+export interface CanvasSummary {
+  id: string;
+  name: string;
+  version: 1 | 2;
+  local?: boolean;
+  deprecated?: boolean;
+  diagnostics?: WorkflowDiagnostic[];
+}
 
 function agentflowPath(id: string, root: string, local = false) {
   return join(local ? localAgentflowsDir(root) : agentflowsDir(root), `${id}.yaml`);
@@ -24,15 +34,15 @@ function canvasPath(id: string, root: string) {
   return join(canvasDir(root), `${id}.json`);
 }
 
-export async function listCanvases(root: string): Promise<{ id: string; name: string; version: 1 | 2; local?: boolean; deprecated?: boolean }[]> {
-  const results = new Map<string, { id: string; name: string; version: 1 | 2; local?: boolean; deprecated?: boolean }>();
+export async function listCanvases(root: string): Promise<CanvasSummary[]> {
+  const results = new Map<string, CanvasSummary>();
   await collectCanvases(results, agentflowsDir(root), false);
   await collectCanvases(results, localAgentflowsDir(root), true);
   return [...results.values()];
 }
 
 async function collectCanvases(
-  results: Map<string, { id: string; name: string; version: 1 | 2; local?: boolean; deprecated?: boolean }>,
+  results: Map<string, CanvasSummary>,
   directory: string,
   local: boolean,
 ): Promise<void> {
@@ -48,10 +58,12 @@ async function collectCanvases(
       const id = basename(file, ".yaml");
       const canvasDocument = parseAgentFlowSource(rawValue, id);
       const version = canvasDocument.version ?? 1;
+      const diagnostics = collectAgentFlowDiagnostics(canvasDocument).diagnostics;
       results.set(id, {
         id: canvasDocument.id,
         name: canvasDocument.name,
         version,
+        diagnostics,
         ...(version === 1 ? { deprecated: true } : {}),
         ...(local ? { local: true } : {}),
       });
@@ -95,13 +107,17 @@ export async function loadOrCreateCanvasLayout(
 
 export async function saveCanvas(id: string, canvasDocument: CanvasDoc, root: string): Promise<void> {
   const { agentflow, layout } = splitCanvasDoc({ ...canvasDocument, id });
+  await Promise.all([
+    saveAgentFlow(id, agentflow, root),
+    saveCanvasLayout(id, layout, root),
+  ]);
+}
+
+export async function saveAgentFlow(id: string, agentflow: AgentFlowDoc, root: string): Promise<void> {
   const path = await writableAgentflowPath(id, root);
   await mkdir(agentflowsDir(root), { recursive: true });
   await mkdir(localAgentflowsDir(root), { recursive: true });
-  await Promise.all([
-    writeFile(path, stringifyAgentFlowSource(agentflow), "utf8"),
-    saveCanvasLayout(id, layout, root),
-  ]);
+  await writeFile(path, stringifyAgentFlowSource({ ...agentflow, id }), "utf8");
 }
 
 export async function saveAgentFlowAndLayout(
@@ -193,6 +209,7 @@ export function combineAgentFlowAndLayout(
   agentflow: AgentFlowDoc,
   layout: CanvasLayoutDoc,
 ): CanvasDoc {
+  const diagnosticsResult = collectAgentFlowDiagnostics(agentflow);
   const layoutByNode = new Map(layout.nodes.map((node) => [node.nodeId, node]));
   const generated = generateCanvasLayout(agentflow);
   const generatedByNode = new Map(generated.nodes.map((node) => [node.nodeId, node]));
@@ -212,15 +229,16 @@ export function combineAgentFlowAndLayout(
     }),
     edges: agentflow.edges,
     variables: agentflow.variables,
+    diagnostics: diagnosticsResult.diagnostics,
     ...((agentflow.version ?? 1) === 2
-      ? { derived: { loopClosingEdgeIds: analyzeAgentFlowLoops(agentflow).loopClosingEdgeIds } }
+      ? { derived: diagnosticsResult.derived }
       : {}),
   };
 }
 
 export function generateCanvasLayout(agentflow: AgentFlowDoc): CanvasLayoutDoc {
   const derivedLoopClosingEdgeIds = (agentflow.version ?? 1) === 2
-    ? analyzeAgentFlowLoops(agentflow).loopClosingEdgeIds
+    ? collectAgentFlowDiagnostics(agentflow).derived.loopClosingEdgeIds ?? []
     : [];
   const ignoredEdges = new Set([
     ...agentflow.edges.filter((edge) => edge.loopback).map((edge) => edge.id),

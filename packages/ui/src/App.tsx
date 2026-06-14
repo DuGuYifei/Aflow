@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable, RunSnapshot, RunReachability, RuntimeEditClass } from './types';
 import { edgeKey, isSymbolKey } from './appearance';
 import {
-  fetchCanvases, fetchCanvas, saveCanvas, uploadCanvasAssets, runCanvas,
+  fetchCanvases, fetchCanvas, saveAgentFlow, saveCanvasLayoutDoc, agentFlowFromCanvas, canvasLayoutFromCanvas, uploadCanvasAssets, runCanvas,
   fetchRuns, fetchRun, fetchRunLogs, subscribeToRun,
   createCanvas, deleteCanvas as apiDeleteCanvas, deleteRun as apiDeleteRun, rerunRun as apiRerunRun,
   pauseRun as apiPauseRun, interruptRun as apiInterruptRun, playRun as apiPlayRun, stopRun as apiStopRun,
@@ -24,6 +24,7 @@ import {
   type RestoreStreamEvent,
   type PausedNodeSession,
   type ApiRunLogEvent,
+  type CanvasDoc,
 } from './api';
 import { TopBar } from './components/top-bar';
 import { Sidebar, sidebarTotalWidth, type SidebarLayout } from './components/sidebar';
@@ -341,6 +342,7 @@ export function App() {
   const sessionsRef  = useRef(sessions);
   const workflowVariablesRef = useRef(workflowVariables);
   const workflowVersionRef = useRef(workflowVersion);
+  const activeWorkflowRef = useRef(activeWorkflow);
   const resumeAfterAuthRef = useRef<undefined | (() => void | Promise<void>)>(undefined);
   const restoreUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
   const runUnsubscribeRef = useRef<undefined | (() => void)>(undefined);
@@ -358,6 +360,7 @@ export function App() {
   useEffect(() => { sessionsRef.current  = sessions;  }, [sessions]);
   useEffect(() => { workflowVariablesRef.current = workflowVariables; }, [workflowVariables]);
   useEffect(() => { workflowVersionRef.current = workflowVersion; }, [workflowVersion]);
+  useEffect(() => { activeWorkflowRef.current = activeWorkflow; }, [activeWorkflow]);
   useEffect(() => { runsRef.current = runs; }, [runs]);
   useEffect(() => { workflowsRef.current = workflows; }, [workflows]);
   useEffect(() => { conversationRef.current = conversation; }, [conversation]);
@@ -451,22 +454,47 @@ export function App() {
 
   // ── debounced save ────────────────────────────────────────────────────────
 
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const scheduleSave = useCallback(() => {
-    clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const canvasDocument = {
-        id: activeWorkflow,
-        version: workflowVersionRef.current,
-        name: activeCanvasName,
-        sessions: sessionsRef.current,
-        nodes: nodesRef.current,
-        edges: edgesRef.current,
-        variables: workflowVariablesRef.current,
-      };
-      saveCanvas(activeWorkflow, canvasDocument).catch(console.error);
+  const layoutSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const agentFlowSaveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const buildActiveCanvasDocument = useCallback((workflowId = activeWorkflow): CanvasDoc => ({
+    id: workflowId,
+    version: workflowVersionRef.current,
+    name: activeCanvasName,
+    sessions: sessionsRef.current,
+    nodes: nodesRef.current,
+    edges: edgesRef.current,
+    variables: workflowVariablesRef.current,
+  }), [activeCanvasName, activeWorkflow]);
+
+  const scheduleLayoutSave = useCallback(() => {
+    const workflowId = activeWorkflow;
+    if (!workflowId) return;
+    clearTimeout(layoutSaveTimerRef.current);
+    layoutSaveTimerRef.current = setTimeout(() => {
+      const canvasDocument = buildActiveCanvasDocument(workflowId);
+      saveCanvasLayoutDoc(workflowId, canvasLayoutFromCanvas(canvasDocument)).catch(console.error);
     }, 300);
-  }, [activeWorkflow, activeCanvasName]);
+  }, [activeWorkflow, buildActiveCanvasDocument]);
+
+  const scheduleSave = useCallback(() => {
+    const workflowId = activeWorkflow;
+    if (!workflowId) return;
+    scheduleLayoutSave();
+    clearTimeout(agentFlowSaveTimerRef.current);
+    agentFlowSaveTimerRef.current = setTimeout(() => {
+      const canvasDocument = buildActiveCanvasDocument(workflowId);
+      saveAgentFlow(workflowId, agentFlowFromCanvas(canvasDocument))
+        .then((result) => {
+          if (activeWorkflowRef.current === workflowId) {
+            setDerivedLoopClosingEdgeIds(result.derived?.loopClosingEdgeIds ?? []);
+          }
+          setWorkflows((previous) => previous.map((workflow) =>
+            workflow.id === workflowId ? { ...workflow, diagnostics: result.diagnostics } : workflow,
+          ));
+        })
+        .catch(console.error);
+    }, 700);
+  }, [activeWorkflow, buildActiveCanvasDocument, scheduleLayoutSave]);
 
   const patchActiveRunSnapshot = useCallback((
     mutate: (snapshot: RunSnapshot) => RunSnapshot,
@@ -536,10 +564,10 @@ export function App() {
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => node.id === id ? { ...node, x, y } : node);
       nodesRef.current = updated;
-      scheduleSave();
+      scheduleLayoutSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [scheduleLayoutSave]);
 
   const onNodesMove = useCallback((moves: Array<{ id: string; x: number; y: number }>) => {
     if (moves.length === 0) return;
@@ -550,10 +578,10 @@ export function App() {
         return move ? { ...node, x: move.x, y: move.y } : node;
       });
       nodesRef.current = updated;
-      scheduleSave();
+      scheduleLayoutSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [scheduleLayoutSave]);
 
   const onEditNode = useCallback((id: string, patch: Record<string, unknown>) => {
     if (patchActiveRunSnapshot((snapshot) => ({
@@ -1997,9 +2025,10 @@ export function App() {
     const nextName = name.trim();
     if (!nextName) return;
     try {
+      let nextDiagnostics = workflowsRef.current.find((workflow) => workflow.id === id)?.diagnostics;
       if (id === activeWorkflow) {
-        clearTimeout(saveTimerRef.current);
-        const canvasDocument = {
+        clearTimeout(agentFlowSaveTimerRef.current);
+        const canvasDocument: CanvasDoc = {
           id,
           version: workflowVersionRef.current,
           name: nextName,
@@ -2008,14 +2037,17 @@ export function App() {
           edges: edgesRef.current,
           variables: workflowVariablesRef.current,
         };
-        await saveCanvas(id, canvasDocument);
+        const result = await saveAgentFlow(id, agentFlowFromCanvas(canvasDocument));
+        nextDiagnostics = result.diagnostics;
+        setDerivedLoopClosingEdgeIds(result.derived?.loopClosingEdgeIds ?? []);
         setActiveCanvasName(nextName);
       } else {
         const canvasDocument = await fetchCanvas(id);
-        await saveCanvas(id, { ...canvasDocument, name: nextName });
+        const result = await saveAgentFlow(id, agentFlowFromCanvas({ ...canvasDocument, name: nextName }));
+        nextDiagnostics = result.diagnostics;
       }
       setWorkflows((previous) => previous.map((workflow) =>
-        workflow.id === id ? { ...workflow, name: nextName } : workflow));
+        workflow.id === id ? { ...workflow, name: nextName, diagnostics: nextDiagnostics } : workflow));
     } catch (error) {
       console.error('Failed to rename workflow', error);
     }
@@ -2025,7 +2057,8 @@ export function App() {
     const workflow = workflows.find((candidate) => candidate.id === id);
     if (!workflow || !window.confirm(t('app.deleteWorkflowConfirm', { name: workflow.name }))) return;
     try {
-      clearTimeout(saveTimerRef.current);
+      clearTimeout(layoutSaveTimerRef.current);
+      clearTimeout(agentFlowSaveTimerRef.current);
       await apiDeleteCanvas(id);
       setWorkflows((previous) => previous.filter((candidate) => candidate.id !== id));
       if (id === activeWorkflow) {

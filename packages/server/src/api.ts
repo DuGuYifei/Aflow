@@ -14,6 +14,8 @@ import {
   loadAgentFlow,
   loadOrCreateCanvasLayout,
   saveCanvas,
+  saveAgentFlow,
+  saveCanvasLayout,
   saveAgentFlowAndLayout,
   deleteCanvas,
   splitCanvasDoc,
@@ -30,7 +32,7 @@ import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRang
 import { prepareCanvasRun } from "./agentflow/run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
 import { computeRunReachability } from "./agentflow/run-reachability";
-import { assertServerRunnableAgentFlow } from "./agentflow/agentflow-validation";
+import { assertServerRunnableAgentFlow, collectAgentFlowDiagnostics } from "./agentflow/agentflow-validation";
 import { assertSymbolKey, keyFromLabel } from "./agentflow/agentflow-source";
 import {
   loadLocalAgentServerConfig,
@@ -1930,7 +1932,61 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         variables: [],
       };
       await saveCanvas(id, canvasDocument, root);
-      return Response.json(canvasDocument);
+      const { agentflow } = splitCanvasDoc(canvasDocument);
+      const diagnosticsResult = collectAgentFlowDiagnostics(agentflow);
+      return Response.json({
+        ...canvasDocument,
+        diagnostics: diagnosticsResult.diagnostics,
+        derived: diagnosticsResult.derived,
+      });
+    }
+
+    // PUT /api/canvases/:id/agentflow  (save YAML semantics only)
+    const agentflowSaveMatch = pathname.match(/^\/api\/canvases\/([^/]+)\/agentflow$/);
+    if (agentflowSaveMatch && request.method === "PUT") {
+      const id = agentflowSaveMatch[1];
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      if (!body || typeof body !== "object") {
+        return Response.json({ error: "Request body must be an agentflow document" }, { status: 400 });
+      }
+      const agentflow = { ...(body as AgentFlowDoc), id };
+      try {
+        await saveAgentFlow(id, agentflow, root);
+        const diagnosticsResult = collectAgentFlowDiagnostics(agentflow);
+        return Response.json({
+          ok: true,
+          diagnostics: diagnosticsResult.diagnostics,
+          derived: diagnosticsResult.derived,
+        });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+    }
+
+    // PUT /api/canvases/:id/layout  (save canvas layout only)
+    const layoutSaveMatch = pathname.match(/^\/api\/canvases\/([^/]+)\/layout$/);
+    if (layoutSaveMatch && request.method === "PUT") {
+      const id = layoutSaveMatch[1];
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      if (!body || typeof body !== "object" || !Array.isArray((body as CanvasLayoutDoc).nodes)) {
+        return Response.json({ error: "Request body must be a canvas layout document" }, { status: 400 });
+      }
+      try {
+        await saveCanvasLayout(id, { ...(body as CanvasLayoutDoc), workflowId: id, version: 1 }, root);
+        return Response.json({ ok: true });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
     }
 
     // /api/canvases/:id

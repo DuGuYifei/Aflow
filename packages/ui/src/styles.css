@@ -2361,6 +2361,25 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   color: color-mix(in oklch, var(--warn) 60%, var(--ink-2));
   border-color: color-mix(in oklch, var(--warn) 34%, var(--line-2));
 }
+.wf-diagnostics {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--warn);
+  line-height: 1;
+  outline: none;
+}
+.wf-diagnostics.quick-tooltip[data-tooltip]::after {
+  white-space: pre-line;
+  width: max-content;
+  max-width: 340px;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.35;
+  text-transform: none;
+}
 .workflow-name-input { flex: 1; min-width: 0; height: 24px; }
 .workflow-rename,
 .workflow-delete {

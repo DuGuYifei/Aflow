@@ -5,6 +5,7 @@ import { describe, expect, it } from "bun:test";
 import { parse } from "yaml";
 import { initWorkspace } from "./workspace";
 import {
+  combineAgentFlowAndLayout,
   generateCanvasLayout,
   listCanvases,
   loadCanvas,
@@ -434,6 +435,7 @@ edges: []
       version: 1,
       deprecated: true,
       local: true,
+      diagnostics: [],
     });
     expect((await loadCanvas("local-draft", root)).name).toBe("Local draft");
   });
@@ -594,6 +596,44 @@ edges:
       },
     });
     expect(JSON.stringify(root.edges)).not.toContain("loopback");
+  });
+
+  it("reports invalid v2 loops as diagnostics without breaking layout generation", () => {
+    const canvasDocument = parseAgentFlowSource(`version: 2
+name: Bad Loop
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  start:
+    kind: start
+    title: Start
+  first:
+    kind: step
+    title: First
+    session: main
+    prompt: First.
+  second:
+    kind: step
+    title: Second
+    session: main
+    prompt: Second.
+edges:
+  - from: start
+    to: first
+  - from: first
+    to: second
+  - from: second
+    to: first
+`, "bad-v2-loop");
+
+    const layout = generateCanvasLayout(canvasDocument);
+    expect(layout.nodes.map((node) => node.nodeId).sort()).toEqual(["first", "second", "start"]);
+
+    const combined = combineAgentFlowAndLayout(canvasDocument, layout);
+    expect(combined.derived?.loopClosingEdgeIds).toEqual([]);
+    expect(combined.diagnostics?.some((diagnostic) => diagnostic.code === "V2_LOOP_INVALID")).toBe(true);
+    expect(() => assertRunnableAgentFlow(canvasDocument)).toThrow("must be controlled by a gate");
   });
 
   it("rejects v2 removed edge and input-node fields", () => {

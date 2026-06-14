@@ -114,10 +114,23 @@ export interface CanvasDoc {
   edges: CanvasEdge[];
   variables?: CanvasVariable[];
   derived?: CanvasDerivedMetadata;
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export interface CanvasDerivedMetadata {
   loopClosingEdgeIds?: string[];
+}
+
+export type WorkflowDiagnosticSeverity = "warning" | "error";
+
+export interface WorkflowDiagnostic {
+  code: string;
+  severity: WorkflowDiagnosticSeverity;
+  message: string;
+  nodeId?: string;
+  edgeId?: string;
+  sessionId?: string;
+  variableName?: string;
 }
 
 export type AgentFlowStartNode = Omit<CanvasStartNode, "x" | "y" | "w">;
@@ -142,6 +155,7 @@ export interface AgentFlowDoc {
   edges: CanvasEdge[];
   variables?: CanvasVariable[];
   derived?: CanvasDerivedMetadata;
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export interface CanvasNodeLayout {

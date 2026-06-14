@@ -21,6 +21,18 @@ export type RunControlIntent =
   | { kind: 'pause_at_safe_point'; source: 'player'; requestedAt: string }
   | { kind: 'interrupting'; source: 'player'; nodeId: string; agentInvocationId: string; requestedAt: string };
 
+export type WorkflowDiagnosticSeverity = 'warning' | 'error';
+
+export interface WorkflowDiagnostic {
+  code: string;
+  severity: WorkflowDiagnosticSeverity;
+  message: string;
+  nodeId?: string;
+  edgeId?: string;
+  sessionId?: string;
+  variableName?: string;
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -38,6 +50,7 @@ export interface Workflow {
   version?: 1 | 2;
   deprecated?: boolean;
   local?: boolean;
+  diagnostics?: WorkflowDiagnostic[];
   active?: boolean;
 }
 
@@ -52,6 +65,7 @@ export interface RunSnapshot {
   derived?: {
     loopClosingEdgeIds?: string[];
   };
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export interface RunReachability {

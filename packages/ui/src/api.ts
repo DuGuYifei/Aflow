@@ -1,4 +1,4 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent, WorkflowDiagnostic } from './types';
 import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
@@ -12,6 +12,7 @@ export interface CanvasDoc {
   derived?: {
     loopClosingEdgeIds?: string[];
   };
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export type AgentFlowNode = Omit<WorkflowNode, 'x' | 'y' | 'w'>;
@@ -24,6 +25,15 @@ export interface AgentFlowDoc {
   nodes: AgentFlowNode[];
   edges: Edge[];
   variables?: Variable[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
+  diagnostics?: WorkflowDiagnostic[];
+}
+
+export interface AgentFlowSaveResponse {
+  ok: true;
+  diagnostics: WorkflowDiagnostic[];
   derived?: {
     loopClosingEdgeIds?: string[];
   };
@@ -401,6 +411,7 @@ export interface CanvasSummary {
   version?: 1 | 2;
   deprecated?: boolean;
   local?: boolean;
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export async function fetchCanvases(): Promise<CanvasSummary[]> {
@@ -422,6 +433,50 @@ export async function saveCanvas(id: string, canvasDocument: CanvasDoc): Promise
     body: JSON.stringify(canvasDocument),
   });
   if (!response.ok) throw new Error(await apiError(response, `Failed to save canvas ${id}`));
+}
+
+export async function saveAgentFlow(id: string, agentflow: AgentFlowDoc): Promise<AgentFlowSaveResponse> {
+  const response = await fetch(`/api/canvases/${id}/agentflow`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(agentflow),
+  });
+  if (!response.ok) throw new Error(await apiError(response, `Failed to save agentflow ${id}`));
+  return response.json();
+}
+
+export async function saveCanvasLayoutDoc(id: string, layout: CanvasLayoutDoc): Promise<void> {
+  const response = await fetch(`/api/canvases/${id}/layout`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(layout),
+  });
+  if (!response.ok) throw new Error(await apiError(response, `Failed to save canvas layout ${id}`));
+}
+
+export function agentFlowFromCanvas(canvasDocument: CanvasDoc): AgentFlowDoc {
+  return {
+    id: canvasDocument.id,
+    version: canvasDocument.version,
+    name: canvasDocument.name,
+    sessions: canvasDocument.sessions,
+    nodes: canvasDocument.nodes.map(({ x: _x, y: _y, w: _w, ...node }) => node as AgentFlowNode),
+    edges: canvasDocument.edges,
+    variables: canvasDocument.variables,
+  };
+}
+
+export function canvasLayoutFromCanvas(canvasDocument: CanvasDoc): CanvasLayoutDoc {
+  return {
+    workflowId: canvasDocument.id,
+    version: 1,
+    nodes: canvasDocument.nodes.map((node) => ({
+      nodeId: node.id,
+      x: node.x,
+      y: node.y,
+      w: node.w,
+    })),
+  };
 }
 
 export async function uploadCanvasAssets(
@@ -1125,6 +1180,7 @@ function combineSnapshot(
     edges: agentflow.edges,
     variables: agentflow.variables,
     derived: agentflow.derived,
+    diagnostics: agentflow.diagnostics,
   };
 }
 
@@ -1144,6 +1200,7 @@ export function summaryToWorkflow(summary: CanvasSummary): Workflow {
     runs: summary.runs,
     version: summary.version,
     deprecated: summary.deprecated,
+    diagnostics: summary.diagnostics,
     ...(summary.local ? { local: true } : {}),
   };
 }

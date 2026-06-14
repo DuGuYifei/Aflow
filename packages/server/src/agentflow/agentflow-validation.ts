@@ -1,7 +1,8 @@
-import type { AgentFlowDoc, AgentFlowNode, CanvasEdge } from "./canvas-doc";
+import type { AgentFlowDoc, AgentFlowNode, CanvasDerivedMetadata, CanvasEdge, WorkflowDiagnostic } from "./canvas-doc";
 import { contentSourceForEdge, hasTransferProperties } from "./canvas-edge-semantics";
 import { assertRunnableAgentFlowV1Loops } from "./v1/validation";
 import { assertControlledLoopsV2, assertRunnableAgentFlowV2Shape } from "./v2/validation";
+import { analyzeAgentFlowLoops } from "./v2/loop-analysis";
 
 const SYMBOL_KEY = /^[a-z][a-z0-9-]*$/;
 const XML_SAFE_TAG = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
@@ -11,6 +12,11 @@ export interface AgentFlowValidationAgentServer {
   settings: {
     type: string;
   };
+}
+
+export interface AgentFlowDiagnosticsResult {
+  diagnostics: WorkflowDiagnostic[];
+  derived: CanvasDerivedMetadata;
 }
 
 export function assertSymbolKey(value: string, label: string): void {
@@ -151,9 +157,258 @@ export function assertValidAgentFlowDraft(input: AgentFlowDoc): void {
   }
 }
 
+export function collectAgentFlowDiagnostics(input: AgentFlowDoc): AgentFlowDiagnosticsResult {
+  const canvasDocument = normalizeAgentFlowDraft(input);
+  const diagnostics: WorkflowDiagnostic[] = [];
+  const derived: CanvasDerivedMetadata = {};
+  const version = canvasDocument.version ?? 1;
+
+  const push = (diagnostic: WorkflowDiagnostic): void => {
+    diagnostics.push(diagnostic);
+  };
+  const pushError = (
+    code: string,
+    message: string,
+    details: Omit<WorkflowDiagnostic, "code" | "severity" | "message"> = {},
+  ): void => push({ code, severity: "error", message, ...details });
+  const pushWarning = (
+    code: string,
+    message: string,
+    details: Omit<WorkflowDiagnostic, "code" | "severity" | "message"> = {},
+  ): void => push({ code, severity: "warning", message, ...details });
+  const validateSymbol = (value: string, label: string, code: string, details: Omit<WorkflowDiagnostic, "code" | "severity" | "message"> = {}): void => {
+    if (!SYMBOL_KEY.test(value)) {
+      pushError(code, `${label} "${value}" must match ${SYMBOL_KEY.source}.`, details);
+    }
+  };
+
+  validateSymbol(canvasDocument.id, "workflow filename", "INVALID_WORKFLOW_KEY");
+
+  const sessionIds = new Set<string>();
+  for (const session of canvasDocument.sessions) {
+    validateSymbol(session.id, "session key", "INVALID_SESSION_KEY", { sessionId: session.id });
+    if (sessionIds.has(session.id)) pushError("DUPLICATE_SESSION", `Duplicate session "${session.id}".`, { sessionId: session.id });
+    sessionIds.add(session.id);
+    if (!session.agentServerId.trim()) {
+      pushError("SESSION_MISSING_AGENT_SERVER", `Session "${session.id}" must define agentServerId before running.`, { sessionId: session.id });
+    }
+  }
+
+  const nodeIds = new Set<string>();
+  const nodesById = new Map<string, AgentFlowNode>();
+  const branchIdsByGate = new Map<string, Set<string>>();
+  for (const node of canvasDocument.nodes) {
+    validateSymbol(node.id, "node key", "INVALID_NODE_KEY", { nodeId: node.id });
+    if (nodeIds.has(node.id)) pushError("DUPLICATE_NODE", `Duplicate node "${node.id}".`, { nodeId: node.id });
+    nodeIds.add(node.id);
+    nodesById.set(node.id, node);
+    if (node.kind === "step" && (!node.sessionId || !sessionIds.has(node.sessionId))) {
+      pushError("NODE_MISSING_SESSION", `Node "${node.id}" references missing session "${node.sessionId}".`, { nodeId: node.id, sessionId: node.sessionId ?? undefined });
+    }
+    if (node.kind === "gate") {
+      if (node.branches.length === 0) {
+        pushError("GATE_MISSING_BRANCH", `Gate node "${node.id}" must define at least one branch.`, { nodeId: node.id });
+      }
+      const branchIds = new Set<string>();
+      for (const branch of node.branches) {
+        validateSymbol(branch.id, `node "${node.id}" branch key`, "INVALID_BRANCH_KEY", { nodeId: node.id });
+        if (branchIds.has(branch.id)) pushError("DUPLICATE_BRANCH", `Duplicate branch "${branch.id}" on node "${node.id}".`, { nodeId: node.id });
+        branchIds.add(branch.id);
+        if (branch.maxTraversals !== undefined && (!Number.isInteger(branch.maxTraversals) || branch.maxTraversals < 1)) {
+          pushError("INVALID_BRANCH_MAX_TRAVERSALS", `Gate node "${node.id}" branch "${branch.id}" maxTraversals must be a positive integer.`, { nodeId: node.id });
+        }
+      }
+      branchIdsByGate.set(node.id, branchIds);
+    }
+    if (version === 2 && node.kind === "input") {
+      pushError("V2_INPUT_NODE_UNSUPPORTED", `v2 workflow "${canvasDocument.id}" cannot use input nodes; declare top-level variables instead.`, { nodeId: node.id });
+    }
+    if (node.kind === "input") {
+      if (!node.variableName.trim()) {
+        pushError("INPUT_NODE_MISSING_VARIABLE", `Input node "${node.id}" must define variableName before running.`, { nodeId: node.id });
+      } else if (!INPUT_VARIABLE_NAME.test(node.variableName)) {
+        pushError("INVALID_INPUT_NODE_VARIABLE", `Input node "${node.id}" variableName "${node.variableName}" must match ${INPUT_VARIABLE_NAME.source}.`, { nodeId: node.id, variableName: node.variableName });
+      }
+    }
+  }
+
+  const inputVariables = new Set<string>();
+  for (const variable of canvasDocument.variables ?? []) {
+    if (!INPUT_VARIABLE_NAME.test(variable.name)) {
+      pushError("INVALID_VARIABLE_NAME", `Variable "${variable.name}" must match ${INPUT_VARIABLE_NAME.source}.`, { variableName: variable.name });
+    }
+    if (inputVariables.has(variable.name)) {
+      pushError("DUPLICATE_VARIABLE", `Duplicate input variable "${variable.name}".`, { variableName: variable.name });
+    }
+    inputVariables.add(variable.name);
+    if (variable.required !== false && !variable.defaultValue) {
+      pushWarning("REQUIRED_VARIABLE_NEEDS_RUNTIME_VALUE", `Required variable "${variable.name}" needs a runtime value before this workflow can run.`, { variableName: variable.name });
+    }
+  }
+  for (const node of canvasDocument.nodes) {
+    if (node.kind !== "input" || !node.variableName) continue;
+    if (inputVariables.has(node.variableName)) {
+      pushError("DUPLICATE_VARIABLE", `Duplicate input variable "${node.variableName}".`, { nodeId: node.id, variableName: node.variableName });
+    }
+    inputVariables.add(node.variableName);
+  }
+
+  const incomingByTarget = new Map<string, CanvasEdge[]>();
+  const outgoingBySource = new Map<string, CanvasEdge[]>();
+  const edgeIds = new Set<string>();
+  for (const edge of canvasDocument.edges) {
+    incomingByTarget.set(edge.to, [...(incomingByTarget.get(edge.to) ?? []), edge]);
+    outgoingBySource.set(edge.from, [...(outgoingBySource.get(edge.from) ?? []), edge]);
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) {
+      pushError("EDGE_MISSING_NODE", `Edge "${edge.id}" references a missing node.`, { edgeId: edge.id });
+    }
+    const source = nodesById.get(edge.from);
+    const target = nodesById.get(edge.to);
+    if (edge.branch && !branchIdsByGate.get(edge.from)?.has(edge.branch)) {
+      pushError("EDGE_MISSING_BRANCH", `Edge from "${edge.from}" references missing branch "${edge.branch}".`, { edgeId: edge.id, nodeId: edge.from });
+    }
+    if (target?.kind === "input") pushError("EDGE_TARGETS_INPUT", `Edge "${edge.id}" cannot target an input node.`, { edgeId: edge.id, nodeId: target.id });
+    if (target?.kind === "start") pushError("EDGE_TARGETS_START", `Edge "${edge.id}" cannot target a start node.`, { edgeId: edge.id, nodeId: target.id });
+    if (source?.kind === "end") pushError("EDGE_LEAVES_END", `Edge "${edge.id}" cannot leave an end node.`, { edgeId: edge.id, nodeId: source.id });
+    const authoredEdgeId = edgeIdFromReferences(edge);
+    if (edgeIds.has(authoredEdgeId)) pushError("DUPLICATE_EDGE", `Duplicate edge "${authoredEdgeId}".`, { edgeId: edge.id });
+    edgeIds.add(authoredEdgeId);
+  }
+
+  if (version === 2) {
+    const startNodes = canvasDocument.nodes.filter((node) => node.kind === "start");
+    if (startNodes.length === 0) {
+      pushError("V2_START_REQUIRED", `v2 workflow "${canvasDocument.id}" must define at least one start node.`);
+    }
+    const initialSessions = new Map<string, string>();
+    for (const start of startNodes) {
+      if ((incomingByTarget.get(start.id) ?? []).length > 0) {
+        pushError("V2_START_HAS_INCOMING", `Start node "${start.id}" cannot have incoming edges.`, { nodeId: start.id });
+      }
+      const outgoing = outgoingBySource.get(start.id) ?? [];
+      if (outgoing.length === 0) {
+        pushError("V2_START_WITHOUT_STEP", `Start node "${start.id}" must connect to a step node.`, { nodeId: start.id });
+      }
+      for (const edge of outgoing) {
+        const target = nodesById.get(edge.to);
+        if (target?.kind !== "step") {
+          pushError("V2_START_EDGE_TARGET", `Start edge "${edge.id}" must target a step node.`, { edgeId: edge.id, nodeId: edge.to });
+          continue;
+        }
+        if (!target.sessionId) continue;
+        const previous = initialSessions.get(target.sessionId);
+        if (previous && previous !== target.id) {
+          pushError(
+            "V2_START_SESSION_CONFLICT",
+            `Multiple v2 start nodes cannot initially target the same session "${target.sessionId}" (${previous}, ${target.id}).`,
+            { edgeId: edge.id, nodeId: target.id, sessionId: target.sessionId },
+          );
+        }
+        initialSessions.set(target.sessionId, target.id);
+      }
+    }
+  }
+
+  const businessInputsByGate = new Map<string, number>();
+  const inputEdgesByTargetTag = new Map<string, CanvasEdge[]>();
+  for (const edge of canvasDocument.edges) {
+    const source = nodesById.get(edge.from);
+    const target = nodesById.get(edge.to);
+    if (version === 2 && edge.loopback) {
+      pushError("V2_EDGE_LOOPBACK_UNSUPPORTED", `v2 edge "${edge.id}" cannot define loopback; loops are detected automatically.`, { edgeId: edge.id });
+    }
+    if (version === 2 && edge.maxTraversals !== undefined) {
+      pushError("V2_EDGE_MAX_TRAVERSALS_UNSUPPORTED", `v2 edge "${edge.id}" cannot define maxTraversals; put it on the gate branch instead.`, { edgeId: edge.id });
+    }
+    if (source?.kind === "start") {
+      if (edge.branch || hasTransferProperties(edge) || edge.maxTraversals !== undefined || edge.loopback) {
+        pushError("START_EDGE_NOT_CONTROL_ONLY", `Start edge "${edge.id}" must be control-only.`, { edgeId: edge.id });
+      }
+      if (target?.kind !== "step") {
+        pushError("START_EDGE_TARGET", `Start edge "${edge.id}" must target a step node.`, { edgeId: edge.id, nodeId: edge.to });
+      }
+    }
+    if (source?.kind === "gate" && !edge.branch) {
+      pushError("GATE_EDGE_MISSING_BRANCH", `Edge "${edge.id}" leaving gate "${source.id}" must select a branch.`, { edgeId: edge.id, nodeId: source.id });
+    }
+    if (edge.maxTraversals !== undefined && (!Number.isInteger(edge.maxTraversals) || edge.maxTraversals < 1)) {
+      pushError("INVALID_EDGE_MAX_TRAVERSALS", `Edge "${edge.id}" maxTraversals must be a positive integer.`, { edgeId: edge.id });
+    }
+    if (edge.maxTraversals !== undefined && source?.kind !== "gate") {
+      pushError("EDGE_MAX_TRAVERSALS_SOURCE", `Edge "${edge.id}" can define maxTraversals only when leaving a gate.`, { edgeId: edge.id, nodeId: source?.id });
+    }
+    if (edge.outputTag && !XML_SAFE_TAG.test(edge.outputTag)) {
+      pushError("INVALID_OUTPUT_TAG", `Edge "${edge.id}" outputTag must be an XML-safe tag name.`, { edgeId: edge.id });
+    }
+    if (target?.kind === "gate" && source?.kind !== "input") {
+      const count = (businessInputsByGate.get(target.id) ?? 0) + 1;
+      if (count > 1) pushError("GATE_MULTIPLE_BUSINESS_INPUTS", `Gate node "${target.id}" accepts exactly one business input edge.`, { nodeId: target.id, edgeId: edge.id });
+      businessInputsByGate.set(target.id, count);
+    }
+    if (target?.kind === "gate" && hasTransferProperties(edge)) {
+      pushError("GATE_INPUT_TRANSFER_UNSUPPORTED", `Gate input edge "${edge.id}" cannot declare transmission properties.`, { edgeId: edge.id });
+    } else if (target?.kind === "gate" && edge.loopback) {
+      pushError("GATE_INPUT_LOOPBACK_UNSUPPORTED", `Gate input edge "${edge.id}" cannot be a loopback edge.`, { edgeId: edge.id });
+    } else if ((source?.kind === "input" || source?.kind === "start" || target?.kind === "end") && hasTransferProperties(edge)) {
+      pushError("CONTROL_EDGE_TRANSFER_UNSUPPORTED", `Control-only edge "${edge.id}" cannot declare transmission properties.`, { edgeId: edge.id });
+    } else if (edge.transmit !== true && (edge.outputTag || edge.handoffPrompt)) {
+      pushError("EDGE_TRANSFER_DISABLED_FIELDS", `Edge "${edge.id}" cannot define outputTag or handoffPrompt unless transmit is enabled.`, { edgeId: edge.id });
+    } else if (edge.transmit === true && !edge.outputTag) {
+      pushError("EDGE_TRANSMIT_MISSING_TAG", `Transmitting edge "${edge.id}" must define outputTag.`, { edgeId: edge.id });
+    } else if (edge.transmit === true && target?.kind === "step") {
+      try {
+        const contentSource = contentSourceForEdge(edge, canvasDocument);
+        if (contentSource?.kind === "step" && contentSource.sessionId === target.sessionId) {
+          pushError("SAME_SESSION_TRANSFER_UNSUPPORTED", `Same-session edge "${edge.id}" cannot declare transmission properties.`, { edgeId: edge.id });
+        }
+      } catch (error) {
+        pushError("EDGE_TRANSFER_SOURCE_INVALID", errorMessage(error), { edgeId: edge.id });
+      }
+      const targetTag = `${target.id}:${edge.outputTag}`;
+      const matchingEdges = inputEdgesByTargetTag.get(targetTag) ?? [];
+      if (matchingEdges.some((candidate) => !areExclusiveGateBranches(candidate, edge, canvasDocument))) {
+        pushError("DUPLICATE_TRANSMITTED_OUTPUT_TAG", `Node "${target.id}" has duplicate transmitted outputTag "${edge.outputTag}".`, { edgeId: edge.id, nodeId: target.id });
+      }
+      matchingEdges.push(edge);
+      inputEdgesByTargetTag.set(targetTag, matchingEdges);
+    }
+  }
+
+  if (version === 2) {
+    try {
+      const analysis = analyzeAgentFlowLoops(canvasDocument);
+      derived.loopClosingEdgeIds = analysis.loopClosingEdgeIds;
+      const branchesByGate = new Map(
+        canvasDocument.nodes
+          .filter((node) => node.kind === "gate")
+          .map((node) => [node.id, new Map(node.branches.map((branch) => [branch.id, branch]))]),
+      );
+      for (const branch of analysis.cyclicInternalGateBranches) {
+        const gateBranch = branchesByGate.get(branch.gateId)?.get(branch.branchId);
+        if (!gateBranch?.maxTraversals) {
+          pushError(
+            "V2_LOOP_BRANCH_MAX_TRAVERSALS_REQUIRED",
+            `Loop branch "${branch.gateId}.${branch.branchId}" must define maxTraversals because edge "${branch.edgeId}" stays inside a loop.`,
+            { nodeId: branch.gateId, edgeId: branch.edgeId },
+          );
+        }
+      }
+    } catch (error) {
+      derived.loopClosingEdgeIds = [];
+      pushError("V2_LOOP_INVALID", errorMessage(error));
+    }
+  }
+
+  return { diagnostics, derived };
+}
+
 export function assertRunnableAgentFlow(input: AgentFlowDoc): void {
   const canvasDocument = normalizeAgentFlowDraft(input);
   assertValidAgentFlowDraft(canvasDocument);
+
+  const diagnostics = collectAgentFlowDiagnostics(canvasDocument).diagnostics;
+  const firstError = diagnostics.find((diagnostic) => diagnostic.severity === "error");
+  if (firstError) throw new Error(firstError.message);
 
   const version = canvasDocument.version ?? 1;
   const sessionIds = new Set(canvasDocument.sessions.map((session) => session.id));
@@ -318,4 +573,8 @@ export function assertCliRunnableAgentFlow(input: AgentFlowDoc): void {
 function areExclusiveGateBranches(first: CanvasEdge, second: CanvasEdge, canvasDocument: AgentFlowDoc): boolean {
   if (first.from !== second.from || !first.branch || !second.branch || first.branch === second.branch) return false;
   return canvasDocument.nodes.find((node) => node.id === first.from)?.kind === "gate";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
