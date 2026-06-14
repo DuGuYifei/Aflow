@@ -458,10 +458,9 @@ describe("App run integration", () => {
     await waitForText("Start run");
     await waitFor(() => {
       const badge = document.querySelector(".wf-diagnostics");
-      return badge instanceof window.HTMLElement
-        && badge.classList.contains("quick-tooltip-right")
-        && Boolean(badge.getAttribute("data-tooltip")?.includes("Error: Loop structure is invalid."));
+      return badge instanceof window.HTMLElement;
     });
+    await showTooltip(document.querySelector(".wf-diagnostics"), "Error: Loop structure is invalid.");
   });
 
   test("hides workflow-list diagnostics that are not user-facing warnings", async () => {
@@ -510,11 +509,7 @@ describe("App run integration", () => {
     renderApp(root);
 
     await waitForText("Start run");
-    await waitFor(() => {
-      const badge = document.querySelector(".wf-diagnostics");
-      return badge instanceof window.HTMLElement
-        && Boolean(badge.getAttribute("data-tooltip")?.includes("Warning: Future warning."));
-    });
+    await showTooltip(document.querySelector(".wf-diagnostics"), "Warning: Future warning.");
   });
 
   test("localizes workflow diagnostics in the workflow list tooltip", async () => {
@@ -542,11 +537,33 @@ describe("App run integration", () => {
     renderApp(root);
 
     await waitForText("开始运行");
-    await waitFor(() => {
-      const badge = document.querySelector(".wf-diagnostics");
-      return badge instanceof window.HTMLElement
-        && Boolean(badge.getAttribute("data-tooltip")?.includes("警告：步骤“split”有多条出边。"));
-    });
+    await showTooltip(document.querySelector(".wf-diagnostics"), "警告：步骤“split”有多条出边。");
+  });
+
+  test("shows portal tooltips for run card actions", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url.startsWith("/api/runs?")) {
+        return json([sampleRun("success")]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Run #1");
+    await showTooltip(document.querySelector('button[aria-label="Run this snapshot again"]'), "Run this snapshot again");
+  });
+
+  test("shows portal tooltips for canvas toolbar buttons", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    await showTooltip(document.querySelector('button[aria-label="Zoom out"]'), "Zoom out");
   });
 
   test("adds a session and renders it immediately", async () => {
@@ -1466,6 +1483,21 @@ function clickBottomBarHandle(): void {
   const button = bottomBar?.getElementsByTagName("button")[0];
   if (!button) throw new Error("Bottom bar handle not found");
   button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+async function showTooltip(target: Element | null, expectedText: string): Promise<void> {
+  if (!(target instanceof window.HTMLElement)) throw new Error(`Tooltip target not found: ${expectedText}`);
+  const trigger = target.closest(".floating-tooltip-trigger");
+  if (!(trigger instanceof window.HTMLElement)) throw new Error(`Tooltip trigger not found: ${expectedText}`);
+  await waitFor(() => trigger.dataset.floatingTooltipReady === "true");
+  trigger.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+  await waitFor(() => {
+    const tooltip = document.querySelector(".floating-tooltip");
+    return tooltip instanceof window.HTMLElement
+      && tooltip.textContent?.includes(expectedText) === true
+      && window.getComputedStyle(tooltip).position === "fixed";
+  });
+  trigger.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
 }
 
 function setInputValue(input: HTMLInputElement, value: string): void {

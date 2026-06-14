@@ -343,111 +343,64 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   opacity: 0.55;
 }
 .canvas-toolbar button:disabled:hover { background: transparent; color: var(--ink-4); }
-.canvas-toolbar button[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 0; top: calc(100% + 8px);
-  transform: translateY(-2px);
-  background: var(--ink);
-  color: var(--bg);
-  border-radius: 5px;
-  padding: 5px 7px;
-  font-size: 11px;
-  line-height: 1.2;
-  white-space: nowrap;
-  box-shadow: var(--shadow-sm);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 20;
-}
-.canvas-toolbar button[data-tooltip]::before {
-  content: "";
-  position: absolute;
-  left: 9px; top: calc(100% + 3px);
-  transform: translateY(-2px);
-  border: 5px solid transparent;
-  border-bottom-color: var(--ink);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 20;
-}
-.canvas-toolbar button[data-tooltip]:hover::after,
-.canvas-toolbar button[data-tooltip]:focus-visible::after,
-.canvas-toolbar button[data-tooltip]:hover::before,
-.canvas-toolbar button[data-tooltip]:focus-visible::before {
-  opacity: 1;
-  transform: translateY(0);
-}
 .canvas-toolbar button.mode-active {
   background: var(--ink);
   color: var(--bg);
 }
 .canvas-toolbar button.mode-active:hover { background: var(--ink); color: var(--bg); opacity: 0.92; }
-
-.quick-tooltip {
-  position: relative;
+.floating-tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
 }
-.quick-tooltip[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translate(-50%, 2px);
+.floating-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(340px, calc(100vw - 16px));
+  padding: 5px 7px;
+  border-radius: 5px;
   background: var(--ink);
   color: var(--bg);
-  border-radius: 5px;
-  padding: 5px 7px;
-  font-size: 11px;
-  line-height: 1.2;
-  white-space: nowrap;
   box-shadow: var(--shadow-sm);
-  opacity: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  text-transform: none;
+  white-space: nowrap;
   pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 40;
 }
-.quick-tooltip[data-tooltip]::before {
+.floating-tooltip.multiline {
+  white-space: pre-line;
+}
+.floating-tooltip::before {
   content: "";
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 3px);
-  transform: translate(-50%, 2px);
   border: 5px solid transparent;
-  border-top-color: var(--ink);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 40;
 }
-.quick-tooltip[data-tooltip]:hover::after,
-.quick-tooltip[data-tooltip]:focus-visible::after,
-.quick-tooltip[data-tooltip]:hover::before,
-.quick-tooltip[data-tooltip]:focus-visible::before {
-  opacity: 1;
-  transform: translate(-50%, 0);
-}
-.quick-tooltip.quick-tooltip-right[data-tooltip]::after {
-  left: calc(100% + 8px);
+.floating-tooltip[data-placement="right"]::before {
+  left: -10px;
   top: 50%;
-  bottom: auto;
-  transform: translate(-2px, -50%);
-}
-.quick-tooltip.quick-tooltip-right[data-tooltip]::before {
-  left: calc(100% + 3px);
-  top: 50%;
-  bottom: auto;
-  transform: translate(-2px, -50%);
-  border-color: transparent;
+  transform: translateY(-50%);
   border-right-color: var(--ink);
 }
-.quick-tooltip.quick-tooltip-right[data-tooltip]:hover::after,
-.quick-tooltip.quick-tooltip-right[data-tooltip]:focus-visible::after,
-.quick-tooltip.quick-tooltip-right[data-tooltip]:hover::before,
-.quick-tooltip.quick-tooltip-right[data-tooltip]:focus-visible::before {
-  opacity: 1;
-  transform: translate(0, -50%);
+.floating-tooltip[data-placement="left"]::before {
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: var(--ink);
+}
+.floating-tooltip[data-placement="bottom"]::before {
+  left: 50%;
+  top: -10px;
+  transform: translateX(-50%);
+  border-bottom-color: var(--ink);
+}
+.floating-tooltip[data-placement="top"]::before {
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  border-top-color: var(--ink);
 }
 
 .runtime-control-bar {
@@ -2390,16 +2343,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   color: var(--warn);
   line-height: 1;
   outline: none;
-}
-.wf-diagnostics.quick-tooltip[data-tooltip]::after {
-  white-space: pre-line;
-  width: max-content;
-  max-width: 340px;
-  text-align: left;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 1.35;
-  text-transform: none;
 }
 .workflow-name-input { flex: 1; min-width: 0; height: 24px; }
 .workflow-rename,

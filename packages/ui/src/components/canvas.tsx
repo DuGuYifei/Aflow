@@ -3,6 +3,7 @@ import type { WorkflowNode, Edge, Session, Selection, RunStateMap, GateNode, Inp
 import { branchAccent, edgeKey, nextSymbolKey, sessionAccent } from '../appearance';
 import type { IconName } from './icon';
 import { Icon } from './icon';
+import { FloatingTooltip } from './floating-tooltip';
 import { closesGateControlledCycle, isSameSessionContentEdge, wouldCreateExecutedCycle } from '../edge-semantics';
 import { useI18n } from '../i18n';
 import { nodeDisplayTitle, nodeTitleIsFallback } from '../node-display';
@@ -829,26 +830,28 @@ export function Canvas({
 
   // Toolbar button helper
   const toolbarModeBtn = (targetMode: CanvasMode, icon: IconName, label: string, tooltip = label) => (
-    <button
-      aria-label={label}
-      aria-pressed={mode === targetMode}
-      data-tooltip={tooltip}
-      className={mode === targetMode ? 'mode-active' : ''}
-      onClick={(event) => { event.stopPropagation(); setMode(mode === targetMode && isAddMode(targetMode) ? 'select' : targetMode); setGhostPos(null); setDragEdge(null); }}
-    >
-      <Icon name={icon} size={14} />
-    </button>
+    <FloatingTooltip content={tooltip} placement="bottom">
+      <button
+        aria-label={label}
+        aria-pressed={mode === targetMode}
+        className={mode === targetMode ? 'mode-active' : ''}
+        onClick={(event) => { event.stopPropagation(); setMode(mode === targetMode && isAddMode(targetMode) ? 'select' : targetMode); setGhostPos(null); setDragEdge(null); }}
+      >
+        <Icon name={icon} size={14} />
+      </button>
+    </FloatingTooltip>
   );
 
   const toolbarActionBtn = (icon: IconName, label: string, onClick: () => void, disabled = false) => (
-    <button
-      aria-label={label}
-      data-tooltip={label}
-      disabled={disabled}
-      onClick={(event) => { event.stopPropagation(); onClick(); }}
-    >
-      <Icon name={icon} size={14} />
-    </button>
+    <FloatingTooltip content={label} placement="bottom">
+      <button
+        aria-label={label}
+        disabled={disabled}
+        onClick={(event) => { event.stopPropagation(); onClick(); }}
+      >
+        <Icon name={icon} size={14} />
+      </button>
+    </FloatingTooltip>
   );
 
   const wrapClasses = ['canvas-wrap'];
@@ -1113,16 +1116,22 @@ export function Canvas({
           {toolbarActionBtn('paste', t('canvas.pasteNode'), () => onPasteNode(viewportCenterToCanvas()), !canPasteNode)}
           {toolbarActionBtn('trash', t('canvas.deleteSelection'), onDeleteSelection, !canDeleteSelection)}
           <div className="divider" />
-          <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')} data-tooltip={t('canvas.zoomOut')}>
-            <Icon name="zoom-out" size={13} />
-          </button>
+          <FloatingTooltip content={t('canvas.zoomOut')} placement="bottom">
+            <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')}>
+              <Icon name="zoom-out" size={13} />
+            </button>
+          </FloatingTooltip>
           <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} aria-label={t('canvas.zoomIn')} data-tooltip={t('canvas.zoomIn')}>
-            <Icon name="zoom-in" size={13} />
-          </button>
-          <button aria-label={t('canvas.fitToView')} data-tooltip={t('canvas.fitToView')} onClick={fitToView}>
-            <Icon name="fit" size={13} />
-          </button>
+          <FloatingTooltip content={t('canvas.zoomIn')} placement="bottom">
+            <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} aria-label={t('canvas.zoomIn')}>
+              <Icon name="zoom-in" size={13} />
+            </button>
+          </FloatingTooltip>
+          <FloatingTooltip content={t('canvas.fitToView')} placement="bottom">
+            <button aria-label={t('canvas.fitToView')} onClick={fitToView}>
+              <Icon name="fit" size={13} />
+            </button>
+          </FloatingTooltip>
         </div>
       )}
       {!isEdit && (
@@ -1134,16 +1143,22 @@ export function Canvas({
           {toolbarActionBtn('paste', t('canvas.pasteNode'), () => onPasteNode(viewportCenterToCanvas()), true)}
           {toolbarActionBtn('trash', t('canvas.deleteSelection'), onDeleteSelection, true)}
           <div className="divider" />
-          <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')} data-tooltip={t('canvas.zoomOut')}>
-            <Icon name="zoom-out" size={13} />
-          </button>
+          <FloatingTooltip content={t('canvas.zoomOut')} placement="bottom">
+            <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')}>
+              <Icon name="zoom-out" size={13} />
+            </button>
+          </FloatingTooltip>
           <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} aria-label={t('canvas.zoomIn')} data-tooltip={t('canvas.zoomIn')}>
-            <Icon name="zoom-in" size={13} />
-          </button>
-          <button aria-label={t('canvas.fitToView')} data-tooltip={t('canvas.fitToView')} onClick={fitToView}>
-            <Icon name="fit" size={13} />
-          </button>
+          <FloatingTooltip content={t('canvas.zoomIn')} placement="bottom">
+            <button onClick={() => setZoom(Math.min(1.6, zoom + 0.1))} aria-label={t('canvas.zoomIn')}>
+              <Icon name="zoom-in" size={13} />
+            </button>
+          </FloatingTooltip>
+          <FloatingTooltip content={t('canvas.fitToView')} placement="bottom">
+            <button aria-label={t('canvas.fitToView')} onClick={fitToView}>
+              <Icon name="fit" size={13} />
+            </button>
+          </FloatingTooltip>
         </div>
       )}
     </div>

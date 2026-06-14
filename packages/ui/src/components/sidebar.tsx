@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import type { Workflow, Run, WorkflowDiagnostic } from '../types';
 import { useI18n } from '../i18n';
 import { formatWorkflowDiagnostic, formatWorkflowDiagnosticSeverity, getWorkflowListDiagnostics } from '../workflow-diagnostics';
+import { FloatingTooltip } from './floating-tooltip';
 import { Icon } from './icon';
 
 interface SidebarProps {
@@ -50,15 +51,16 @@ function WorkflowDiagnosticsBadge({ diagnostics }: { diagnostics: WorkflowDiagno
   ].join('\n');
   const label = t('diagnostics.workflowIssuesLabel', { count: workflowListDiagnostics.length });
   return (
-    <span
-      className="wf-diagnostics quick-tooltip quick-tooltip-right"
-      data-tooltip={tooltip}
-      aria-label={label}
-      tabIndex={0}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <Icon name="alert" size={12} />
-    </span>
+    <FloatingTooltip content={tooltip} placement="right" multiline>
+      <span
+        className="wf-diagnostics"
+        aria-label={label}
+        tabIndex={0}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <Icon name="alert" size={12} />
+      </span>
+    </FloatingTooltip>
   );
 }
 
@@ -315,27 +317,34 @@ export function Sidebar({
                 <span className="label">{run.label}</span>
                 <div className="actions" onClick={(event) => event.stopPropagation()}>
                   {onResumeRun && !run.resumedByRunId && (run.status === 'stopped' || run.status === 'error') && (
-                    <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.continueRunTitle')} aria-label={t('sidebar.continueRunTitle')} onClick={() => onResumeRun(run.id)}>
-                      <Icon name="play-circle" size={11} />
-                    </button>
+                    <FloatingTooltip content={t('sidebar.continueRunTitle')}>
+                      <button className="btn sm icon" aria-label={t('sidebar.continueRunTitle')} onClick={() => onResumeRun(run.id)}>
+                        <Icon name="play-circle" size={11} />
+                      </button>
+                    </FloatingTooltip>
                   )}
                   {onSaveBestPractice && run.status === 'success' && (
-                    <button
-                      className="btn sm icon quick-tooltip"
-                      data-tooltip={t('sidebar.saveBestPracticeTitle')}
-                      aria-label={t('sidebar.saveBestPracticeTitle')}
-                      disabled={bestPracticeBusyRunId === run.id}
-                      onClick={() => onSaveBestPractice(run.id)}
-                    >
-                      <Icon name={bestPracticeBusyRunId === run.id ? 'loader' : 'star'} size={11} />
-                    </button>
+                    <FloatingTooltip content={t('sidebar.saveBestPracticeTitle')}>
+                      <button
+                        className="btn sm icon"
+                        aria-label={t('sidebar.saveBestPracticeTitle')}
+                        disabled={bestPracticeBusyRunId === run.id}
+                        onClick={() => onSaveBestPractice(run.id)}
+                      >
+                        <Icon name={bestPracticeBusyRunId === run.id ? 'loader' : 'star'} size={11} />
+                      </button>
+                    </FloatingTooltip>
                   )}
-                  <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.rerunTitle')} aria-label={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
-                    <Icon name="rotate" size={11} />
-                  </button>
-                  <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.delete')} aria-label={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
-                    <Icon name="trash" size={11} />
-                  </button>
+                  <FloatingTooltip content={t('sidebar.rerunTitle')}>
+                    <button className="btn sm icon" aria-label={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
+                      <Icon name="rotate" size={11} />
+                    </button>
+                  </FloatingTooltip>
+                  <FloatingTooltip content={t('sidebar.delete')}>
+                    <button className="btn sm icon" aria-label={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
+                      <Icon name="trash" size={11} />
+                    </button>
+                  </FloatingTooltip>
                 </div>
               </div>
               <div className="ticket">{run.ticket}</div>
