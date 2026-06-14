@@ -5,6 +5,7 @@ import { buildCreateWorkflowPrompt, buildForkAdaptWorkflowPrompt, buildMigrateV2
 import { specflowResumeCommand } from "./commands/resume";
 import { specflowResumeSessionCommand } from "./commands/resume-session";
 import { specflowRunCommand } from "./commands/run";
+import { aflowUpgradeCommand } from "./commands/upgrade";
 import { specflowValidateCommand } from "./commands/validate";
 
 export interface DirectCommandContext {
@@ -14,6 +15,7 @@ export interface DirectCommandContext {
 }
 
 const DIRECT_COMMANDS = new Set([
+  "upgrade",
   "specflow-create",
   "specflow-fork-adapt",
   "specflow-validate",
@@ -24,7 +26,10 @@ const DIRECT_COMMANDS = new Set([
 ]);
 
 export function isDirectAflowCommand(value: string | undefined): boolean {
-  return Boolean(value && DIRECT_COMMANDS.has(normalizeCommandName(value)));
+  if (!value) return false;
+  const command = normalizeCommandName(value);
+  if (command === "upgrade") return value === "upgrade";
+  return DIRECT_COMMANDS.has(command);
 }
 
 export async function dispatchDirectAflowCommand(args: string[], context: DirectCommandContext): Promise<void> {
@@ -51,6 +56,10 @@ export async function dispatchDirectAflowCommand(args: string[], context: Direct
 }
 
 async function dispatchParsedCommand(command: string, args: string[], context: DirectCommandContext): Promise<void> {
+  if (command === "upgrade") {
+    await aflowUpgradeCommand(args, context);
+    return;
+  }
   if (command === "specflow-validate") {
     await specflowValidateCommand(args, context);
     return;

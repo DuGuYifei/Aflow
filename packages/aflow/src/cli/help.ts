@@ -17,6 +17,7 @@ export function printAflowHelp(): void {
 
 Usage:
   aflow [options] [@files...] [messages...]
+  aflow upgrade
   aflow /specflow-validate <workflow-id|path> [--server URL]
   aflow /specflow-migrate-v2 <workflow-id|path> [--server URL]
   aflow /specflow-run <workflow-id> [--context TEXT] [-Dspecflow_name=value] [--server URL]
