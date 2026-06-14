@@ -24,6 +24,7 @@ export interface OpenPausedNodeAcpViewOptions {
   paused: PausedNodeSession;
   node?: NodeDisplayInfo;
   snippets: ConversationSnippet[];
+  continueOptions?: { play?: boolean; pauseAfterNextActivation?: boolean };
 }
 
 export interface AflowCustomUi {
@@ -309,7 +310,7 @@ export async function openPausedNodeAcpView(options: OpenPausedNodeAcpViewOption
       append("system", "Continuing workflow...");
       refresh();
       try {
-        await options.client.continuePausedNode(options.paused.runId, options.paused.nodeId);
+        await options.client.continuePausedNode(options.paused.runId, options.paused.nodeId, options.continueOptions);
         finish(true);
       } catch (error) {
         sending = false;

@@ -97,6 +97,7 @@ export interface ActiveActivationControl {
 interface RunControlRecord {
   pauseAtSafePointRequested?: boolean;
   pauseAfterActivationExecutionKey?: string;
+  pauseAfterNextActivationRequested?: boolean;
   pending?: PendingPlayback;
   activeInvocation?: ActiveInvocationControl;
   activeActivation?: ActiveActivationControl;
@@ -138,11 +139,24 @@ export class RunControlStore {
     return true;
   }
 
+  requestPauseAfterNextActivation(runId: string): boolean {
+    const record = this.#record(runId);
+    record.pauseAfterNextActivationRequested = true;
+    return true;
+  }
+
   consumePauseAfterActivation(runId: string, executionKey: string): boolean {
     const record = this.#records.get(runId);
-    if (record?.pauseAfterActivationExecutionKey !== executionKey) return false;
-    record.pauseAfterActivationExecutionKey = undefined;
-    return true;
+    if (!record) return false;
+    if (record.pauseAfterActivationExecutionKey === executionKey) {
+      record.pauseAfterActivationExecutionKey = undefined;
+      return true;
+    }
+    if (record.pauseAfterNextActivationRequested) {
+      record.pauseAfterNextActivationRequested = undefined;
+      return true;
+    }
+    return false;
   }
 
   async waitForPlay(
@@ -154,6 +168,7 @@ export class RunControlStore {
     const record = this.#record(runId);
     record.pauseAtSafePointRequested = false;
     record.pauseAfterActivationExecutionKey = undefined;
+    record.pauseAfterNextActivationRequested = false;
     if (record.pending) throw new Error(`Run "${runId}" is already waiting for play.`);
     return new Promise<void>((resolve, reject) => {
       const pending: PendingPlayback = {

@@ -888,6 +888,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     snapshot?: { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc },
     resumeFrom?: { state: WorkflowResumeState; source: RunRecord },
     playFrom?: { record: RunRecord; checkpoint: WorkflowExecutionCheckpoint },
+    options: { pauseAfterFirstActivation?: boolean } = {},
   ): Promise<Response> {
     let agentflow: AgentFlowDoc;
     let layout: CanvasLayoutDoc;
@@ -1314,6 +1315,10 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       pauses: bridge.pauses,
       runControls: bridge.runControls,
     });
+
+    if (options.pauseAfterFirstActivation) {
+      bridge.runControls.requestPauseAfterNextActivation(runId);
+    }
 
     void executor.run(workflow, prepared.initialInput, {
         runId,
@@ -2069,9 +2074,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     const runMatch = pathname.match(/^\/api\/canvases\/([^/]+)\/run$/);
     if (runMatch && request.method === "POST") {
       const id = runMatch[1];
-      let body: { initialInput?: string; variableValues?: Record<string, string> } = {};
+      let body: { initialInput?: string; variableValues?: Record<string, string>; pauseAfterFirstActivation?: boolean } = {};
       try { body = await request.json(); } catch { /* ok */ }
-      return handleRun(id, body.initialInput ?? "", body.variableValues ?? {});
+      return handleRun(id, body.initialInput ?? "", body.variableValues ?? {}, undefined, undefined, undefined, {
+        pauseAfterFirstActivation: body.pauseAfterFirstActivation === true,
+      });
     }
 
     // GET /api/runs  (optional ?workflowId=)
@@ -2382,6 +2389,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     const runPlayMatch = pathname.match(/^\/api\/runs\/([^/]+)\/play$/);
     if (runPlayMatch && request.method === "POST") {
       const id = runPlayMatch[1];
+      let body: { pauseAfterNextActivation?: boolean } = {};
+      try { body = await request.json(); } catch { /* ok */ }
+      const pauseAfterNextActivation = body.pauseAfterNextActivation === true;
       let runRecord: RunRecord;
       try {
         runRecord = await loadRun(id, root);
@@ -2408,6 +2418,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           }, { status: 409 });
         }
       }
+      if (pauseAfterNextActivation) {
+        bridge.runControls.requestPauseAfterNextActivation(id);
+      }
       const played = bridge.runControls.play(id);
       if (!played.played) {
         if (runControllers.has(id)) {
@@ -2424,6 +2437,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           { agentflow: runRecord.agentflowSnapshot, layout: runRecord.canvasSnapshot },
           undefined,
           { record: runRecord, checkpoint },
+          { pauseAfterFirstActivation: pauseAfterNextActivation },
         );
       }
       return Response.json({ ok: true, status: "playing", previousStatus: played.kind });
@@ -2508,7 +2522,16 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       try {
         if (pausedActionMatch[3] === "continue") {
+          let body: { play?: boolean; pauseAfterNextActivation?: boolean } = {};
+          try { body = await request.json(); } catch { /* ok */ }
+          const shouldPlay = body.play !== false;
           const paused = bridge.pauses.continue(runId, nodeId);
+          if (!shouldPlay) {
+            return Response.json({ ok: true, paused, played: { played: false } });
+          }
+          if (body.pauseAfterNextActivation === true) {
+            bridge.runControls.requestPauseAfterNextActivation(runId);
+          }
           const played = bridge.runControls.play(runId);
           return Response.json({ ok: true, paused, played });
         }
@@ -2516,7 +2539,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
           return Response.json({ error: "Prompt must not be empty" }, { status: 400 });
         }
-        return Response.json(await bridge.pauses.sendPrompt(runId, nodeId, body.prompt, request.signal));
+        const result = await bridge.pauses.sendPrompt(runId, nodeId, body.prompt, request.signal);
+        if (updateCheckpointPendingCompletionOutput(record, nodeId, result.output)) {
+          await saveRun(record, root);
+        }
+        return Response.json(result);
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 409 });
       }
@@ -2987,6 +3014,16 @@ function parseWorkflowExecutionCheckpoint(value: Record<string, unknown> | undef
     return undefined;
   }
   return value as unknown as WorkflowExecutionCheckpoint;
+}
+
+function updateCheckpointPendingCompletionOutput(record: RunRecord, nodeId: string, output: string): boolean {
+  const checkpoint = parseWorkflowExecutionCheckpoint(record.checkpoint);
+  const pendingCompletion = checkpoint?.pendingCompletion;
+  if (!pendingCompletion || pendingCompletion.nodeId !== nodeId) return false;
+  pendingCompletion.output = output;
+  if (pendingCompletion.origin) pendingCompletion.origin.output = output;
+  record.checkpoint = checkpoint as unknown as Record<string, unknown>;
+  return true;
 }
 
 function requiredCheckpointNodeIds(checkpoint: Record<string, unknown> | undefined): string[] {

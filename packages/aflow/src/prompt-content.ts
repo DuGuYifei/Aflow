@@ -365,7 +365,10 @@ Tool rules:
 - Use specflow_list_workflows when the user needs to choose from existing workflows.
 - Use specflow_fork_workflow_to_local before adapting an existing workflow.
 - Use specflow_validate_workflow before recommending a workflow run.
-- Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
+- Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, then lets the user choose Dynamic run or Normal run.
+- In Normal run, specflow_run_workflow monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
+- In Dynamic run, inspect completedNodeText after each checkpoint. completedNodeText is the full assistant text output passed to downstream workflow logic; it excludes tool calls, usage, terminal, and lifecycle events. Patch only the current run snapshot when needed, then call specflow_play_run with pauseAfterNextActivation true.
+- For dynamic snapshot edits, use specflow_get_run_checkpoint when you need fresh checkpoint context and specflow_patch_run_snapshot to modify the paused/interrupted run snapshot. Only current, future, and history_future nodes are editable; history_only, inactive, and topology edits are rejected.
 - Use specflow_resume_session when the user wants to resume or inspect a recorded agent session from a run. It offers ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, or Skip when the TUI is available.
 - Do not ask for a separate native command after specflow_run_workflow just to repeat run-end choices; the run tool already offers the full session resume picker when the TUI is available.
 - Do not shell out to specflow run from inside Aflow. The standalone Specflow CLI run path does not support Aflow's interactive pause/session resume flow and can reject pauseAfterRun workflows.

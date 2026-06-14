@@ -36,9 +36,10 @@ export function buildRunWorkflowPrompt(args: string): string {
   return [
     "Run a Specflow workflow.",
     "",
-    "Infer the workflow id, optional run context, and known specflow_* variable values from the conversation and command arguments. If the workflow id is missing, ask the user which workflow to run. Once the workflow is identified, call `specflow_run_workflow`; it will ask required workflow variables one by one in the TUI.",
+    "Infer the workflow id, optional run context, and known specflow_* variable values from the conversation and command arguments. If the workflow id is missing, ask the user which workflow to run. Once the workflow is identified, call `specflow_run_workflow`; it will ask required workflow variables one by one in the TUI and then ask the user to choose Dynamic run or Normal run.",
     "If the workflow id is missing or ambiguous, use `specflow_list_workflows` when helpful and then `ask_user` to choose one. Pass any already-known specflow_* variables as `variableValues` instead of asking for them again. Use `initialInput` only for freeform run context that is not one of the declared workflow variables.",
-    "`specflow_run_workflow` is responsible for the full TUI run flow: display node status with node titles, handle pauseAfterRun ACP interaction, and after completion list recorded agent sessions so the user can choose ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, or Skip.",
+    "`specflow_run_workflow` is responsible for the full TUI run flow. In Normal run it displays node status, handles pauseAfterRun ACP interaction, and after completion lists recorded agent sessions. In Dynamic run it pauses after activations and returns completedNodeText so you can decide whether to patch only the run snapshot before calling specflow_play_run.",
+    "If the user explicitly asks for dynamic optimization, pass dynamicReview: true; the TUI still confirms the run mode.",
     "Do not ask for a separate native command after a normal run just to repeat run-end choices; the run tool already offers native resume through the session picker.",
     "Do not execute shell `specflow run`. That is the standalone CLI path, rejects pauseAfterRun workflows, and does not provide Aflow's ACP pause interaction.",
     "",

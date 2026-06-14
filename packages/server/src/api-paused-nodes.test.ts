@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { createApiHandler } from "./api";
-import { saveRun, type RunRecord } from "./agentflow/run-store";
+import { loadRun, saveRun, type RunRecord } from "./agentflow/run-store";
 
 describe("paused node interaction API", () => {
   test("accepts prompt and continue only for an active server-authorized pause", async () => {
@@ -91,6 +91,48 @@ describe("paused node interaction API", () => {
     bridge.pauses.cancelForRun("run1", "done");
     await expect(continuation).rejects.toThrow("done");
   });
+
+  test("prompt updates pending completion output and continue can avoid playing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-paused-api-"));
+    const bridge = createSpecflowBridge();
+    const handle = createApiHandler(bridge, root);
+    const run = sampleRun();
+    run.status = "paused";
+    run.pausedNodeId = "node-1";
+    run.checkpoint = sampleCheckpoint("draft output");
+    await saveRun(run, root);
+    const continuation = bridge.pauses.waitForContinuation({
+      runId: "run1",
+      nodeId: "node-1",
+      specflowSessionId: "s1",
+      agentServerId: "codex-acp",
+      pausedAt: "2026-05-24T10:00:00.000Z",
+    }, async (prompt) => `answer:${prompt}`);
+
+    const prompted = await handle(new Request("http://specflow.test/api/runs/run1/paused-nodes/node-1/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "review" }),
+    }));
+    expect(prompted?.status).toBe(200);
+    expect(await prompted?.json()).toEqual({ output: "answer:review" });
+    expect((await loadSavedRun(root)).checkpoint?.pendingCompletion).toMatchObject({
+      nodeId: "node-1",
+      output: "answer:review",
+    });
+
+    const continued = await handle(new Request("http://specflow.test/api/runs/run1/paused-nodes/node-1/continue", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ play: false }),
+    }));
+    expect(continued?.status).toBe(200);
+    expect(await continued?.json()).toMatchObject({ played: { played: false } });
+    await expect(continuation).resolves.toBe("answer:review");
+    const saved = await loadSavedRun(root);
+    expect(saved.status).toBe("paused");
+    expect(saved.pausedNodeId).toBe("node-1");
+  });
 });
 
 function sampleRun(): RunRecord {
@@ -110,6 +152,38 @@ function sampleRun(): RunRecord {
     initialInput: "",
     variableValues: {},
   };
+}
+
+function sampleCheckpoint(output: string): Record<string, unknown> {
+  return {
+    queue: [],
+    pendingInputs: {},
+    completedNodeIds: [],
+    completedExecutionKeys: [],
+    skippedNodeIds: [],
+    inactiveEdgeIds: [],
+    branchTraversals: {},
+    activeNodeId: "node-1",
+    suspension: {
+      kind: "pause_after_activation",
+      source: "node_property",
+      nodeId: "node-1",
+      traversal: 0,
+      executionKey: "node-1:0",
+    },
+    pendingCompletion: {
+      nodeId: "node-1",
+      traversal: 0,
+      executionKey: "node-1:0",
+      output,
+      origin: { agentId: "agent-1", sessionId: "s1", output },
+    },
+    createdAt: "2026-05-24T10:00:00.000Z",
+  };
+}
+
+async function loadSavedRun(root: string): Promise<RunRecord> {
+  return loadRun("run1", root);
 }
 
 async function waitFor(read: () => boolean): Promise<void> {
