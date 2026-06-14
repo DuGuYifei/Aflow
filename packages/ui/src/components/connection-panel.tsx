@@ -9,7 +9,11 @@ interface ConnectionPanelProps {
   fromNode?: WorkflowNode;
   toNode?: WorkflowNode;
   transferSourceNode?: WorkflowNode;
+  workflowVersion: 1 | 2;
+  derivedLoopClosingEdgeIds?: string[];
   viewMode: 'edit' | 'run';
+  readonly?: boolean;
+  editImpactLabel?: string;
   onClose: () => void;
   onEditEdge?: (id: string, patch: Partial<Edge>) => void;
   onDeleteEdge?: (id: string) => void;
@@ -19,64 +23,97 @@ function sessionId(node: WorkflowNode | undefined): string | null {
   return node?.kind === 'step' ? node.sessionId : null;
 }
 
+function EditImpactNote({ label }: { label?: string }) {
+  if (!label) return null;
+  return <div className="edit-impact-note">{label}</div>;
+}
+
 export function ConnectionPanel(props: ConnectionPanelProps) {
   const { t } = useI18n();
-  const { edge, fromNode, toNode, transferSourceNode = fromNode, viewMode, onClose, onEditEdge, onDeleteEdge } = props;
+  const { edge, fromNode, toNode, transferSourceNode = fromNode, workflowVersion, derivedLoopClosingEdgeIds = [], viewMode, onClose, onEditEdge, onDeleteEdge } = props;
+  const readonly = props.readonly ?? viewMode === 'run';
   const inputRelation = fromNode?.kind === 'input';
+  const startRelation = fromNode?.kind === 'start';
   const completionEdge = toNode?.kind === 'end';
   const gateInput = toNode?.kind === 'gate';
+  const derivedLoopClosing = derivedLoopClosingEdgeIds.includes(edge.id);
   const sameSession = Boolean(sessionId(transferSourceNode) && sessionId(transferSourceNode) === sessionId(toNode));
-  if (inputRelation || completionEdge) {
+  if (inputRelation || startRelation || completionEdge) {
     return (
-      <RightPanel label={<><Icon name="link" size={11} />{t('connection.control')}</>} title={inputRelation ? t('connection.runInputReference') : t('connection.workflowCompletion')} onClose={onClose}>
+      <RightPanel label={<><Icon name="link" size={11} />{t('connection.control')}</>} title={inputRelation ? t('connection.runInputReference') : startRelation ? t('connection.workflowStart') : t('connection.workflowCompletion')} onClose={onClose}>
+        <EditImpactNote label={props.editImpactLabel} />
         <div className="code-hint">
           {inputRelation
             ? t('connection.inputHint')
+            : startRelation
+              ? t('connection.startHint')
             : t('connection.completionHint')}
         </div>
-        {completionEdge && fromNode?.kind === 'gate' && <TraversalLimit edge={edge} readonly={viewMode === 'run'} onEditEdge={onEditEdge} />}
-        {viewMode === 'edit' && <DeleteButton edge={edge} onDeleteEdge={onDeleteEdge} onClose={onClose} />}
+        {derivedLoopClosing && <div className="code-hint">{t('connection.derivedLoopHint')}</div>}
+        {workflowVersion === 1 && completionEdge && fromNode?.kind === 'gate' && <TraversalLimit edge={edge} readonly={readonly} onEditEdge={onEditEdge} />}
+        {!readonly && <DeleteButton edge={edge} onDeleteEdge={onDeleteEdge} onClose={onClose} />}
       </RightPanel>
     );
   }
   if (gateInput) {
     return (
       <RightPanel label={<><Icon name="route" size={11} />{t('connection.gateInput')}</>} title={t('connection.decisionContext')} onClose={onClose}>
+        <EditImpactNote label={props.editImpactLabel} />
         <div className="code-hint">{t('connection.gateInputHint')}</div>
-        {viewMode === 'edit' && <DeleteButton edge={edge} onDeleteEdge={onDeleteEdge} onClose={onClose} />}
+        {derivedLoopClosing && <div className="code-hint">{t('connection.derivedLoopHint')}</div>}
+        {!readonly && <DeleteButton edge={edge} onDeleteEdge={onDeleteEdge} onClose={onClose} />}
       </RightPanel>
     );
   }
   if (sameSession) {
     return (
       <RightPanel label={<><Icon name="link" size={11} />{t('connection.sameSession')}</>} title={t('connection.continueConversation')} onClose={onClose}>
+        <EditImpactNote label={props.editImpactLabel} />
         <div className="code-hint">{t('connection.sameSessionHint')}</div>
+        {derivedLoopClosing && <div className="code-hint">{t('connection.derivedLoopHint')}</div>}
         {fromNode?.kind === 'gate' && <div className="code-hint">{t('connection.gateBranchSameSessionHint')}</div>}
-        {fromNode?.kind === 'gate' && <TraversalLimit edge={edge} readonly={viewMode === 'run'} onEditEdge={onEditEdge} />}
-        {viewMode === 'edit' && <DeleteButton edge={edge} onDeleteEdge={onDeleteEdge} onClose={onClose} />}
+        {workflowVersion === 1 && fromNode?.kind === 'gate' && <TraversalLimit edge={edge} readonly={readonly} onEditEdge={onEditEdge} />}
+        {!readonly && <DeleteButton edge={edge} onDeleteEdge={onDeleteEdge} onClose={onClose} />}
       </RightPanel>
     );
   }
   return <TransferPanel {...props} transferSourceNode={transferSourceNode} />;
 }
 
-function TransferPanel({ edge, fromNode, toNode, transferSourceNode, viewMode, onClose, onEditEdge, onDeleteEdge }: ConnectionPanelProps) {
+function TransferPanel({
+  edge,
+  fromNode,
+  toNode,
+  transferSourceNode,
+  workflowVersion,
+  derivedLoopClosingEdgeIds = [],
+  viewMode,
+  readonly: readonlyOverride,
+  editImpactLabel,
+  onClose,
+  onEditEdge,
+  onDeleteEdge,
+}: ConnectionPanelProps) {
   const { t } = useI18n();
   const [transmit, setTransmit] = useState(edge.transmit === true);
   const [outputTag, setOutputTag] = useState(edge.outputTag ?? '');
   const [handoffPrompt, setHandoffPrompt] = useState(edge.handoffPrompt ?? '');
   const [maxTraversals, setMaxTraversals] = useState(edge.maxTraversals ?? 1);
-  const readonly = viewMode === 'run';
+  const readonly = readonlyOverride ?? viewMode === 'run';
   const viaGate = fromNode?.kind === 'gate';
+  const showEdgeTraversalLimit = viaGate && workflowVersion === 1;
+  const derivedLoopClosing = derivedLoopClosingEdgeIds.includes(edge.id);
   const validOutputTag = /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(outputTag);
   return (
     <RightPanel label={<><Icon name="route" size={11} />{t('connection.connection')}</>} title={`${transferSourceNode?.title ?? ''} -> ${toNode?.title ?? ''}`} onClose={onClose}>
+      <EditImpactNote label={editImpactLabel} />
+      {derivedLoopClosing && <div className="code-hint">{t('connection.derivedLoopHint')}</div>}
       {viaGate && <div className="code-hint">{t('connection.viaGateHint')}</div>}
-      {viaGate && <TraversalLimit edge={{ ...edge, maxTraversals }} readonly={readonly} onValueChange={setMaxTraversals} />}
+      {showEdgeTraversalLimit && <TraversalLimit edge={{ ...edge, maxTraversals }} readonly={readonly} onValueChange={setMaxTraversals} />}
       <div className="section-title">{t('connection.transferOutput')}</div>
       <div className="output-card" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button className={`switch${transmit ? ' on' : ''}`} disabled={readonly} onClick={() => setTransmit(!transmit)} />
-        <span>{transmit ? t('connection.passContent') : t('connection.activateWithoutContent')}</span>
+        <span>{t('connection.passContent')}</span>
       </div>
       {transmit && (
         <>
@@ -98,7 +135,7 @@ function TransferPanel({ edge, fromNode, toNode, transferSourceNode, viewMode, o
             transmit,
             outputTag: transmit ? outputTag : undefined,
             handoffPrompt: transmit && handoffPrompt ? handoffPrompt : undefined,
-            ...(viaGate ? { maxTraversals } : {}),
+            ...(showEdgeTraversalLimit ? { maxTraversals } : {}),
           })}><Icon name="check" size={12} />{t('common.save')}</button>
         </div>
       )}

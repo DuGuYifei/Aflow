@@ -5,6 +5,7 @@ import { describe, expect, it } from "bun:test";
 import { parse } from "yaml";
 import { initWorkspace } from "./workspace";
 import {
+  combineAgentFlowAndLayout,
   generateCanvasLayout,
   listCanvases,
   loadCanvas,
@@ -388,29 +389,23 @@ edges:
     expect(gitignore).toContain("agentflow/agentflows-local/");
     expect(gitignore).toContain("design/references/");
 
-    const agentflowRaw = await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", "example-code-frontend-flow.yaml"), "utf8");
-    const agentflow = parseAgentFlowSource(agentflowRaw, "example-code-frontend-flow");
+    const agentflowRaw = await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", "example-v2-review-loop.yaml"), "utf8");
+    const agentflow = parseAgentFlowSource(agentflowRaw, "example-v2-review-loop");
+    expect(agentflow.version).toBe(2);
+    expect(agentflow.variables?.[0]?.name).toBe("specflow_task");
+    expect(agentflow.nodes.some((node) => node.kind === "start")).toBe(true);
     expect(agentflow.nodes.some((node) => node.kind === "end")).toBe(true);
     expect("x" in agentflow.nodes[0]!).toBe(false);
-    expect(agentflowRaw).toContain("version: 1");
-    expect(agentflowRaw).toContain("sessions:\n  parser:");
+    expect(agentflowRaw).toContain("version: 2");
+    expect(agentflowRaw).toContain("sessions:\n  builder:");
+    expect(agentflowRaw).not.toContain("loopback:");
     expect(agentflowRaw).not.toMatch(/^id:/m);
     expect(agentflowRaw).not.toContain("sessionId:");
     expect(agentflowRaw).not.toContain("color:");
 
-    const canvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "agentflow", "canvas", "example-code-frontend-flow.json"), "utf8"));
-    expect(canvas.workflowId).toBe("example-code-frontend-flow");
+    const canvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "agentflow", "canvas", "example-v2-review-loop.json"), "utf8"));
+    expect(canvas.workflowId).toBe("example-v2-review-loop");
     expect(canvas.nodes[0]).toHaveProperty("nodeId");
-
-    const docsFlowRaw = await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", "example-create-specflow-doc-flow.yaml"), "utf8");
-    const docsFlow = parseAgentFlowSource(docsFlowRaw, "example-create-specflow-doc-flow");
-    expect(docsFlow.nodes.find((node) => node.id === "discover-docs")?.kind).toBe("step");
-    expect(docsFlow.nodes.find((node) => node.id === "documentation-basis")?.kind).toBe("gate");
-    expect(docsFlowRaw).toContain(".aflow/.specflow/product/product.md");
-    expect(docsFlowRaw).toContain("classification: undetermined");
-
-    const docsCanvas = JSON.parse(await readFile(join(root, ".aflow/.specflow", "agentflow", "canvas", "example-create-specflow-doc-flow.json"), "utf8"));
-    expect(docsCanvas.workflowId).toBe("example-create-specflow-doc-flow");
   });
 
   it("loads local agentflows from the gitignored local directory", async () => {
@@ -437,7 +432,10 @@ edges: []
     expect(canvases.find((canvas) => canvas.id === "local-draft")).toEqual({
       id: "local-draft",
       name: "Local draft",
+      version: 1,
+      deprecated: true,
       local: true,
+      diagnostics: [],
     });
     expect((await loadCanvas("local-draft", root)).name).toBe("Local draft");
   });
@@ -446,19 +444,15 @@ edges: []
     const root = await mkdtemp(join(tmpdir(), "specflow-first-run-"));
     await initWorkspace(root, { createIfMissing: true, seedAgentServerId: "chosen-code-acp" });
 
-    for (const workflowId of ["example-code-frontend-flow", "example-create-specflow-doc-flow"]) {
-      const agentflow = parseAgentFlowSource(
-        await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", `${workflowId}.yaml`), "utf8"),
-        workflowId,
-      );
-      expect(agentflow.sessions.map((session) => session.agentServerId)).toEqual([
-        "chosen-code-acp",
-        "chosen-code-acp",
-        "chosen-code-acp",
-        "chosen-code-acp",
-        "chosen-code-acp",
-      ]);
-    }
+    const workflowId = "example-v2-review-loop";
+    const agentflow = parseAgentFlowSource(
+      await readFile(join(root, ".aflow/.specflow", "agentflow", "agentflows-local", `${workflowId}.yaml`), "utf8"),
+      workflowId,
+    );
+    expect(agentflow.sessions.map((session) => session.agentServerId)).toEqual([
+      "chosen-code-acp",
+      "chosen-code-acp",
+    ]);
   });
 
   it("regenerates missing or mismatched canvas layout from agentflow", async () => {
@@ -528,6 +522,159 @@ edges:
     const source = layout.nodes.find((node) => node.nodeId === "source")!;
     const target = layout.nodes.find((node) => node.nodeId === "target")!;
     expect(target.x - (source.x + source.w)).toBeGreaterThan(280);
+  });
+
+  it("parses v2 workflows with start nodes, global variables, and derived loops", () => {
+    const canvasDocument = parseAgentFlowSource(`version: 2
+name: V2 Review
+sessions:
+  writer:
+    agentServerId: codex-acp
+  reviewer:
+    agentServerId: claude-acp
+variables:
+  specflow_task:
+    title: Task
+    required: true
+    description: User task.
+nodes:
+  start:
+    kind: start
+    title: Start
+  write:
+    kind: step
+    title: Write
+    session: writer
+    prompt: Write <specflow_task>.
+  review:
+    kind: step
+    title: Review
+    session: reviewer
+    prompt: Review <specflow_result>.
+  verdict:
+    kind: gate
+    title: Verdict
+    decisionCriteria: Choose pass or rework.
+    branches:
+      pass:
+      rework:
+        maxTraversals: 2
+  done:
+    kind: end
+    title: Done
+edges:
+  - from: start
+    to: write
+  - from: write
+    to: review
+    transmit: true
+    outputTag: result
+  - from: review
+    to: verdict
+  - from: verdict
+    branch: pass
+    to: done
+  - from: verdict
+    branch: rework
+    to: review
+`, "v2-review");
+
+    expect(canvasDocument.version).toBe(2);
+    expect(canvasDocument.variables?.[0]).toMatchObject({ name: "specflow_task", title: "Task", required: true });
+    assertRunnableAgentFlow(canvasDocument);
+
+    const layout = generateCanvasLayout(canvasDocument);
+    expect(layout.nodes.find((node) => node.nodeId === "start")?.x).toBe(60);
+
+    const root = parse(stringifyAgentFlowSource(canvasDocument)) as Record<string, unknown>;
+    expect(root.version).toBe(2);
+    expect(root.variables).toEqual({
+      specflow_task: {
+        title: "Task",
+        required: true,
+        description: "User task.",
+      },
+    });
+    expect(JSON.stringify(root.edges)).not.toContain("loopback");
+  });
+
+  it("reports invalid v2 loops as diagnostics without breaking layout generation", () => {
+    const canvasDocument = parseAgentFlowSource(`version: 2
+name: Bad Loop
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  start:
+    kind: start
+    title: Start
+  first:
+    kind: step
+    title: First
+    session: main
+    prompt: First.
+  second:
+    kind: step
+    title: Second
+    session: main
+    prompt: Second.
+edges:
+  - from: start
+    to: first
+  - from: first
+    to: second
+  - from: second
+    to: first
+`, "bad-v2-loop");
+
+    const layout = generateCanvasLayout(canvasDocument);
+    expect(layout.nodes.map((node) => node.nodeId).sort()).toEqual(["first", "second", "start"]);
+
+    const combined = combineAgentFlowAndLayout(canvasDocument, layout);
+    expect(combined.derived?.loopClosingEdgeIds).toEqual([]);
+    expect(combined.diagnostics?.some((diagnostic) => diagnostic.code === "V2_LOOP_INVALID")).toBe(true);
+    expect(() => assertRunnableAgentFlow(canvasDocument)).toThrow("must be controlled by a gate");
+  });
+
+  it("rejects v2 removed edge and input-node fields", () => {
+    const inputNode = `version: 2
+name: Bad input
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  start:
+    kind: start
+  task:
+    kind: input
+    variableName: specflow_task
+edges: []
+`;
+    expect(() => parseAgentFlowSource(inputNode, "bad-input")).toThrow("cannot use kind: input");
+
+    const loopbackEdge = `version: 2
+name: Bad loopback
+sessions:
+  main:
+    agentServerId: codex-acp
+nodes:
+  start:
+    kind: start
+  work:
+    kind: step
+    session: main
+    prompt: Work.
+edges:
+  - from: start
+    to: work
+  - from: work
+    to: work
+    loopback: true
+`;
+    expect(() => parseAgentFlowSource(loopbackEdge, "bad-loopback")).toThrow("cannot define loopback");
+
+    const edgeMax = loopbackEdge.replace("loopback: true", "maxTraversals: 2");
+    expect(() => parseAgentFlowSource(edgeMax, "bad-edge-max")).toThrow("cannot define maxTraversals");
   });
 });
 

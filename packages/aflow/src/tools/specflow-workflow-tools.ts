@@ -36,7 +36,7 @@ const WorkflowTargetParams = Type.Object({
 
 const RunWorkflowParams = Type.Object({
   workflowId: Type.String({ description: "Saved workflow id to run." }),
-  initialInput: Type.Optional(Type.String({ description: "Initial workflow input." })),
+  initialInput: Type.Optional(Type.String({ description: "Optional freeform run context. Use variableValues for declared specflow_* workflow variables." })),
   variableValues: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Known specflow_* variable values." })),
   waitForCompletion: Type.Optional(Type.Boolean({ description: "Wait and show node status until the run completes or pauses. Defaults to true." })),
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
@@ -72,12 +72,13 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_run_workflow",
     label: "Run Workflow",
-    description: "Run a saved Specflow workflow. Missing required input variables are asked one by one in the TUI.",
-    promptSnippet: "Run a saved Specflow workflow and collect missing input variables interactively.",
+    description: "Run a saved Specflow workflow. Missing required workflow variables are asked one by one in the TUI.",
+    promptSnippet: "Run a saved Specflow workflow and collect missing workflow variables interactively.",
     promptGuidelines: [
       "Use after extracting the workflow id from /specflow-run context.",
       "Pass any already-known specflow_* variables in variableValues.",
-      "Let this tool ask missing input variables one by one instead of asking them all at once.",
+      "Use initialInput only for optional freeform run context; do not use it as a substitute for declared workflow variables.",
+      "Let this tool ask missing workflow variables one by one instead of asking them all at once.",
     ],
     parameters: RunWorkflowParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -104,7 +105,7 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         for (const variable of prepared.missingVariables) {
           const answer = await ctx.ui.input(inputQuestion(variable), variable.defaultValue);
           if (answer === undefined) {
-            return textResult("Run cancelled while collecting input variables.", { cancelled: true });
+            return textResult("Run cancelled while collecting workflow variables.", { cancelled: true });
           }
           variableValues[variable.name] = answer;
         }
@@ -334,14 +335,14 @@ async function loadWorkflow(target: string, cwd: string, serverUrl: string | und
 
 function inputQuestion(variable: RunInputVariable): string {
   return [
-    `Input ${variable.name}`,
+    `Workflow variable ${variable.name}`,
     variable.description ? `\n${variable.description}` : "",
   ].join("");
 }
 
 function formatMissingVariables(variables: RunInputVariable[]): string {
   return [
-    "Missing required variables:",
+    "Missing required workflow variables:",
     ...variables.map((variable) => `- ${variable.name}${variable.description ? ` (${variable.description})` : ""}`),
   ].join("\n");
 }

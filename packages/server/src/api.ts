@@ -1,11 +1,12 @@
 import { AgentServerStore, probeAcpAgentCapabilities, type AgentServerCapabilitiesCache } from "@specflow/agent-proxy";
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
-import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent } from "@specflow/bridge";
+import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent, WorkflowCheckpointEvent, WorkflowExecutionCheckpoint } from "@specflow/bridge";
 import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
 import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
+import { TerminalSessionStore, type TerminalSessionTask } from "./terminal-session-store";
 import { canvasToWorkflow } from "./agentflow/canvas-to-workflow";
 import {
   listCanvases,
@@ -13,9 +14,14 @@ import {
   loadAgentFlow,
   loadOrCreateCanvasLayout,
   saveCanvas,
+  saveAgentFlow,
+  saveCanvasLayout,
+  saveAgentFlowAndLayout,
   deleteCanvas,
+  splitCanvasDoc,
+  combineAgentFlowAndLayout,
 } from "./agentflow/canvas-store";
-import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunRecord, type RunState } from "./agentflow/run-store";
+import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunControlIntent, type RunRecord, type RunState } from "./agentflow/run-store";
 import {
   listAgentSessions,
   loadAgentSession,
@@ -25,15 +31,18 @@ import {
 import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange, listRunTimelineRestoreEvents } from "./agentflow/run-log-store";
 import { prepareCanvasRun } from "./agentflow/run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
-import { assertServerRunnableAgentFlow } from "./agentflow/agentflow-validation";
+import { computeRunReachability } from "./agentflow/run-reachability";
+import { assertServerRunnableAgentFlow, collectAgentFlowDiagnostics } from "./agentflow/agentflow-validation";
 import { assertSymbolKey, keyFromLabel } from "./agentflow/agentflow-source";
 import {
   loadLocalAgentServerConfig,
   removeLocalAgentServer,
   upsertLocalAgentServer,
 } from "./agent-server-config";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentInvocationPurpose } from "@specflow/workflow";
 import { agentflowAssetsDir } from "./workspace-paths";
 
@@ -392,6 +401,16 @@ async function reconstructInvocationsFromRunLog(root: string, record: RunRecord)
   return [...byInvocationId.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
+function mergeRunInvocations(
+  existing: RunRecord["agentInvocations"],
+  next: RunRecord["agentInvocations"],
+): RunRecord["agentInvocations"] {
+  const byId = new Map<string, RunRecord["agentInvocations"][number]>();
+  for (const invocation of existing) byId.set(invocation.id, invocation);
+  for (const invocation of next) byId.set(invocation.id, { ...(byId.get(invocation.id) ?? {}), ...invocation });
+  return [...byId.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+}
+
 function pickResumableInvocation(record: RunRecord): RunRecord["agentInvocations"][number] | undefined {
   if (!record.agentInvocations?.length) return undefined;
   const sortByStartDesc = [...record.agentInvocations].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
@@ -405,7 +424,7 @@ function pickResumableInvocation(record: RunRecord): RunRecord["agentInvocations
 function buildContinuationPrompt(input: {
   nodeTitle?: string;
   invocationStatus: "running" | "done" | "failed" | "cancelled";
-  runStatus: "running" | "success" | "error" | "cancelled";
+  runStatus: "pending" | "running" | "paused" | "interrupted" | "success" | "error" | "stopped";
   errorMsg?: string;
   originalTask?: string;
 }): string {
@@ -413,8 +432,8 @@ function buildContinuationPrompt(input: {
   const lines: string[] = [];
   if (input.invocationStatus === "running") {
     lines.push(`Specflow detected that the previous run was interrupted while ${node} was still in progress.`);
-  } else if (input.invocationStatus === "cancelled" || input.runStatus === "cancelled") {
-    lines.push(`Specflow detected that the previous run was cancelled after ${node} completed.`);
+  } else if (input.invocationStatus === "cancelled" || input.runStatus === "stopped") {
+    lines.push(`Specflow detected that the previous run was stopped after ${node} completed.`);
   } else if (input.runStatus === "error") {
     lines.push(`Specflow detected that the previous run failed after ${node} completed${input.errorMsg ? `: ${input.errorMsg}` : ""}.`);
   } else {
@@ -565,6 +584,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
   const authTerminals = new AuthTerminalSessionStore({
     checkAuth: (agentServerId) => bridge.inspectAgentAuthentication(root, agentServerId),
   });
+  const aflowMigrationTerminals = new TerminalSessionStore();
   const restoreStreams = new Map<string, RestoreStreamState>();
   const restoreControllers = new Map<string, AbortController>();
   const activeConversations = new Map<string, ActiveConversation>();
@@ -700,14 +720,72 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     });
   }
 
+  function terminalSseResponse(
+    store: TerminalSessionStore,
+    sessionId: string,
+    notFoundMessage: string,
+  ): Response {
+    const record = store.get(sessionId);
+    if (!record) {
+      return Response.json({ error: notFoundMessage }, { status: 404 });
+    }
+    const encoder = new TextEncoder();
+    let cleanup = () => {};
+    const stream = new ReadableStream({
+      start(controller) {
+        const enqueue = (event: { type: string }) => {
+          controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
+        };
+
+        for (const event of record.events) enqueue(event);
+        if (record.status !== "running") {
+          controller.close();
+          return;
+        }
+        cleanup = store.subscribe(sessionId, (event) => {
+          enqueue(event);
+          if (event.type === "status" && event.status !== "running") {
+            setTimeout(() => {
+              try { controller.close(); } catch { /* already closed */ }
+            }, 200);
+          }
+        });
+      },
+      cancel() {
+        cleanup();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache",
+        "x-accel-buffering": "no",
+      },
+    });
+  }
+
   function sseResponse(runId: string, options: { replay: boolean } = { replay: true }): Response {
     const encoder = new TextEncoder();
     let cleanup = () => {};
 
     const stream = new ReadableStream({
       async start(controller) {
-        const enqueue = (type: string, data: unknown) =>
-          controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+        let closed = false;
+        const enqueue = (type: string, data: unknown) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+          } catch (error) {
+            if (!closed) throw error;
+          }
+        };
+        const close = () => {
+          if (closed) return;
+          closed = true;
+          cleanup();
+          try { controller.close(); } catch { /* already closed */ }
+        };
 
         enqueue("hello", { runId });
 
@@ -760,10 +838,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         const unsubscribeRun = eventBus.on(`${runId}:run`, (event) => {
           enqueue("run-status", event);
           const runStatusEvent = event as { status: string };
-          if (runStatusEvent.status !== "running") {
-            setTimeout(() => {
-              try { controller.close(); } catch { /* already closed */ }
-            }, 200);
+          if (isTerminalRunRecordStatus(runStatusEvent.status)) {
+            setTimeout(close, 200);
           }
         });
         const unsubscribeTerminal = eventBus.on(`${runId}:term`, (event) => enqueue("terminal", event));
@@ -776,11 +852,15 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           enqueue("interaction-requested", interaction);
         }
 
-        if (priorRunStatus && priorRunStatus !== "running") {
-          enqueue("run-status", { runId, status: priorRunStatus, replay: true });
-          setTimeout(() => {
-            try { controller.close(); } catch { /* already closed */ }
-          }, 50);
+        if (priorRunStatus) {
+          let priorControl: RunRecord["control"] | undefined;
+          try {
+            priorControl = (await loadRun(runId, root)).control;
+          } catch {
+            // Keep the replay status even if the run disappears.
+          }
+          enqueue("run-status", { runId, status: priorRunStatus, control: priorControl, replay: true });
+          if (isTerminalRunRecordStatus(priorRunStatus)) setTimeout(close, 50);
         }
 
         cleanup = () => {
@@ -807,6 +887,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     variableValues: Record<string, string>,
     snapshot?: { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc },
     resumeFrom?: { state: WorkflowResumeState; source: RunRecord },
+    playFrom?: { record: RunRecord; checkpoint: WorkflowExecutionCheckpoint },
   ): Promise<Response> {
     let agentflow: AgentFlowDoc;
     let layout: CanvasLayoutDoc;
@@ -850,44 +931,59 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     const workflow = canvasToWorkflow(prepared.doc);
-    const runId = uuidv7();
+    const runId = playFrom?.record.id ?? uuidv7();
     const runController = new AbortController();
     runControllers.set(runId, runController);
-    const existingCount = (await listRuns(workflowId, root)).length;
-    const label = `Run #${existingCount + 1}`;
 
-    const initialNodeStates: Record<string, RunState> = {};
-    for (const node of agentflow.nodes) {
-      initialNodeStates[node.id] = "pending";
-    }
+    let record: RunRecord;
+    if (playFrom) {
+      record = playFrom.record;
+      record.status = "running";
+      record.errorMsg = undefined;
+      record.control = undefined;
+      record.checkpoint = undefined;
+      record.agentflowSnapshot = agentflow;
+      record.canvasSnapshot = layout;
+      record.initialInput = initialInput;
+      record.variableValues = variableValues;
+    } else {
+      const existingCount = (await listRuns(workflowId, root)).length;
+      const label = `Run #${existingCount + 1}`;
 
-    // A continued run inherits completed work only. Interrupted or failed work
-    // belongs to the source run and starts pending until this run re-enters it.
-    const seededNodeStates: Record<string, RunState> = { ...initialNodeStates };
-    if (resumeFrom) {
-      for (const [nodeId, state] of Object.entries(resumeFrom.state.nodeStates)) {
-        if (state === "done" || state === "success") seededNodeStates[nodeId] = "success";
+      const initialNodeStates: Record<string, RunState> = {};
+      for (const node of agentflow.nodes) {
+        initialNodeStates[node.id] = "pending";
       }
+
+      // A continued run inherits completed work only. Interrupted or failed work
+      // belongs to the source run and starts pending until this run re-enters it.
+      const seededNodeStates: Record<string, RunState> = { ...initialNodeStates };
+      if (resumeFrom) {
+        for (const [nodeId, state] of Object.entries(resumeFrom.state.nodeStates)) {
+          if (state === "done" || state === "success") seededNodeStates[nodeId] = "success";
+        }
+      }
+      record = {
+        id: runId,
+        workflowId,
+        label,
+        status: "running",
+        startedAt: new Date().toISOString(),
+        agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "unconfigured",
+        nodeStates: seededNodeStates,
+        nodeOutputs: resumeFrom ? { ...resumeFrom.state.nodeOutputs } : {},
+        agentInvocations: [],
+        agentSessions: [],
+        agentflowSnapshot: agentflow, // store pre-substitution snapshots
+        canvasSnapshot: layout,
+        initialInput,
+        variableValues,
+        ...(resumeFrom ? { resumedFromRunId: resumeFrom.source.id } : {}),
+      };
     }
-    const record: RunRecord = {
-      id: runId,
-      workflowId,
-      label,
-      status: "running",
-      startedAt: new Date().toISOString(),
-      agent: agentflow.sessions[0]?.agentServerId ?? agentflow.sessions[0]?.agent ?? "unconfigured",
-      nodeStates: seededNodeStates,
-      nodeOutputs: resumeFrom ? { ...resumeFrom.state.nodeOutputs } : {},
-      agentInvocations: [],
-      agentSessions: [],
-      agentflowSnapshot: agentflow, // store pre-substitution snapshots
-      canvasSnapshot: layout,
-      initialInput,
-      variableValues,
-      ...(resumeFrom ? { resumedFromRunId: resumeFrom.source.id } : {}),
-    };
 
     await saveRun(record, root);
+    const runStatusAt = playFrom ? new Date().toISOString() : record.startedAt;
     if (resumeFrom) {
       resumeFrom.source.resumedByRunId = runId;
       await saveRun(resumeFrom.source, root);
@@ -897,7 +993,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       runId,
       workflowId,
       status: "running",
-      at: record.startedAt,
+      at: runStatusAt,
     });
 
     let lastTermSeq = 0;
@@ -960,6 +1056,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         nodeStatus.status === "done" ? "success" :
         nodeStatus.status === "failed" ? "error" :
         nodeStatus.status === "paused" ? "paused" :
+        nodeStatus.status === "interrupted" ? "interrupted" :
         nodeStatus.status === "cancelled" ? "cancelled" :
         nodeStatus.status === "running" ? "running" : "pending";
 
@@ -970,6 +1067,10 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       record.nodeStates[nodeStatus.nodeId] = uiStatus;
       if (uiStatus === "running") record.activeNode = nodeStatus.nodeId;
       if (uiStatus === "paused") record.pausedNodeId = nodeStatus.nodeId;
+      if (uiStatus === "interrupted") {
+        record.activeNode = nodeStatus.nodeId;
+        record.control = { ...(record.control ?? {}), interruptedNodeId: nodeStatus.nodeId };
+      }
       if (uiStatus === "success" && record.pausedNodeId === nodeStatus.nodeId) record.pausedNodeId = undefined;
 
       if (nodeStatus.status === "done" && (nodeStatus as NodeStatusEvent & { output?: string }).output) {
@@ -988,33 +1089,85 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     };
 
     const onRunStatus = (runStatus: RunStatusEvent) => {
-      if (runStatus.status === "done") {
+      const terminal = runStatus.status === "done" || runStatus.status === "failed" || runStatus.status === "cancelled";
+      if (runStatus.status === "running") {
+        record.status = "running";
+        delete record.control?.pauseRequested;
+        delete record.control?.intent;
+        delete record.errorMsg;
+      } else if (runStatus.status === "paused") {
+        record.status = "paused";
+        record.control = { ...(record.control ?? {}), reason: runStatus.error };
+        delete record.control.intent;
+      } else if (runStatus.status === "interrupted") {
+        record.status = "interrupted";
+        record.errorMsg = runStatus.error;
+        record.control = { ...(record.control ?? {}), reason: runStatus.error };
+        delete record.control.intent;
+      } else if (runStatus.status === "done") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
         record.duration = formatDuration(record.startedAt, completedAt);
         record.status = "success";
+        delete record.control;
+        delete record.checkpoint;
       } else if (runStatus.status === "failed") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
         record.duration = formatDuration(record.startedAt, completedAt);
         record.status = "error";
         record.errorMsg = runStatus.error;
+        delete record.control;
       } else if (runStatus.status === "cancelled") {
         const completedAt = new Date().toISOString();
         record.completedAt = completedAt;
         record.duration = formatDuration(record.startedAt, completedAt);
-        record.status = "cancelled";
+        record.status = "stopped";
         record.errorMsg = runStatus.error;
+        delete record.control;
       }
       flushTerminalEvents();
-      if (record.status !== "running") {
+      if (terminal) {
         bridge.interactions.cancelPendingForRun(runId, `run ${record.status}`);
         bridge.pauses.cancelForRun(runId, `run ${record.status}`);
+        bridge.runControls.clear(runId);
       }
       void saveRun(record, root);
       appendLog({ type: "run_status", ...runStatus });
-      eventBus.emit(`${runId}:run`, { runId, status: record.status, workflowId, error: record.errorMsg });
-      offInteractionLog();
+      eventBus.emit(`${runId}:run`, { runId, status: record.status, workflowId, error: record.errorMsg, control: record.control });
+      if (terminal) offInteractionLog();
+    };
+
+    const onCheckpoint = async (checkpointEvent: WorkflowCheckpointEvent) => {
+      record.status = checkpointEvent.status;
+      record.checkpoint = checkpointEvent.checkpoint as unknown as Record<string, unknown>;
+      record.control = {
+        ...(record.control ?? {}),
+        ...(checkpointEvent.status === "paused" ? { pauseRequested: false } : {}),
+        ...(checkpointEvent.nodeId ? { interruptedNodeId: checkpointEvent.nodeId } : {}),
+        ...(checkpointEvent.reason ? { reason: checkpointEvent.reason } : {}),
+      };
+      delete record.control.intent;
+      if (checkpointEvent.status === "interrupted") {
+        record.activeNode = checkpointEvent.nodeId;
+        record.errorMsg = checkpointEvent.reason;
+      }
+      await saveRun(record, root);
+      eventBus.emit(`${runId}:run`, {
+        runId,
+        status: record.status,
+        workflowId,
+        error: record.errorMsg,
+        control: record.control,
+      });
+    };
+
+    const reloadWorkflowSnapshot = () => {
+      const nextPrepared = prepareCanvasRun(record.agentflowSnapshot, {
+        initialInput: record.initialInput,
+        variableValues: record.variableValues,
+      });
+      return canvasToWorkflow(nextPrepared.doc);
     };
 
     const executor = new WorkflowExecutor({
@@ -1022,6 +1175,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       terminalEvents: bridge.terminalEvents,
       onNodeStatus,
       onRunStatus,
+      onCheckpoint,
       onAgentLifecycle: (event) => {
         const {
           runId,
@@ -1158,18 +1312,21 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       },
       interactions: bridge.interactions,
       pauses: bridge.pauses,
+      runControls: bridge.runControls,
     });
 
     void executor.run(workflow, prepared.initialInput, {
         runId,
         signal: runController.signal,
         ...(resumeFrom ? { resumeFrom: resumeFrom.state } : {}),
+        ...(playFrom ? { checkpoint: playFrom.checkpoint } : {}),
+        reloadWorkflow: reloadWorkflowSnapshot,
       })
       .then(async (workflowRun) => {
         timeline.snapshot({ status: "success" });
         await timeline.flush();
         await logWrite;
-        record.agentInvocations = workflowRun.agentInvocations;
+        record.agentInvocations = mergeRunInvocations(record.agentInvocations, workflowRun.agentInvocations);
         await saveRun(record, root);
         await upsertAgentSessionsFromRun(record, root);
       })
@@ -1179,7 +1336,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         // with valid acpSessionIds. Rebuild explicitly so resume lookups don't
         // have to fix this up after the fact.
         try {
-          timeline.snapshot({ status: record.status === "cancelled" ? "cancelled" : "failed" });
+          timeline.snapshot({ status: record.status === "stopped" ? "cancelled" : "failed" });
           await timeline.flush();
           await logWrite;
           await upsertAgentSessionsFromRun(record, root);
@@ -1575,6 +1732,67 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
+    // POST /api/aflow/migrations — start an Aflow terminal to migrate a v1 workflow to v2.
+    if (pathname === "/api/aflow/migrations" && request.method === "POST") {
+      const body = await request.json().catch(() => ({})) as { workflowId?: unknown };
+      if (typeof body.workflowId !== "string" || body.workflowId.trim() === "") {
+        return Response.json({ error: "Missing workflowId" }, { status: 400 });
+      }
+      const workflowId = body.workflowId.trim();
+      const serverUrl = new URL("/", request.url).toString();
+      const task = buildAflowMigrationTask({ root, workflowId, serverUrl });
+      try {
+        const terminalSessionId = aflowMigrationTerminals.start(task);
+        return Response.json({ terminalSessionId, label: task.label ?? workflowId });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+    }
+
+    const aflowMigrationMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)$/);
+    const aflowMigrationEventsMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)\/events$/);
+    if (aflowMigrationEventsMatch && request.method === "GET") {
+      return terminalSseResponse(
+        aflowMigrationTerminals,
+        decodeURIComponent(aflowMigrationEventsMatch[1]),
+        "Aflow migration terminal session not found",
+      );
+    }
+    if (aflowMigrationMatch && request.method === "GET") {
+      const record = aflowMigrationTerminals.get(decodeURIComponent(aflowMigrationMatch[1]));
+      if (!record) return Response.json({ error: "Aflow migration terminal session not found" }, { status: 404 });
+      return Response.json({
+        sessionId: record.id,
+        label: record.task.label,
+        status: record.status,
+      });
+    }
+    const aflowMigrationActionMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)\/(input|resize|cancel)$/);
+    if (aflowMigrationActionMatch && request.method === "POST") {
+      const sessionId = decodeURIComponent(aflowMigrationActionMatch[1]);
+      const action = aflowMigrationActionMatch[2];
+      try {
+        if (action === "input") {
+          const body = await request.json().catch(() => ({})) as { data?: unknown };
+          if (typeof body.data !== "string") return Response.json({ error: "Missing input data" }, { status: 400 });
+          aflowMigrationTerminals.input(sessionId, body.data);
+          return Response.json({ ok: true });
+        }
+        if (action === "resize") {
+          const body = await request.json().catch(() => ({})) as { cols?: unknown; rows?: unknown };
+          if (typeof body.cols !== "number" || typeof body.rows !== "number") {
+            return Response.json({ error: "Missing terminal size" }, { status: 400 });
+          }
+          aflowMigrationTerminals.resize(sessionId, body.cols, body.rows);
+          return Response.json({ ok: true });
+        }
+        aflowMigrationTerminals.cancel(sessionId);
+        return Response.json({ ok: true });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 404 });
+      }
+    }
+
     // PUT /api/agent-servers/:id
     const agentServerMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)$/);
     if (agentServerMatch && request.method === "PUT") {
@@ -1697,13 +1915,78 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
       const canvasDocument: CanvasDoc = {
         id,
+        version: 2,
         name,
         sessions: [],
-        nodes: [],
+        nodes: [{
+          kind: "start",
+          id: "start",
+          alias: "START",
+          title: "Start",
+          x: 60,
+          y: 80,
+          w: 140,
+          sessionId: null,
+        }],
         edges: [],
+        variables: [],
       };
       await saveCanvas(id, canvasDocument, root);
-      return Response.json(canvasDocument);
+      const { agentflow } = splitCanvasDoc(canvasDocument);
+      const diagnosticsResult = collectAgentFlowDiagnostics(agentflow);
+      return Response.json({
+        ...canvasDocument,
+        diagnostics: diagnosticsResult.diagnostics,
+        derived: diagnosticsResult.derived,
+      });
+    }
+
+    // PUT /api/canvases/:id/agentflow  (save YAML semantics only)
+    const agentflowSaveMatch = pathname.match(/^\/api\/canvases\/([^/]+)\/agentflow$/);
+    if (agentflowSaveMatch && request.method === "PUT") {
+      const id = agentflowSaveMatch[1];
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      if (!body || typeof body !== "object") {
+        return Response.json({ error: "Request body must be an agentflow document" }, { status: 400 });
+      }
+      const agentflow = { ...(body as AgentFlowDoc), id };
+      try {
+        await saveAgentFlow(id, agentflow, root);
+        const diagnosticsResult = collectAgentFlowDiagnostics(agentflow);
+        return Response.json({
+          ok: true,
+          diagnostics: diagnosticsResult.diagnostics,
+          derived: diagnosticsResult.derived,
+        });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+    }
+
+    // PUT /api/canvases/:id/layout  (save canvas layout only)
+    const layoutSaveMatch = pathname.match(/^\/api\/canvases\/([^/]+)\/layout$/);
+    if (layoutSaveMatch && request.method === "PUT") {
+      const id = layoutSaveMatch[1];
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      if (!body || typeof body !== "object" || !Array.isArray((body as CanvasLayoutDoc).nodes)) {
+        return Response.json({ error: "Request body must be a canvas layout document" }, { status: 400 });
+      }
+      try {
+        await saveCanvasLayout(id, { ...(body as CanvasLayoutDoc), workflowId: id, version: 1 }, root);
+        return Response.json({ ok: true });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
     }
 
     // /api/canvases/:id
@@ -1845,15 +2128,316 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
-    // POST /api/runs/:id/cancel
-    const runCancelMatch = pathname.match(/^\/api\/runs\/([^/]+)\/cancel$/);
-    if (runCancelMatch && request.method === "POST") {
-      const id = runCancelMatch[1];
+    // POST /api/runs/:id/best-practice
+    const runBestPracticeMatch = pathname.match(/^\/api\/runs\/([^/]+)\/best-practice$/);
+    if (runBestPracticeMatch && request.method === "POST") {
+      const id = runBestPracticeMatch[1];
+      let record: RunRecord;
+      try {
+        record = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (record.status !== "success") {
+        return Response.json({ error: "Only successful runs can be saved as best practice" }, { status: 409 });
+      }
+      if (!record.agentflowSnapshot || !record.canvasSnapshot) {
+        return Response.json({ error: "Run snapshot is missing" }, { status: 409 });
+      }
+      if ((record.agentflowSnapshot.version ?? 1) !== 2) {
+        return Response.json({ error: "Only v2 workflow snapshots can be saved as best practice" }, { status: 409 });
+      }
+      let body: { name?: string; shared?: boolean } = {};
+      try { body = await request.json(); } catch { /* ok */ }
+      const name = body.name?.trim() || `${record.agentflowSnapshot.name} best practice`;
+      const existingIds = new Set((await listCanvases(root)).map((entry) => entry.id));
+      let workflowId = keyFromLabel(name, "best-practice");
+      try {
+        assertSymbolKey(workflowId, "workflow key");
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+      if (existingIds.has(workflowId)) {
+        const base = workflowId;
+        let suffix = 2;
+        while (existingIds.has(`${base}-${suffix}`)) suffix += 1;
+        workflowId = `${base}-${suffix}`;
+      }
+      try {
+        assertServerRunnableAgentFlow(record.agentflowSnapshot, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
+        const snapshot = combineAgentFlowAndLayout(record.agentflowSnapshot, record.canvasSnapshot);
+        const { agentflow, layout } = splitCanvasDoc({ ...snapshot, id: workflowId, name });
+        await saveAgentFlowAndLayout(workflowId, { ...agentflow, id: workflowId, name, version: 2 }, { ...layout, workflowId }, root, { local: body.shared !== true });
+        return Response.json({
+          ok: true,
+          workflow: {
+            id: workflowId,
+            name,
+            version: 2,
+            local: body.shared !== true,
+          },
+        });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+    }
+
+    // PATCH /api/runs/:id/snapshot
+    const runSnapshotMatch = pathname.match(/^\/api\/runs\/([^/]+)\/snapshot$/);
+    if (runSnapshotMatch && request.method === "PATCH") {
+      const id = runSnapshotMatch[1];
+      let record: RunRecord;
+      try {
+        record = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (record.status !== "paused" && record.status !== "interrupted") {
+        return Response.json({ error: "Only paused or interrupted run snapshots can be edited" }, { status: 409 });
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      const parsed = parseRunSnapshotPatch(body);
+      if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400 });
+      const missingRequiredNode = firstMissingCheckpointNode(record, parsed.agentflow);
+      if (missingRequiredNode) {
+        return Response.json({
+          code: "SNAPSHOT_EDIT_REQUIRED_NODE_REMOVED",
+          nodeId: missingRequiredNode,
+          error: `Cannot remove checkpoint node "${missingRequiredNode}" from an active run snapshot`,
+        }, { status: 409 });
+      }
+      const reachabilityEditError = validateSnapshotReachabilityPatch(record, parsed.agentflow);
+      if (reachabilityEditError) {
+        return Response.json(reachabilityEditError, { status: 409 });
+      }
+      try {
+        assertServerRunnableAgentFlow(parsed.agentflow, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
+        const prepared = prepareCanvasRun(parsed.agentflow, {
+          initialInput: record.initialInput,
+          variableValues: record.variableValues,
+        });
+        if (prepared.missingVariables.length > 0) {
+          return Response.json({
+            error: "Run snapshot is missing required variable values",
+            missingVariables: prepared.missingVariables.map((variable) => variable.name),
+          }, { status: 409 });
+        }
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+      record.agentflowSnapshot = parsed.agentflow;
+      record.canvasSnapshot = parsed.layout;
+      record.snapshotRevision = (record.snapshotRevision ?? 0) + 1;
+      record.snapshotEditedAt = new Date().toISOString();
+      record.snapshotEditSummary = parsed.summary;
+      await saveRun(record, root);
+      const reachability = computeRunReachability(record);
+      const snapshot = combineAgentFlowAndLayout(record.agentflowSnapshot, record.canvasSnapshot);
+      return Response.json({
+        ok: true,
+        snapshotRevision: record.snapshotRevision,
+        snapshot,
+        reachability,
+      });
+    }
+
+    // GET /api/runs/:id/reachability
+    const runReachabilityMatch = pathname.match(/^\/api\/runs\/([^/]+)\/reachability$/);
+    if (runReachabilityMatch && request.method === "GET") {
+      try {
+        const record = await loadRun(runReachabilityMatch[1], root);
+        return Response.json(computeRunReachability(record));
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+    }
+
+    // POST /api/runs/:id/pause
+    const runPauseMatch = pathname.match(/^\/api\/runs\/([^/]+)\/pause$/);
+    if (runPauseMatch && request.method === "POST") {
+      const id = runPauseMatch[1];
       const controller = runControllers.get(id);
       if (!controller) {
         try {
           const runRecord = await loadRun(id, root);
-          if (runRecord.status === "running") {
+          return Response.json({ error: `Run process is not active (status: ${runRecord.status})` }, { status: 409 });
+        } catch {
+          return Response.json({ error: "Run not found" }, { status: 404 });
+        }
+      }
+      const runRecord = await loadRun(id, root).catch(() => undefined);
+      if (!runRecord) return Response.json({ error: "Run not found" }, { status: 404 });
+      if (runRecord.control?.intent) {
+        if (runRecord.control.intent.kind === "pause_after_activation" || runRecord.control.intent.kind === "pause_at_safe_point") {
+          return Response.json({ ok: true, status: runRecord.control.intent.kind === "pause_after_activation" ? "pause_after_requested" : "safe_point_pause_requested", controlIntent: runRecord.control.intent });
+        }
+        return Response.json({
+          code: "RUN_CONTROL_ALREADY_PENDING",
+          error: `Run control is already pending: ${runRecord.control.intent.kind}`,
+          controlIntent: runRecord.control.intent,
+        }, { status: 409 });
+      }
+      if (runRecord.status !== "running") {
+        return Response.json({ ok: true, status: runRecord.status });
+      }
+      const active = bridge.runControls.getActiveActivation(id);
+      const requestedAt = new Date().toISOString();
+      let responseStatus: "pause_after_requested" | "safe_point_pause_requested" = "safe_point_pause_requested";
+      let responseNode: { nodeId: string; nodeKind: "step" | "gate"; executionKey: string } | undefined;
+      if (active && (active.nodeKind === "agent" || active.nodeKind === "gate")) {
+        const nodeKind = active.nodeKind === "agent" ? "step" : "gate";
+        const intent: RunControlIntent = {
+          kind: "pause_after_activation",
+          source: "player",
+          nodeId: active.nodeId,
+          executionKey: active.executionKey,
+          requestedAt,
+        };
+        runRecord.control = { ...(runRecord.control ?? {}), intent, pauseRequested: true };
+        bridge.runControls.requestPauseAfterActivation(id, active.executionKey);
+        responseStatus = "pause_after_requested";
+        responseNode = {
+          nodeId: active.nodeId,
+          nodeKind,
+          executionKey: active.executionKey,
+        };
+      } else {
+        const intent: RunControlIntent = {
+          kind: "pause_at_safe_point",
+          source: "player",
+          requestedAt,
+        };
+        runRecord.control = { ...(runRecord.control ?? {}), intent, pauseRequested: true };
+        bridge.runControls.requestPauseAtSafePoint(id);
+      }
+      await saveRun(runRecord, root);
+      bridge.terminalEvents.append({
+        runId: id,
+        stream: "system",
+        chunk: "Run pause requested.\n",
+      });
+      eventBus.emit(`${id}:run`, { runId: id, status: runRecord.status, workflowId: runRecord.workflowId, error: runRecord.errorMsg, control: runRecord.control });
+      eventBus.emit(`${id}:term`, {
+        chunk: "Run pause requested.\n",
+        stream: "system",
+      });
+      return Response.json({ ok: true, status: responseStatus, ...(responseNode ?? {}), controlIntent: runRecord.control.intent });
+    }
+
+    // POST /api/runs/:id/interrupt
+    const runInterruptMatch = pathname.match(/^\/api\/runs\/([^/]+)\/interrupt$/);
+    if (runInterruptMatch && request.method === "POST") {
+      const id = runInterruptMatch[1];
+      if (!runControllers.has(id)) {
+        return Response.json({ error: "Run process is not active" }, { status: 409 });
+      }
+      const runRecord = await loadRun(id, root).catch(() => undefined);
+      if (!runRecord) return Response.json({ error: "Run not found" }, { status: 404 });
+      if (runRecord.control?.intent) {
+        if (runRecord.control.intent.kind === "interrupting") {
+          return Response.json({ ok: true, status: "interrupting", controlIntent: runRecord.control.intent });
+        }
+        return Response.json({
+          code: "RUN_CONTROL_ALREADY_PENDING",
+          error: `Run control is already pending: ${runRecord.control.intent.kind}`,
+          controlIntent: runRecord.control.intent,
+        }, { status: 409 });
+      }
+      if (runRecord.status !== "running") {
+        return Response.json({ error: `Only running runs can interrupt (status: ${runRecord.status})` }, { status: 409 });
+      }
+      const interrupted = bridge.runControls.interrupt(id);
+      if (!interrupted.interrupted) {
+        return Response.json({ error: "No active agent invocation to interrupt" }, { status: 409 });
+      }
+      const intent: RunControlIntent = {
+        kind: "interrupting",
+        source: "player",
+        nodeId: interrupted.nodeId ?? "",
+        agentInvocationId: interrupted.agentInvocationId ?? "",
+        requestedAt: new Date().toISOString(),
+      };
+      runRecord.control = { ...(runRecord.control ?? {}), intent, interruptedNodeId: interrupted.nodeId };
+      await saveRun(runRecord, root);
+      bridge.interactions.cancelPendingForRun(id, "run interrupted");
+      bridge.terminalEvents.append({
+        runId: id,
+        stream: "system",
+        chunk: "Run interrupt requested.\n",
+      });
+      eventBus.emit(`${id}:term`, {
+        chunk: "Run interrupt requested.\n",
+        stream: "system",
+      });
+      eventBus.emit(`${id}:run`, { runId: id, status: runRecord.status, workflowId: runRecord.workflowId, error: runRecord.errorMsg, control: runRecord.control });
+      return Response.json({ ok: true, status: "interrupting", ...interrupted, controlIntent: intent });
+    }
+
+    // POST /api/runs/:id/play
+    const runPlayMatch = pathname.match(/^\/api\/runs\/([^/]+)\/play$/);
+    if (runPlayMatch && request.method === "POST") {
+      const id = runPlayMatch[1];
+      let runRecord: RunRecord;
+      try {
+        runRecord = await loadRun(id, root);
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+      if (runRecord.status !== "paused" && runRecord.status !== "interrupted") {
+        if (runRecord.status === "running" && runRecord.control?.intent) {
+          return Response.json({
+            code: "RUN_NOT_SUSPENDED_YET",
+            error: "Run is waiting for a pause or interrupt checkpoint before it can play.",
+            controlIntent: runRecord.control.intent,
+          }, { status: 409 });
+        }
+        return Response.json({ error: `Only paused or interrupted runs can play (status: ${runRecord.status})` }, { status: 409 });
+      }
+      if (runRecord.pausedNodeId && bridge.pauses.get(id, runRecord.pausedNodeId)) {
+        try {
+          bridge.pauses.continue(id, runRecord.pausedNodeId);
+        } catch (error) {
+          return Response.json({
+            code: "PAUSED_NODE_NOT_READY",
+            error: errorMessage(error),
+          }, { status: 409 });
+        }
+      }
+      const played = bridge.runControls.play(id);
+      if (!played.played) {
+        if (runControllers.has(id)) {
+          return Response.json({ error: "Run is not waiting for play yet" }, { status: 409 });
+        }
+        const checkpoint = parseWorkflowExecutionCheckpoint(runRecord.checkpoint);
+        if (!checkpoint) {
+          return Response.json({ error: "Run checkpoint is missing; cannot play" }, { status: 409 });
+        }
+        return handleRun(
+          runRecord.workflowId,
+          runRecord.initialInput,
+          runRecord.variableValues,
+          { agentflow: runRecord.agentflowSnapshot, layout: runRecord.canvasSnapshot },
+          undefined,
+          { record: runRecord, checkpoint },
+        );
+      }
+      return Response.json({ ok: true, status: "playing", previousStatus: played.kind });
+    }
+
+    // POST /api/runs/:id/stop (compat: /cancel)
+    const runStopMatch = pathname.match(/^\/api\/runs\/([^/]+)\/(?:stop|cancel)$/);
+    if (runStopMatch && request.method === "POST") {
+      const id = runStopMatch[1];
+      const controller = runControllers.get(id);
+      if (!controller) {
+        try {
+          const runRecord = await loadRun(id, root);
+          if (runRecord.status === "running" || runRecord.status === "paused" || runRecord.status === "interrupted") {
             return Response.json({ error: "Run process is not active" }, { status: 409 });
           }
           return Response.json({ ok: true, status: runRecord.status });
@@ -1861,18 +2445,20 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           return Response.json({ error: "Run not found" }, { status: 404 });
         }
       }
-      bridge.interactions.cancelPendingForRun(id, "run cancelled");
+      bridge.interactions.cancelPendingForRun(id, "run stopped");
+      bridge.pauses.cancelForRun(id, "run stopped");
       bridge.terminalEvents.append({
         runId: id,
         stream: "system",
-        chunk: "Run cancellation requested.\n",
+        chunk: "Run stop requested.\n",
       });
       controller.abort();
+      bridge.runControls.clear(id);
       eventBus.emit(`${id}:term`, {
-        chunk: "Run cancellation requested.\n",
+        chunk: "Run stop requested.\n",
         stream: "system",
       });
-      return Response.json({ ok: true, status: "cancelling" });
+      return Response.json({ ok: true, status: "stopping" });
     }
 
     // GET /api/runs/:id/logs
@@ -1917,12 +2503,14 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch {
         return Response.json({ error: "Run not found" }, { status: 404 });
       }
-      if (record.status !== "running" || !bridge.pauses.get(runId, nodeId)) {
+      if ((record.status !== "running" && record.status !== "paused") || !bridge.pauses.get(runId, nodeId)) {
         return Response.json({ error: "Node is not currently authorized for paused interaction" }, { status: 409 });
       }
       try {
         if (pausedActionMatch[3] === "continue") {
-          return Response.json({ ok: true, paused: bridge.pauses.continue(runId, nodeId) });
+          const paused = bridge.pauses.continue(runId, nodeId);
+          const played = bridge.runControls.play(runId);
+          return Response.json({ ok: true, paused, played });
         }
         const body = await request.json() as { prompt?: unknown };
         if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
@@ -2157,11 +2745,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
-    // POST /api/runs/:id/resume-workflow — start a new run that picks up where
+    // POST /api/runs/:id/continue (compat: /resume-workflow) — start a new run that picks up where
     // the source run left off: completed nodes get short-circuited with their
     // recorded outputs, interrupted nodes are re-invoked with a continuation
     // prompt against their existing ACP sessions.
-    const resumeWorkflowMatch = pathname.match(/^\/api\/runs\/([^/]+)\/resume-workflow$/);
+    const resumeWorkflowMatch = pathname.match(/^\/api\/runs\/([^/]+)\/(?:continue|resume-workflow)$/);
     if (resumeWorkflowMatch && request.method === "POST") {
       const id = resumeWorkflowMatch[1];
       let source: RunRecord;
@@ -2170,11 +2758,11 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch {
         return Response.json({ error: "Run not found" }, { status: 404 });
       }
-      if (source.status === "running") {
-        return Response.json({ error: "Cannot resume a run that is still running" }, { status: 409 });
+      if (source.status === "running" || source.status === "paused" || source.status === "interrupted") {
+        return Response.json({ error: "Cannot continue a run that is still active" }, { status: 409 });
       }
-      if (source.status !== "cancelled" && source.status !== "error") {
-        return Response.json({ error: "Only cancelled or failed runs can be resumed" }, { status: 409 });
+      if (source.status !== "stopped" && source.status !== "error") {
+        return Response.json({ error: "Only stopped or failed runs can be continued" }, { status: 409 });
       }
       if (source.resumedByRunId) {
         return Response.json({
@@ -2242,6 +2830,225 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isTerminalRunRecordStatus(status: string): boolean {
+  return status === "success" || status === "error" || status === "stopped" || status === "cancelled";
+}
+
+function parseRunSnapshotPatch(body: unknown):
+  | { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc; summary?: string }
+  | { error: string } {
+  if (!body || typeof body !== "object") return { error: "Request body must be an object" };
+  const raw = body as Record<string, unknown>;
+  const summary = typeof raw.summary === "string"
+    ? raw.summary
+    : typeof raw.snapshotEditSummary === "string"
+      ? raw.snapshotEditSummary
+      : undefined;
+  if (raw.snapshot && typeof raw.snapshot === "object") {
+    const snapshot = raw.snapshot as CanvasDoc;
+    if (typeof snapshot.id !== "string" || !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.edges) || !Array.isArray(snapshot.sessions)) {
+      return { error: "snapshot must be a complete canvas document" };
+    }
+    const { agentflow, layout } = splitCanvasDoc(snapshot);
+    return { agentflow, layout, summary };
+  }
+  const agentflow = raw.agentflowSnapshot;
+  const layout = raw.canvasSnapshot;
+  if (!agentflow || typeof agentflow !== "object" || !layout || typeof layout !== "object") {
+    return { error: "Provide either snapshot or agentflowSnapshot + canvasSnapshot" };
+  }
+  const agentflowDoc = agentflow as AgentFlowDoc;
+  const layoutDoc = layout as CanvasLayoutDoc;
+  if (typeof agentflowDoc.id !== "string" || !Array.isArray(agentflowDoc.nodes) || !Array.isArray(agentflowDoc.edges) || !Array.isArray(agentflowDoc.sessions)) {
+    return { error: "agentflowSnapshot is invalid" };
+  }
+  if (typeof layoutDoc.workflowId !== "string" || !Array.isArray(layoutDoc.nodes)) {
+    return { error: "canvasSnapshot is invalid" };
+  }
+  return { agentflow: agentflowDoc, layout: layoutDoc, summary };
+}
+
+function firstMissingCheckpointNode(record: RunRecord, agentflow: AgentFlowDoc): string | undefined {
+  const existingNodeIds = new Set(agentflow.nodes.map((node) => node.id));
+  for (const nodeId of requiredCheckpointNodeIds(record.checkpoint)) {
+    if (!existingNodeIds.has(nodeId)) return nodeId;
+  }
+  return undefined;
+}
+
+function validateSnapshotReachabilityPatch(record: RunRecord, nextAgentflow: AgentFlowDoc): Record<string, unknown> | undefined {
+  const reachability = computeRunReachability(record);
+  const editableClasses = new Set(["current", "future", "history_future"]);
+  const currentNodes = new Map(record.agentflowSnapshot.nodes.map((node) => [node.id, node]));
+  const nextNodes = new Map(nextAgentflow.nodes.map((node) => [node.id, node]));
+  const currentNodeIds = new Set(currentNodes.keys());
+  const nextNodeIds = new Set(nextNodes.keys());
+  if (!sameStringSet(currentNodeIds, nextNodeIds)) {
+    return {
+      code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
+      error: "Adding or deleting nodes in an active run snapshot is not supported.",
+    };
+  }
+  for (const [nodeId, currentNode] of currentNodes.entries()) {
+    const nextNode = nextNodes.get(nodeId);
+    if (!nextNode || stableJson(currentNode) === stableJson(nextNode)) continue;
+    const editClass = reachability.nodes[nodeId] ?? "inactive";
+    if (!editableClasses.has(editClass)) {
+      return {
+        code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
+        nodeId,
+        editClass,
+        error: `Node "${nodeId}" is ${editClass} and cannot be edited for this run.`,
+      };
+    }
+  }
+
+  const currentEdges = new Map(record.agentflowSnapshot.edges.map((edge) => [edge.id, edge]));
+  const nextEdges = new Map(nextAgentflow.edges.map((edge) => [edge.id, edge]));
+  if (!sameStringSet(new Set(currentEdges.keys()), new Set(nextEdges.keys()))) {
+    return {
+      code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
+      error: "Adding or deleting edges in an active run snapshot is not supported.",
+    };
+  }
+  for (const [edgeId, currentEdge] of currentEdges.entries()) {
+    const nextEdge = nextEdges.get(edgeId);
+    if (!nextEdge || stableJson(currentEdge) === stableJson(nextEdge)) continue;
+    if (currentEdge.from !== nextEdge.from || currentEdge.to !== nextEdge.to) {
+      return {
+        code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
+        edgeId,
+        error: "Changing edge endpoints in an active run snapshot is not supported.",
+      };
+    }
+    const fromClass = reachability.nodes[currentEdge.from] ?? "inactive";
+    const toClass = reachability.nodes[currentEdge.to] ?? "inactive";
+    if (!editableClasses.has(fromClass) && !editableClasses.has(toClass)) {
+      return {
+        code: "SNAPSHOT_EDIT_UNREACHABLE_EDGE",
+        edgeId,
+        error: `Edge "${edgeId}" is not on a reachable future path for this run.`,
+      };
+    }
+  }
+
+  const currentSessions = new Map(record.agentflowSnapshot.sessions.map((session) => [session.id, session]));
+  for (const nextSession of nextAgentflow.sessions) {
+    const currentSession = currentSessions.get(nextSession.id);
+    if (!currentSession || stableJson(currentSession) === stableJson(nextSession)) continue;
+    const referencedByEditableNode = record.agentflowSnapshot.nodes.some((node) => {
+      if (node.kind !== "step" || node.sessionId !== nextSession.id) return false;
+      return editableClasses.has(reachability.nodes[node.id] ?? "inactive");
+    });
+    if (!referencedByEditableNode) {
+      return {
+        code: "SNAPSHOT_EDIT_UNREACHABLE_SESSION",
+        sessionId: nextSession.id,
+        error: `Session "${nextSession.id}" is not referenced by an editable node in this run.`,
+      };
+    }
+  }
+  return undefined;
+}
+
+function sameStringSet(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, sortJsonValue(entry)]));
+}
+
+function parseWorkflowExecutionCheckpoint(value: Record<string, unknown> | undefined): WorkflowExecutionCheckpoint | undefined {
+  if (!value) return undefined;
+  if (!Array.isArray(value.queue)
+    || !value.pendingInputs
+    || typeof value.pendingInputs !== "object"
+    || !Array.isArray(value.completedNodeIds)
+    || !Array.isArray(value.completedExecutionKeys)
+    || !Array.isArray(value.skippedNodeIds)
+    || !Array.isArray(value.inactiveEdgeIds)
+    || !value.branchTraversals
+    || typeof value.branchTraversals !== "object") {
+    return undefined;
+  }
+  return value as unknown as WorkflowExecutionCheckpoint;
+}
+
+function requiredCheckpointNodeIds(checkpoint: Record<string, unknown> | undefined): string[] {
+  if (!checkpoint) return [];
+  const ids = new Set<string>();
+  if (typeof checkpoint.activeNodeId === "string") ids.add(checkpoint.activeNodeId);
+  if (typeof checkpoint.interruptedNodeId === "string") ids.add(checkpoint.interruptedNodeId);
+  const suspension = checkpoint.suspension;
+  if (suspension && typeof suspension === "object" && typeof (suspension as { nodeId?: unknown }).nodeId === "string") {
+    ids.add((suspension as { nodeId: string }).nodeId);
+  }
+  const pendingCompletion = checkpoint.pendingCompletion;
+  if (pendingCompletion && typeof pendingCompletion === "object" && typeof (pendingCompletion as { nodeId?: unknown }).nodeId === "string") {
+    ids.add((pendingCompletion as { nodeId: string }).nodeId);
+  }
+  if (Array.isArray(checkpoint.queue)) {
+    for (const entry of checkpoint.queue) {
+      if (entry && typeof entry === "object" && typeof (entry as { nodeId?: unknown }).nodeId === "string") {
+        ids.add((entry as { nodeId: string }).nodeId);
+      }
+    }
+  }
+  return [...ids];
+}
+
+function buildAflowMigrationTask(input: {
+  root: string;
+  workflowId: string;
+  serverUrl: string;
+}): TerminalSessionTask {
+  const directArgs = ["/specflow-migrate-v2", input.workflowId, "--server", input.serverUrl];
+  const env = { AFLOW_SPECFLOW_URL: input.serverUrl };
+  const configuredCommand = process.env["AFLOW_COMMAND"]?.trim();
+  if (configuredCommand) {
+    return {
+      command: configuredCommand,
+      args: directArgs,
+      cwd: input.root,
+      env,
+      label: `Aflow migrate ${input.workflowId}`,
+    };
+  }
+
+  const serverSourceDir = dirname(fileURLToPath(import.meta.url));
+  const devAflowEntry = join(serverSourceDir, "../../aflow/src/cli.ts");
+  if (existsSync(devAflowEntry)) {
+    return {
+      command: "bun",
+      args: [devAflowEntry, ...directArgs],
+      cwd: input.root,
+      env,
+      label: `Aflow migrate ${input.workflowId}`,
+    };
+  }
+
+  return {
+    command: "aflow",
+    args: directArgs,
+    cwd: input.root,
+    env,
+    label: `Aflow migrate ${input.workflowId}`,
+  };
 }
 
 function parseRestoreConfigOptions(value: unknown): Record<string, string | boolean> | undefined {

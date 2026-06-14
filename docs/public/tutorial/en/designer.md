@@ -18,15 +18,14 @@ Designer runs on the Specflow server, but it is separate from the workflow canva
 
 ## Start Designer
 
-Start Aflow with no arguments:
+Start the Specflow server:
 
 ```sh
-aflow
+specflow
 ```
 
-Choose `Designer` in the startup picker. Aflow prepares the workspace, starts the Specflow server, and tries to open the default browser directly at the Designer URL.
-
-If the server is already running, open the printed server URL with `/design` appended.
+Open the printed server URL with `/design` appended.
+For example, if Specflow prints `http://127.0.0.1:3888`, open `http://127.0.0.1:3888/design`.
 
 ## Projects
 

@@ -4,3 +4,4 @@ export * from "./prompt-renderer";
 export * from "./terminal-store";
 export * from "./interaction-store";
 export * from "./pause-store";
+export * from "./run-control-store";

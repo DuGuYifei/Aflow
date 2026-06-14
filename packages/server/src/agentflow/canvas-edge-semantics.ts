@@ -16,6 +16,7 @@ export function contentSourceForEdge(
   visitedGateIds = new Set<string>(),
 ): AgentFlowNode | undefined {
   const source = findAgentFlowNode(canvasDocument, edge.from);
+  if (source.kind === "start" || source.kind === "input") return undefined;
   if (source.kind !== "gate") return source;
   if (visitedGateIds.has(source.id)) {
     throw new Error(`Gate chain contains a cycle at node "${source.id}".`);
@@ -24,7 +25,7 @@ export function contentSourceForEdge(
   const incoming = canvasDocument.edges.find((candidate) =>
     !candidate.loopback
     && candidate.to === source.id
-    && findAgentFlowNode(canvasDocument, candidate.from).kind !== "input");
+    && !["input", "start"].includes(findAgentFlowNode(canvasDocument, candidate.from).kind));
   return incoming ? contentSourceForEdge(incoming, canvasDocument, visitedGateIds) : undefined;
 }
 

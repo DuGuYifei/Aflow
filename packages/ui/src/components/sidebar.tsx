@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Workflow, Run } from '../types';
+import type { Workflow, Run, WorkflowDiagnostic } from '../types';
 import { useI18n } from '../i18n';
 import { Icon } from './icon';
 
@@ -15,6 +15,8 @@ interface SidebarProps {
   onNewRun: () => void;
   onRerunRun: (id: string) => void;
   onResumeRun?: (id: string) => void;
+  onSaveBestPractice?: (id: string) => void;
+  bestPracticeBusyRunId?: string;
   onDeleteRun: (id: string) => void;
   onCreateWorkflow: (name: string) => void;
   onRenameWorkflow: (id: string, name: string) => void;
@@ -31,6 +33,30 @@ export interface SidebarLayout {
 const COLLAPSED_WIDTH = 44;
 const MIN_PANEL_WIDTH = 150;
 const MAX_PANEL_WIDTH = 460;
+
+function WorkflowDiagnosticsBadge({ diagnostics }: { diagnostics: WorkflowDiagnostic[] }) {
+  if (diagnostics.length === 0) return null;
+  const visibleDiagnostics = diagnostics.slice(0, 8);
+  const tooltip = [
+    ...visibleDiagnostics.map((diagnostic) =>
+      `${diagnostic.severity === 'error' ? 'Error' : 'Warning'}: ${diagnostic.message}`),
+    ...(diagnostics.length > visibleDiagnostics.length
+      ? [`+${diagnostics.length - visibleDiagnostics.length} more`]
+      : []),
+  ].join('\n');
+  const label = `${diagnostics.length} workflow validation ${diagnostics.length === 1 ? 'issue' : 'issues'}`;
+  return (
+    <span
+      className="wf-diagnostics quick-tooltip"
+      data-tooltip={tooltip}
+      aria-label={label}
+      tabIndex={0}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Icon name="alert" size={12} />
+    </span>
+  );
+}
 
 export function sidebarTotalWidth(layout: SidebarLayout): number {
   return (layout.workflowsCollapsed ? COLLAPSED_WIDTH : layout.workflowsWidth)
@@ -50,6 +76,8 @@ export function Sidebar({
   onNewRun,
   onRerunRun,
   onResumeRun,
+  onSaveBestPractice,
+  bestPracticeBusyRunId,
   onDeleteRun,
   onCreateWorkflow,
   onRenameWorkflow,
@@ -214,7 +242,9 @@ export function Sidebar({
                 ) : (
                   <div className="name">{workflow.name}</div>
                 )}
+                {workflow.diagnostics?.length ? <WorkflowDiagnosticsBadge diagnostics={workflow.diagnostics} /> : null}
                 {workflow.local && <span className="wf-badge local">local</span>}
+                {(workflow.deprecated || (workflow.version ?? 1) === 1) && <span className="wf-badge deprecated">v1</span>}
                 <button
                   className="btn sm icon workflow-rename"
                   title={t('sidebar.renameWorkflow')}
@@ -280,15 +310,26 @@ export function Sidebar({
                 <span className={`status-dot ${run.status}`} />
                 <span className="label">{run.label}</span>
                 <div className="actions" onClick={(event) => event.stopPropagation()}>
-                  {onResumeRun && !run.resumedByRunId && (run.status === 'cancelled' || run.status === 'error') && (
-                    <button className="btn sm icon" title={t('sidebar.resumeSessionTitle')} onClick={() => onResumeRun(run.id)}>
+                  {onResumeRun && !run.resumedByRunId && (run.status === 'stopped' || run.status === 'error') && (
+                    <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.continueRunTitle')} aria-label={t('sidebar.continueRunTitle')} onClick={() => onResumeRun(run.id)}>
                       <Icon name="play-circle" size={11} />
                     </button>
                   )}
-                  <button className="btn sm icon" title={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
+                  {onSaveBestPractice && run.status === 'success' && (
+                    <button
+                      className="btn sm icon quick-tooltip"
+                      data-tooltip={t('sidebar.saveBestPracticeTitle')}
+                      aria-label={t('sidebar.saveBestPracticeTitle')}
+                      disabled={bestPracticeBusyRunId === run.id}
+                      onClick={() => onSaveBestPractice(run.id)}
+                    >
+                      <Icon name={bestPracticeBusyRunId === run.id ? 'loader' : 'star'} size={11} />
+                    </button>
+                  )}
+                  <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.rerunTitle')} aria-label={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
                     <Icon name="rotate" size={11} />
                   </button>
-                  <button className="btn sm icon" title={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
+                  <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.delete')} aria-label={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
                     <Icon name="trash" size={11} />
                   </button>
                 </div>

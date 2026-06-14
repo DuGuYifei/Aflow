@@ -19,6 +19,7 @@ import {
 import {
   RunInteractionStore,
   RunPauseStore,
+  RunControlStore,
   TerminalEventStore,
   WorkflowExecutor,
   type PromptTransformer,
@@ -47,6 +48,7 @@ export interface SpecflowBridge {
   terminalEvents: TerminalEventStore;
   interactions: RunInteractionStore;
   pauses: RunPauseStore;
+  runControls: RunControlStore;
   executor: WorkflowExecutor;
   restoreAgentSession(request: AgentRestoreRequest): Promise<AgentRestoreResult>;
   openAgentConversation(request: AgentRestoreRequest): Promise<AgentConversation>;
@@ -75,10 +77,12 @@ export function createSpecflowBridge(options: CreateSpecflowBridgeOptions = {}):
   const terminalEvents = new TerminalEventStore();
   const interactions = new RunInteractionStore();
   const pauses = new RunPauseStore();
+  const runControls = new RunControlStore();
   const executor = new WorkflowExecutor({
     terminalEvents,
     interactions,
     pauses,
+    runControls,
     promptTransformer: options.promptTransformer,
   });
 
@@ -88,6 +92,7 @@ export function createSpecflowBridge(options: CreateSpecflowBridgeOptions = {}):
     terminalEvents,
     interactions,
     pauses,
+    runControls,
     executor,
     restoreAgentSession,
     openAgentConversation,

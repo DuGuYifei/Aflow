@@ -1,16 +1,18 @@
 ---
-title: Workflow YAML 编写教程
-description: 学习如何编写 Specflow agentflow YAML，把 Agent 工作沉淀为可见、可复用的工作流。
+title: "已废弃：Workflow YAML v1 编写教程"
+description: Specflow agentflow YAML 的 v1 兼容参考。新 workflow 应使用 version 2。
 category: tutorial
-order: 1
-updatedAt: "2026-06-02 22:10:35 CEST"
+order: 99
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - workflow
   - yaml
   - agentflow
 ---
 
-# Workflow YAML 编写教程
+# 已废弃：Workflow YAML v1 编写教程
+
+本页记录旧版 `version: 1` workflow 格式。新 workflow 应使用 [Workflow YAML v2 编写教程](write-workflow-yaml-v2.md)。v1 仍可兼容读取；在 Specflow UI 中打开 v1 workflow 时，会建议使用 Aflow Agent 迁移。
 
 Specflow 的可提交 workflow-as-code 文件保存在 `.aflow/.specflow/agentflow/agentflows/*.yaml`。
 本地实验、fork/adapt 草稿应保存在 `.aflow/.specflow/agentflow/agentflows-local/*.yaml`；这个目录会写入 `.aflow/.specflow/.gitignore`，默认不提交。
@@ -145,7 +147,7 @@ nodes:
 
 - `session` 必须引用一个已存在的 session key。
 - `prompt` 是发送给 Agent 的指令。
-- `pauseAfterRun: true` 会在节点执行后暂停，方便人工检查或继续。当前 `specflow run` CLI 不支持交互式 pause；包含 pause 节点的 workflow 会在启动 agent 前被拒绝运行，需要 pause/continue 时应通过 UI/server 路径运行。
+- `pauseAfterRun: true` 会在节点执行后暂停，方便人工检查后 Play 同一个 run。当前 `specflow run` CLI 不支持交互式 Pause/Play；包含 pause 节点的 workflow 会在启动 agent 前被拒绝运行，需要人工运行控制时应通过 UI/server 路径运行。
 - `paths` 用于关联文件或目录。
 - `images` 用于关联图片资源，每项包含 `path`，以及可选的 `label`、`mimeType`。
 - `modeId` 会在该节点 prompt 执行前设置 ACP session mode。

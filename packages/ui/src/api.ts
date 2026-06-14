@@ -1,24 +1,42 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent, WorkflowDiagnostic } from './types';
 import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
   id: string;
+  version?: 1 | 2;
   name: string;
   sessions: Session[];
   nodes: WorkflowNode[];
   edges: Edge[];
   variables?: Variable[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export type AgentFlowNode = Omit<WorkflowNode, 'x' | 'y' | 'w'>;
 
 export interface AgentFlowDoc {
   id: string;
+  version?: 1 | 2;
   name: string;
   sessions: Session[];
   nodes: AgentFlowNode[];
   edges: Edge[];
   variables?: Variable[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
+  diagnostics?: WorkflowDiagnostic[];
+}
+
+export interface AgentFlowSaveResponse {
+  ok: true;
+  diagnostics: WorkflowDiagnostic[];
+  derived?: {
+    loopClosingEdgeIds?: string[];
+  };
 }
 
 export interface CanvasLayoutDoc {
@@ -33,7 +51,7 @@ export interface ApiRunRecord {
   workflowId: string;
   label: string;
   ticket?: string;
-  status: "running" | "success" | "error" | "cancelled";
+  status: "running" | "paused" | "interrupted" | "success" | "error" | "stopped" | "cancelled";
   activeNode?: string;
   pausedNodeId?: string;
   startedAt: string;
@@ -50,6 +68,14 @@ export interface ApiRunRecord {
   variableValues?: Record<string, string>;
   resumedFromRunId?: string;
   resumedByRunId?: string;
+  snapshotRevision?: number;
+  snapshotEditedAt?: string;
+  snapshotEditSummary?: string;
+  control?: {
+    intent?: RunControlIntent;
+    reason?: string;
+    interruptedNodeId?: string;
+  };
 }
 
 export interface AgentSessionInvocationRef {
@@ -183,6 +209,20 @@ export type AuthTerminalEvent =
       signal?: string | null;
       error?: string;
       authStatus?: AgentAuthenticationStatus;
+      at: string;
+    };
+
+export type TerminalSessionStatus = AuthTerminalStatus;
+
+export type TerminalSessionEvent =
+  | { type: 'output'; sessionId: string; data: string; at: string }
+  | {
+      type: 'status';
+      sessionId: string;
+      status: TerminalSessionStatus;
+      exitCode?: number;
+      signal?: string | null;
+      error?: string;
       at: string;
     };
 
@@ -368,7 +408,10 @@ export interface CanvasSummary {
   id: string;
   name: string;
   runs: number;
+  version?: 1 | 2;
+  deprecated?: boolean;
   local?: boolean;
+  diagnostics?: WorkflowDiagnostic[];
 }
 
 export async function fetchCanvases(): Promise<CanvasSummary[]> {
@@ -390,6 +433,50 @@ export async function saveCanvas(id: string, canvasDocument: CanvasDoc): Promise
     body: JSON.stringify(canvasDocument),
   });
   if (!response.ok) throw new Error(await apiError(response, `Failed to save canvas ${id}`));
+}
+
+export async function saveAgentFlow(id: string, agentflow: AgentFlowDoc): Promise<AgentFlowSaveResponse> {
+  const response = await fetch(`/api/canvases/${id}/agentflow`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(agentflow),
+  });
+  if (!response.ok) throw new Error(await apiError(response, `Failed to save agentflow ${id}`));
+  return response.json();
+}
+
+export async function saveCanvasLayoutDoc(id: string, layout: CanvasLayoutDoc): Promise<void> {
+  const response = await fetch(`/api/canvases/${id}/layout`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(layout),
+  });
+  if (!response.ok) throw new Error(await apiError(response, `Failed to save canvas layout ${id}`));
+}
+
+export function agentFlowFromCanvas(canvasDocument: CanvasDoc): AgentFlowDoc {
+  return {
+    id: canvasDocument.id,
+    version: canvasDocument.version,
+    name: canvasDocument.name,
+    sessions: canvasDocument.sessions,
+    nodes: canvasDocument.nodes.map(({ x: _x, y: _y, w: _w, ...node }) => node as AgentFlowNode),
+    edges: canvasDocument.edges,
+    variables: canvasDocument.variables,
+  };
+}
+
+export function canvasLayoutFromCanvas(canvasDocument: CanvasDoc): CanvasLayoutDoc {
+  return {
+    workflowId: canvasDocument.id,
+    version: 1,
+    nodes: canvasDocument.nodes.map((node) => ({
+      nodeId: node.id,
+      x: node.x,
+      y: node.y,
+      w: node.w,
+    })),
+  };
 }
 
 export async function uploadCanvasAssets(
@@ -623,6 +710,58 @@ export async function checkAuthTerminal(sessionId: string): Promise<AgentAuthent
   return body.authStatus;
 }
 
+export async function startAflowMigration(workflowId: string): Promise<{ terminalSessionId: string; label?: string }> {
+  const response = await fetch('/api/aflow/migrations', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ workflowId }),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to start Aflow migration'));
+  return response.json();
+}
+
+export function subscribeToAflowMigrationTerminal(
+  sessionId: string,
+  onEvent: (event: TerminalSessionEvent) => void,
+  onError?: (error: Event) => void,
+): () => void {
+  const source = new EventSource(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/events`);
+  const handle = (messageEvent: MessageEvent) => {
+    try {
+      const event = JSON.parse(messageEvent.data) as TerminalSessionEvent;
+      onEvent(event);
+      if (event.type === 'status' && event.status !== 'running') source.close();
+    } catch { /* ignore bad json */ }
+  };
+  source.addEventListener('output', handle);
+  source.addEventListener('status', handle);
+  if (onError) source.addEventListener('error', onError);
+  return () => source.close();
+}
+
+export async function sendAflowMigrationTerminalInput(sessionId: string, data: string): Promise<void> {
+  const response = await fetch(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/input`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to send terminal input'));
+}
+
+export async function resizeAflowMigrationTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
+  const response = await fetch(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/resize`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ cols, rows }),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to resize terminal'));
+}
+
+export async function cancelAflowMigrationTerminal(sessionId: string): Promise<void> {
+  const response = await fetch(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to cancel terminal'));
+}
+
 export async function fetchAgentSession(id: string): Promise<AgentSessionRecord> {
   const response = await fetch(`/api/agent-sessions/${id}`);
   if (!response.ok) throw new Error(`Agent session ${id} not found`);
@@ -697,10 +836,29 @@ export async function fetchResumableSession(runId: string): Promise<ResumableSes
  * nodes are skipped using their recorded output, interrupted nodes get a
  * continuation prompt against their existing ACP session.
  */
-export async function resumeWorkflowRun(runId: string): Promise<{ runId: string }> {
-  const response = await fetch(`/api/runs/${runId}/resume-workflow`, { method: 'POST' });
-  if (!response.ok) await throwRunStartError(response, 'Failed to resume workflow');
+export async function continueWorkflowRun(runId: string): Promise<{ runId: string }> {
+  const response = await fetch(`/api/runs/${runId}/continue`, { method: 'POST' });
+  if (!response.ok) await throwRunStartError(response, 'Failed to continue workflow');
   return response.json();
+}
+
+export const resumeWorkflowRun = continueWorkflowRun;
+
+export async function pauseRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent }> {
+  const response = await fetch(`/api/runs/${id}/pause`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to pause run'));
+  return response.json();
+}
+
+export async function interruptRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent }> {
+  const response = await fetch(`/api/runs/${id}/interrupt`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to interrupt run'));
+  return response.json();
+}
+
+export async function playRun(id: string): Promise<void> {
+  const response = await fetch(`/api/runs/${id}/play`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to play run'));
 }
 
 export async function promptPausedNode(runId: string, nodeId: string, prompt: string, signal?: AbortSignal): Promise<{ output: string }> {
@@ -723,9 +881,44 @@ export async function deleteRun(id: string): Promise<void> {
   await fetch(`/api/runs/${id}`, { method: 'DELETE' });
 }
 
-export async function cancelRun(id: string): Promise<void> {
-  const response = await fetch(`/api/runs/${id}/cancel`, { method: 'POST' });
-  if (!response.ok) throw new Error(`Failed to cancel run: ${response.status}`);
+export async function stopRun(id: string): Promise<void> {
+  const response = await fetch(`/api/runs/${id}/stop`, { method: 'POST' });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to stop run'));
+}
+
+export const cancelRun = stopRun;
+
+export async function patchRunSnapshot(
+  runId: string,
+  snapshot: CanvasDoc,
+  summary?: string,
+): Promise<{ ok: boolean; snapshotRevision: number; snapshot: CanvasDoc; reachability: RunReachability }> {
+  const response = await fetch(`/api/runs/${runId}/snapshot`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ snapshot, ...(summary ? { summary } : {}) }),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to update run snapshot'));
+  return response.json();
+}
+
+export async function fetchRunReachability(runId: string): Promise<RunReachability> {
+  const response = await fetch(`/api/runs/${runId}/reachability`);
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to fetch run reachability'));
+  return response.json();
+}
+
+export async function saveRunBestPractice(
+  runId: string,
+  options: { name?: string; shared?: boolean } = {},
+): Promise<{ ok: boolean; workflow: CanvasSummary }> {
+  const response = await fetch(`/api/runs/${runId}/best-practice`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to save best practice'));
+  return response.json();
 }
 
 export async function rerunRun(
@@ -834,7 +1027,7 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
     workflowId: runRecord.workflowId,
     label: runRecord.label,
     ticket: runRecord.ticket ?? '',
-    status: runRecord.status,
+    status: runRecord.status === 'cancelled' ? 'stopped' : runRecord.status,
     activeNode: runRecord.activeNode,
     pausedNodeId: runRecord.pausedNodeId,
     time: formatTime(runRecord.startedAt),
@@ -848,6 +1041,10 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
     variableValues: runRecord.variableValues,
     resumedFromRunId: runRecord.resumedFromRunId,
     resumedByRunId: runRecord.resumedByRunId,
+    snapshotRevision: runRecord.snapshotRevision,
+    snapshotEditedAt: runRecord.snapshotEditedAt,
+    snapshotEditSummary: runRecord.snapshotEditSummary,
+    control: runRecord.control,
   };
 }
 
@@ -968,6 +1165,7 @@ function combineSnapshot(
   const layoutByNode = new Map(layoutOrLegacy.nodes.map((node) => [node.nodeId, node]));
   return {
     id: agentflow.id,
+    version: agentflow.version,
     name: agentflow.name,
     sessions: agentflow.sessions,
     nodes: agentflow.nodes.map((node) => {
@@ -981,10 +1179,13 @@ function combineSnapshot(
     }),
     edges: agentflow.edges,
     variables: agentflow.variables,
+    derived: agentflow.derived,
+    diagnostics: agentflow.diagnostics,
   };
 }
 
 function defaultWidth(kind: WorkflowNode['kind']): number {
+  if (kind === 'start') return 140;
   if (kind === 'gate') return 200;
   if (kind === 'input') return 200;
   if (kind === 'end') return 140;
@@ -997,6 +1198,9 @@ export function summaryToWorkflow(summary: CanvasSummary): Workflow {
     name: summary.name,
     meta: `${summary.runs} runs`,
     runs: summary.runs,
+    version: summary.version,
+    deprecated: summary.deprecated,
+    diagnostics: summary.diagnostics,
     ...(summary.local ? { local: true } : {}),
   };
 }

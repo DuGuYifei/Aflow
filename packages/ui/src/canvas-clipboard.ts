@@ -21,6 +21,7 @@ export interface CanvasPasteResult {
 export const CANVAS_PASTE_OFFSET = 24;
 
 const NODE_HEIGHT: Record<WorkflowNode['kind'], number> = {
+  start: 36,
   step: 120,
   gate: 110,
   end: 36,
@@ -184,6 +185,19 @@ function cloneNodeForPaste(node: WorkflowNode, input: {
       required: node.required,
       defaultValue: node.defaultValue,
       description: node.description,
+      sessionId: null,
+    };
+  }
+
+  if (node.kind === 'start') {
+    return {
+      kind: 'start',
+      id: input.id,
+      alias: 'START',
+      x: input.x,
+      y: input.y,
+      w: node.w,
+      title: node.title,
       sessionId: null,
     };
   }

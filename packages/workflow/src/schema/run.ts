@@ -2,7 +2,7 @@ import type { NodeStatus } from "@specflow/shared";
 
 export type { NodeStatus };
 
-export type WorkflowRunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export type WorkflowRunStatus = "queued" | "running" | "paused" | "interrupted" | "done" | "failed" | "cancelled";
 
 export interface WorkflowRun {
   id: string;

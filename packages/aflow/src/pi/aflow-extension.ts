@@ -28,28 +28,28 @@ export function createAflowPiExtension(): ExtensionFactory {
     registerAflowTools(pi);
 
     pi.registerCommand("specflow-create", {
-      description: "Draft a Specflow workflow from a business goal",
+      description: "Create a Specflow v2 workflow from a business goal",
       handler: async (args, ctx) => {
         sendAflowCommandPrompt(pi, ctx, buildCreateWorkflowPrompt(args));
       },
     });
 
     pi.registerCommand("specflow-fork-adapt", {
-      description: "Adapt an existing Specflow workflow for a new problem",
+      description: "Copy and adapt a Specflow workflow as a local v2 draft",
       handler: async (args, ctx) => {
         sendAflowCommandPrompt(pi, ctx, buildForkAdaptWorkflowPrompt(args));
       },
     });
 
     pi.registerCommand("specflow-validate", {
-      description: "Validate a workflow file or saved workflow",
+      description: "Validate a saved workflow or YAML file",
       handler: async (args, ctx) => {
         sendAflowCommandPrompt(pi, ctx, buildValidateWorkflowPrompt(args));
       },
     });
 
     pi.registerCommand("specflow-run", {
-      description: "Run a saved workflow through the Specflow server",
+      description: "Run a saved workflow and collect required workflow variables",
       handler: async (args, ctx) => {
         sendAflowCommandPrompt(pi, ctx, buildRunWorkflowPrompt(args));
       },

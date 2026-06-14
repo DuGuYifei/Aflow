@@ -47,6 +47,7 @@ let restoredPrompts: string[] = [];
 let pausedPrompts: string[] = [];
 let createdCanvasBody: unknown;
 let savedCanvases: unknown[] = [];
+let savedLayouts: unknown[] = [];
 let deletedCanvases: string[] = [];
 let pausedContinues = 0;
 let interactionResponses = 0;
@@ -88,6 +89,7 @@ describe("App run integration", () => {
     pausedPrompts = [];
     createdCanvasBody = undefined;
     savedCanvases = [];
+    savedLayouts = [];
     deletedCanvases = [];
     pausedContinues = 0;
     interactionResponses = 0;
@@ -435,6 +437,32 @@ describe("App run integration", () => {
     await waitForText("Start run");
   });
 
+  test("shows workflow diagnostics in the workflow list tooltip", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{ code: "V2_LOOP_INVALID", severity: "error", message: "Loop must be controlled by a gate." }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    await waitFor(() => {
+      const badge = document.querySelector(".wf-diagnostics");
+      return badge instanceof window.HTMLElement
+        && Boolean(badge.getAttribute("data-tooltip")?.includes("Loop must be controlled by a gate."));
+    });
+  });
+
   test("adds a session and renders it immediately", async () => {
     root = createRoot(container);
     renderApp(root);
@@ -681,10 +709,10 @@ describe("App run integration", () => {
     window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 200, clientY: 170 }));
     window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 200, clientY: 170 }));
 
-    await waitFor(() => savedCanvases.some((canvas) => {
-      const saved = canvas as { nodes?: Array<{ id: string; x: number; y: number }> };
-      const first = saved.nodes?.find((node) => node.id === "node-1");
-      const second = saved.nodes?.find((node) => node.id === "node-2");
+    await waitFor(() => savedLayouts.some((canvas) => {
+      const saved = canvas as { nodes?: Array<{ nodeId: string; x: number; y: number }> };
+      const first = saved.nodes?.find((node) => node.nodeId === "node-1");
+      const second = saved.nodes?.find((node) => node.nodeId === "node-2");
       return first?.x === 180 && first.y === 150 && second?.x === 480 && second.y === 150;
     }));
   });
@@ -980,7 +1008,7 @@ describe("App run integration", () => {
     expect(userMessages.length).toBe(1);
     if (document.querySelector(".paused-transcript")) throw new Error("Paused transcript should not render outside the log stream");
 
-    clickButton("Continue");
+    clickButton("Continue node");
     await waitFor(() => pausedContinues === 1);
     await waitFor(() => !(document.body.textContent?.includes("Paused after Echo") ?? false));
   });
@@ -1076,6 +1104,16 @@ function mockFetch(input: RequestInfo | URL, initialValue?: RequestInit): Promis
     const body = JSON.parse(String(initialValue?.body ?? "{}"));
     savedCanvases.push(body);
     return json(body);
+  }
+  if (method === "PUT" && /^\/api\/canvases\/[^/]+\/agentflow$/.test(url)) {
+    const body = JSON.parse(String(initialValue?.body ?? "{}"));
+    savedCanvases.push(body);
+    return json({ ok: true, diagnostics: [], derived: body.derived ?? { loopClosingEdgeIds: [] } });
+  }
+  if (method === "PUT" && /^\/api\/canvases\/[^/]+\/layout$/.test(url)) {
+    const body = JSON.parse(String(initialValue?.body ?? "{}"));
+    savedLayouts.push(body);
+    return json({ ok: true });
   }
   if (method === "DELETE" && /^\/api\/canvases\/[^/]+$/.test(url)) {
     deletedCanvases.push(url.split("/").at(-1) ?? "");

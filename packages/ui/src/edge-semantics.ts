@@ -13,7 +13,7 @@ export function resolveTransferSource(
   const incoming = edges.find((candidate) =>
     !candidate.loopback
     && candidate.to === source.id
-    && nodes.find((node) => node.id === candidate.from)?.kind !== 'input');
+    && !['input', 'start'].includes(nodes.find((node) => node.id === candidate.from)?.kind ?? ''));
   return incoming ? resolveTransferSource(incoming, nodes, edges, visitedGateIds) : undefined;
 }
 
@@ -31,8 +31,10 @@ export function normalizeTransferConfiguration(edges: Edge[], nodes: WorkflowNod
     const source = nodes.find((node) => node.id === edge.from);
     const target = nodes.find((node) => node.id === edge.to);
     const controlOnly = source?.kind === 'input'
+      || source?.kind === 'start'
       || source?.kind === 'end'
       || target?.kind === 'input'
+      || target?.kind === 'start'
       || target?.kind === 'end'
       || target?.kind === 'gate';
     if (!controlOnly && !isSameSessionContentEdge(edge, nodes, edges)) return edge;

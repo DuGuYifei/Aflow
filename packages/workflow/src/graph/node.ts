@@ -51,6 +51,7 @@ export interface GateBranch {
 export interface GateNode extends FunctionalNode<"gate"> {
   decisionCriteria: string;
   branches: GateBranch[];
+  pauseAfterRun?: boolean;
   /**
    * ACP session config option overrides applied before the gate's decision
    * prompt. Mode is intentionally excluded — gates evaluate routing logic,
