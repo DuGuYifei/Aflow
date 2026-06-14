@@ -72,6 +72,12 @@
 - [ ] SKILL模式
 - [x] Design 的 版本记录，可能直接用git，靠一个按钮。
 - [ ] i18n应当直接写入对应文件内，而不是统一分配，难以维护
+- [ ] 更新 pi
+- [ ] sessionUpdate: "plan" - [acp agent plan](https://agentclientprotocol.com/protocol/v1/agent-plan)
+- [ ] token usage_update
+- [ ] askuerquetion based on client capability （可能只有claude code支持）
+- [ ] server 模式，启动OTEL
+- [ ] aflow agent可以接管 flow run，随时暂停 / interrupt，修改后续节点。（可能只需要文字部分，和自己去感知代码变动）。aflow可以interview，或者直接去交流。
 
 ## Resolved Bugs
 
