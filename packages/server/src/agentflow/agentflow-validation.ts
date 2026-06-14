@@ -275,6 +275,54 @@ export function collectAgentFlowDiagnostics(input: AgentFlowDoc): AgentFlowDiagn
     edgeIds.add(authoredEdgeId);
   }
 
+  const collectBranchSessionsBeforeJoin = (edge: CanvasEdge): Set<string> => {
+    const sessions = new Set<string>();
+    const visited = new Set<string>();
+    const stack = [edge.to];
+    while (stack.length > 0) {
+      const nodeId = stack.pop();
+      if (!nodeId || visited.has(nodeId)) continue;
+      visited.add(nodeId);
+      const node = nodesById.get(nodeId);
+      if (!node) continue;
+      if (node.kind === "step" && node.sessionId) sessions.add(node.sessionId);
+      for (const nextEdge of outgoingBySource.get(nodeId) ?? []) {
+        const targetIncomingCount = incomingByTarget.get(nextEdge.to)?.length ?? 0;
+        if (targetIncomingCount > 1) continue;
+        stack.push(nextEdge.to);
+      }
+    }
+    return sessions;
+  };
+
+  for (const node of canvasDocument.nodes) {
+    if (node.kind !== "step") continue;
+    const outgoing = (outgoingBySource.get(node.id) ?? []).filter((edge) => nodesById.has(edge.to));
+    if (outgoing.length <= 1) continue;
+    pushWarning(
+      "NON_GATE_FANOUT",
+      `Step node "${node.id}" has ${outgoing.length} outgoing edges; all targets will run in queue order. Use a gate for choose-one branching.`,
+      { nodeId: node.id, edgeId: outgoing[0]?.id },
+    );
+    const firstBranchBySession = new Map<string, number>();
+    const warnedSessions = new Set<string>();
+    outgoing.forEach((edge, branchIndex) => {
+      for (const sessionId of collectBranchSessionsBeforeJoin(edge)) {
+        const firstBranch = firstBranchBySession.get(sessionId);
+        if (firstBranch === undefined) {
+          firstBranchBySession.set(sessionId, branchIndex);
+        } else if (firstBranch !== branchIndex && !warnedSessions.has(sessionId)) {
+          warnedSessions.add(sessionId);
+          pushWarning(
+            "FANOUT_SHARED_SESSION_REVIEW",
+            `Step node "${node.id}" fans out into branches that may reuse session "${sessionId}" before joining; confirm queued session reuse is intentional.`,
+            { nodeId: node.id, edgeId: edge.id, sessionId },
+          );
+        }
+      }
+    });
+  }
+
   if (version === 2) {
     const startNodes = canvasDocument.nodes.filter((node) => node.kind === "start");
     if (startNodes.length === 0) {

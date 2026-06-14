@@ -459,7 +459,93 @@ describe("App run integration", () => {
     await waitFor(() => {
       const badge = document.querySelector(".wf-diagnostics");
       return badge instanceof window.HTMLElement
-        && Boolean(badge.getAttribute("data-tooltip")?.includes("Loop must be controlled by a gate."));
+        && badge.classList.contains("quick-tooltip-right")
+        && Boolean(badge.getAttribute("data-tooltip")?.includes("Error: Loop structure is invalid."));
+    });
+  });
+
+  test("hides workflow-list diagnostics that are not user-facing warnings", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{
+            code: "REQUIRED_VARIABLE_NEEDS_RUNTIME_VALUE",
+            severity: "warning",
+            message: "Required variable needs a runtime value.",
+            variableName: "specflow_task",
+          }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    expect(document.querySelector(".wf-diagnostics")).toBe(null);
+  });
+
+  test("falls back to server diagnostic messages for unknown workflow diagnostic codes", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{ code: "FUTURE_CODE", severity: "warning", message: "Future warning." }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    await waitFor(() => {
+      const badge = document.querySelector(".wf-diagnostics");
+      return badge instanceof window.HTMLElement
+        && Boolean(badge.getAttribute("data-tooltip")?.includes("Warning: Future warning."));
+    });
+  });
+
+  test("localizes workflow diagnostics in the workflow list tooltip", async () => {
+    localStorage.setItem("sf-lang", "zh-CN");
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{
+            code: "NON_GATE_FANOUT",
+            severity: "warning",
+            message: "Step has multiple outgoing edges.",
+            nodeId: "split",
+          }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("开始运行");
+    await waitFor(() => {
+      const badge = document.querySelector(".wf-diagnostics");
+      return badge instanceof window.HTMLElement
+        && Boolean(badge.getAttribute("data-tooltip")?.includes("警告：步骤“split”有多条出边。"));
     });
   });
 

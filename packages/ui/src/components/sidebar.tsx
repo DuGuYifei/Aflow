@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Workflow, Run, WorkflowDiagnostic } from '../types';
 import { useI18n } from '../i18n';
+import { formatWorkflowDiagnostic, formatWorkflowDiagnosticSeverity, getWorkflowListDiagnostics } from '../workflow-diagnostics';
 import { Icon } from './icon';
 
 interface SidebarProps {
@@ -35,19 +36,22 @@ const MIN_PANEL_WIDTH = 150;
 const MAX_PANEL_WIDTH = 460;
 
 function WorkflowDiagnosticsBadge({ diagnostics }: { diagnostics: WorkflowDiagnostic[] }) {
-  if (diagnostics.length === 0) return null;
-  const visibleDiagnostics = diagnostics.slice(0, 8);
+  const { t } = useI18n();
+  const workflowListDiagnostics = getWorkflowListDiagnostics(diagnostics);
+  if (workflowListDiagnostics.length === 0) return null;
+  const visibleDiagnostics = workflowListDiagnostics.slice(0, 8);
+  const severitySeparator = t('diagnostics.severitySeparator');
   const tooltip = [
     ...visibleDiagnostics.map((diagnostic) =>
-      `${diagnostic.severity === 'error' ? 'Error' : 'Warning'}: ${diagnostic.message}`),
-    ...(diagnostics.length > visibleDiagnostics.length
-      ? [`+${diagnostics.length - visibleDiagnostics.length} more`]
+      `${formatWorkflowDiagnosticSeverity(diagnostic.severity, t)}${severitySeparator}${formatWorkflowDiagnostic(diagnostic, t)}`),
+    ...(workflowListDiagnostics.length > visibleDiagnostics.length
+      ? [t('diagnostics.more', { count: workflowListDiagnostics.length - visibleDiagnostics.length })]
       : []),
   ].join('\n');
-  const label = `${diagnostics.length} workflow validation ${diagnostics.length === 1 ? 'issue' : 'issues'}`;
+  const label = t('diagnostics.workflowIssuesLabel', { count: workflowListDiagnostics.length });
   return (
     <span
-      className="wf-diagnostics quick-tooltip"
+      className="wf-diagnostics quick-tooltip quick-tooltip-right"
       data-tooltip={tooltip}
       aria-label={label}
       tabIndex={0}

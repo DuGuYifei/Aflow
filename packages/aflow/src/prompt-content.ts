@@ -236,6 +236,9 @@ End node syntax:
 
 Edges and context transfer:
 - A normal edge only controls execution order.
+- A step node may have multiple outgoing normal edges; this is queued fan-out, so every target will run. Use it only when all branches should execute.
+- If only one path should execute based on conditions, add a gate node and put one outgoing edge on each gate branch.
+- Fan-out branches may intentionally reuse the same session, but review whether the queued order and shared conversation context are correct before doing so.
 - Edges cannot target start nodes.
 - Edges cannot leave end nodes.
 - Edges from start nodes should only target step nodes and should not declare transmit, outputTag, or handoffPrompt.
