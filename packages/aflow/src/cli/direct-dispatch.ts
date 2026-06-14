@@ -36,11 +36,11 @@ export async function dispatchDirectAflowCommand(args: string[], context: Direct
   const [rawCommand, ...rest] = args;
   const command = normalizeCommandName(rawCommand);
   if (command === "specflow-create") {
-    await runAflowAgent([buildCreateWorkflowPrompt(rest.join(" "))]);
+    await runAflowAgent([buildCreateWorkflowPrompt(rest.join(" "))], { checkForUpdates: false });
     return;
   }
   if (command === "specflow-fork-adapt") {
-    await runAflowAgent([buildForkAdaptWorkflowPrompt(rest.join(" "))]);
+    await runAflowAgent([buildForkAdaptWorkflowPrompt(rest.join(" "))], { checkForUpdates: false });
     return;
   }
   if (command === "specflow-migrate-v2") {
@@ -49,7 +49,7 @@ export async function dispatchDirectAflowCommand(args: string[], context: Direct
     if (!target) throw new Error("Usage: /specflow-migrate-v2 <workflow-id|path/to/workflow.yaml> [--server URL]");
     if (migrateRest.length > 1) throw new Error(`Unexpected argument: ${migrateRest[1]}`);
     if (serverUrl) process.env["AFLOW_SPECFLOW_URL"] = serverUrl;
-    await runAflowAgent([buildMigrateV2WorkflowPrompt(target)]);
+    await runAflowAgent([buildMigrateV2WorkflowPrompt(target)], { checkForUpdates: false });
     return;
   }
   await dispatchParsedCommand(command, rest, context);
