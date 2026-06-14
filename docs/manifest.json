@@ -1,26 +1,26 @@
 {
-  "generatedAt": "2026-06-09T01:12:49.000Z",
+  "generatedAt": "2026-06-14T07:25:34.738Z",
   "sections": [
     {
       "id": "tutorial",
       "title": "Tutorial",
       "items": [
         {
-          "id": "write-workflow-yaml",
+          "id": "write-workflow-yaml-v2",
           "locale": "en",
-          "title": "Workflow YAML Authoring Tutorial",
-          "description": "Learn how to write Specflow agentflow YAML and turn agent work into visible, reusable workflows.",
+          "title": "Workflow YAML v2 Authoring Tutorial",
+          "description": "Learn how to write Specflow agentflow v2 YAML with explicit starts, global variables, derived loops, and bounded gate branches.",
           "order": 1,
-          "updatedAt": "2026-06-02 22:10:35 CEST",
-          "path": "docs/tutorial/en/write-workflow-yaml.md"
+          "updatedAt": "2026-06-13 06:27:21 CEST",
+          "path": "docs/tutorial/en/write-workflow-yaml-v2.md"
         },
         {
           "id": "specflow-command",
           "locale": "en",
           "title": "Specflow Commands",
-          "description": "Learn what specflow, specflow validate, and specflow run do, and how to pass workflow inputs.",
+          "description": "Learn what specflow, specflow validate, and specflow run do, and how to pass workflow variables.",
           "order": 2,
-          "updatedAt": "2026-06-09 01:12:49 CEST",
+          "updatedAt": "2026-06-13 06:27:21 CEST",
           "path": "docs/tutorial/en/specflow-command.md"
         },
         {
@@ -36,9 +36,9 @@
           "id": "aflow-agent",
           "locale": "en",
           "title": "Aflow Agent Tutorial",
-          "description": "Learn how to use Aflow Agent to create, adapt, validate, run, and resume Specflow workflows.",
+          "description": "Learn how to use Aflow Agent to create, adapt, validate, run, and continue Specflow workflows.",
           "order": 4,
-          "updatedAt": "2026-06-09 01:12:49 CEST",
+          "updatedAt": "2026-06-13 06:27:21 CEST",
           "path": "docs/tutorial/en/aflow-agent.md"
         },
         {
@@ -51,21 +51,39 @@
           "path": "docs/tutorial/en/designer.md"
         },
         {
+          "id": "glossary",
+          "locale": "en",
+          "title": "Specflow Glossary",
+          "description": "Fixed terms for workflow execution, run control, snapshots, and loop traversal.",
+          "order": 6,
+          "updatedAt": "2026-06-13 06:27:21 CEST",
+          "path": "docs/tutorial/en/glossary.md"
+        },
+        {
           "id": "write-workflow-yaml",
+          "locale": "en",
+          "title": "Deprecated: Workflow YAML v1 Authoring Tutorial",
+          "description": "Legacy v1 reference for Specflow agentflow YAML. New workflows should use version 2.",
+          "order": 99,
+          "updatedAt": "2026-06-13 06:27:21 CEST",
+          "path": "docs/tutorial/en/write-workflow-yaml.md"
+        },
+        {
+          "id": "write-workflow-yaml-v2",
           "locale": "zh",
-          "title": "Workflow YAML 编写教程",
-          "description": "学习如何编写 Specflow agentflow YAML，把 Agent 工作沉淀为可见、可复用的工作流。",
+          "title": "Workflow YAML v2 编写教程",
+          "description": "学习如何用显式 start、全局变量、自动派生循环和 gate branch 次数上限编写 Specflow agentflow v2 YAML。",
           "order": 1,
-          "updatedAt": "2026-06-02 22:10:35 CEST",
-          "path": "docs/tutorial/zh/write-workflow-yaml.md"
+          "updatedAt": "2026-06-13 06:27:21 CEST",
+          "path": "docs/tutorial/zh/write-workflow-yaml-v2.md"
         },
         {
           "id": "specflow-command",
           "locale": "zh",
           "title": "Specflow 命令",
-          "description": "学习 specflow、specflow validate 和 specflow run 的用途与输入规则。",
+          "description": "学习 specflow、specflow validate 和 specflow run 的用途与 workflow 变量传入规则。",
           "order": 2,
-          "updatedAt": "2026-06-09 01:12:49 CEST",
+          "updatedAt": "2026-06-13 06:27:21 CEST",
           "path": "docs/tutorial/zh/specflow-command.md"
         },
         {
@@ -81,9 +99,9 @@
           "id": "aflow-agent",
           "locale": "zh",
           "title": "Aflow Agent 使用教程",
-          "description": "学习如何用 Aflow Agent 创建、改写、校验、运行和恢复 Specflow workflows。",
+          "description": "学习如何用 Aflow Agent 创建、改写、校验、运行和继续 Specflow workflows。",
           "order": 4,
-          "updatedAt": "2026-06-09 01:12:49 CEST",
+          "updatedAt": "2026-06-13 06:27:21 CEST",
           "path": "docs/tutorial/zh/aflow-agent.md"
         },
         {
@@ -94,6 +112,24 @@
           "order": 5,
           "updatedAt": "2026-06-09 01:12:49 CEST",
           "path": "docs/tutorial/zh/designer.md"
+        },
+        {
+          "id": "glossary",
+          "locale": "zh",
+          "title": "Specflow 术语表",
+          "description": "固定 workflow 执行、运行控制、快照和循环经过次数相关术语。",
+          "order": 6,
+          "updatedAt": "2026-06-13 06:27:21 CEST",
+          "path": "docs/tutorial/zh/glossary.md"
+        },
+        {
+          "id": "write-workflow-yaml",
+          "locale": "zh",
+          "title": "已废弃：Workflow YAML v1 编写教程",
+          "description": "Specflow agentflow YAML 的 v1 兼容参考。新 workflow 应使用 version 2。",
+          "order": 99,
+          "updatedAt": "2026-06-13 06:27:21 CEST",
+          "path": "docs/tutorial/zh/write-workflow-yaml.md"
         }
       ]
     }

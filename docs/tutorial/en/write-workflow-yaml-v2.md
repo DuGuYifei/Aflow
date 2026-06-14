@@ -1,8 +1,8 @@
 ---
-title: "Deprecated: Workflow YAML v1 Authoring Tutorial"
-description: Legacy v1 reference for Specflow agentflow YAML. New workflows should use version 2.
+title: Workflow YAML v2 Authoring Tutorial
+description: Learn how to write Specflow agentflow v2 YAML with explicit starts, global variables, derived loops, and bounded gate branches.
 category: tutorial
-order: 99
+order: 1
 updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - workflow
@@ -10,25 +10,26 @@ tags:
   - agentflow
 ---
 
-# Deprecated: Workflow YAML v1 Authoring Tutorial
-
-This page documents the legacy `version: 1` workflow format. New workflows should use [Workflow YAML v2 Authoring Tutorial](write-workflow-yaml-v2.md). v1 remains readable for compatibility, and the Specflow UI will suggest migrating v1 workflows with Aflow Agent.
+# Workflow YAML v2 Authoring Tutorial
 
 Committed workflow-as-code files live in `.aflow/.specflow/agentflow/agentflows/*.yaml`.
-Local experiments and fork/adapt drafts should live in `.aflow/.specflow/agentflow/agentflows-local/*.yaml`; this directory is added to `.aflow/.specflow/.gitignore` by default and is not committed.
-Each YAML file describes a runnable workflow graph, including sessions, nodes, edges, and optional runtime inputs.
-Browser canvas coordinates are stored separately in `.aflow/.specflow/agentflow/canvas/*.json`, so handwritten YAML does not need to manage node positions.
+Local drafts, fork/adapt variants, and experiments should live in `.aflow/.specflow/agentflow/agentflows-local/*.yaml`; this directory is ignored by default.
+Each YAML file describes a runnable workflow graph: sessions, global runtime variables, explicit start nodes, step nodes, gate nodes, end nodes, and edges.
 
 The workflow file name becomes the workflow id. Use lowercase kebab-case, for example `code-review-flow.yaml`.
 Session, node, and branch keys follow the same rule: they must start with a lowercase letter and may only contain lowercase letters, numbers, and `-`.
 
-When adapting an existing workflow for a specific user or problem, copy the source YAML to `.aflow/.specflow/agentflow/agentflows-local/<new-workflow-id>.yaml` first, then edit the copy. Do not overwrite the source workflow unless you are explicitly maintaining the shared team version.
-
 ## Minimal Example
 
 ```yaml
-version: 1
+version: 2
 name: Code review flow
+
+variables:
+  specflow_task:
+    title: Task
+    description: The request, ticket, or business goal.
+    required: true
 
 sessions:
   builder:
@@ -37,6 +38,10 @@ sessions:
     agentServerId: claude-acp
 
 nodes:
+  start:
+    kind: start
+    title: Start
+
   plan:
     kind: step
     title: Plan the change
@@ -75,12 +80,15 @@ nodes:
       rework:
         label: needs rework
         description: Send the workflow back to implementation.
+        maxTraversals: 2
 
   done:
     kind: end
     title: Done
 
 edges:
+  - from: start
+    to: plan
   - from: plan
     to: implement
   - from: implement
@@ -96,26 +104,69 @@ edges:
   - from: verdict
     branch: rework
     to: implement
-    loopback: true
-    maxTraversals: 2
 ```
 
 ## Top-Level Fields
 
-`version` must be `1`.
+`version` must be `2` for newly authored workflows.
 
 `name` is the workflow name shown in Specflow.
 
-`sessions` defines logical sessions. Steps that reference the same session share context.
-Each session should define `agentServerId`, which points to an agent server entry in `.aflow/.specflow/agent-servers.json`.
-If an agent needs MCP configuration, set `mcpServers` to a JSON string containing an array of MCP server objects.
+`variables` is a top-level map of runtime values. Steps and gates can reference variables directly with XML-like tokens such as `<specflow_task>`.
 
-`nodes` defines workflow graph nodes. YAML supports four node kinds: `input`, `step`, `gate`, and `end`.
-Only `step` and `gate` become runtime nodes. `input` provides variables, and `end` marks a process ending on the canvas.
+`sessions` defines logical agent contexts. Steps that reference the same session share conversation context.
+Each session should define `agentServerId`, which points to an agent server entry in `.aflow/.specflow/agent-servers.json`.
+
+`nodes` defines workflow graph nodes. v2 YAML supports `start`, `step`, `gate`, and `end` nodes.
 
 `edges` defines directed connections between nodes. Edge ids are generated from `from`, `branch`, and `to`; you do not need to write them by hand.
 
-`variables` is an optional variable record list. Runtime prompt replacement is primarily driven by `input` nodes. If a value must be passed at run time, prefer an `input` node.
+## Variables
+
+Declare run-time values under top-level `variables`.
+Variable names must match `specflow_[A-Za-z0-9_]+`.
+
+```yaml
+variables:
+  specflow_task:
+    title: Task
+    description: The request, ticket, or business goal.
+    required: true
+    defaultValue: Fix the failing login test.
+```
+
+Prompts and gate criteria can reference variables with tokens:
+
+```yaml
+prompt: |
+  Implement this request:
+  <specflow_task>
+```
+
+If `required: true` and no `defaultValue` exists, Aflow and Specflow run configuration ask for a value before the workflow runs.
+
+Do not create `kind: input` nodes in v2. Input nodes are v1 compatibility only.
+
+## Start Nodes
+
+Use `kind: start` to declare explicit entry points.
+
+```yaml
+nodes:
+  start:
+    kind: start
+    title: Start
+
+edges:
+  - from: start
+    to: plan
+```
+
+Start nodes are control-only markers. They do not run an agent and do not pass content.
+
+Multiple start nodes are allowed for parallel starts, but their target steps must not share the same session. This avoids starting two independent prompts in one conversation at the same time.
+
+Start edges must target step nodes. Edges must not target start nodes.
 
 ## Step Nodes
 
@@ -147,7 +198,7 @@ Common fields:
 
 - `session` must reference an existing session key.
 - `prompt` is the instruction sent to the agent.
-- `pauseAfterRun: true` pauses after the node runs, which lets a human inspect and then Play the same run. The current `specflow run` CLI does not support interactive Pause/Play; workflows with pause nodes are rejected before the agent starts. Use the UI/server path when manual run control is required.
+- `pauseAfterRun: true` pauses after the node runs, which lets a human inspect and then Play the same run. The current `specflow run` CLI does not support interactive Pause/Play; use the UI/server or Aflow run path for workflows that need manual run control.
 - `paths` associates files or directories.
 - `images` associates image resources. Each item includes `path` and optional `label` and `mimeType`.
 - `modeId` sets the ACP session mode before this node prompt runs.
@@ -155,7 +206,7 @@ Common fields:
 
 ## Gate Nodes
 
-Use `kind: gate` when a workflow must choose a branch based on upstream output.
+Use `kind: gate` when a workflow must choose a branch from upstream context.
 
 ```yaml
 nodes:
@@ -170,40 +221,14 @@ nodes:
       revise:
         label: revise
         description: Return to the previous work step.
+        maxTraversals: 2
 ```
 
-Before a workflow can run, every gate must define at least one branch.
+Every gate must define at least one branch.
 Every edge that starts from a gate must specify `branch`.
 Gate nodes may define `configOptions`, but they cannot define `modeId`.
 
-## Input Nodes
-
-Use `kind: input` when a workflow must receive values from a run command or the UI.
-The input `variableName` must match `specflow_[A-Za-z0-9_]+`.
-
-```yaml
-nodes:
-  task-input:
-    kind: input
-    title: Task
-    variableName: specflow_task
-    description: The user request or ticket text.
-    required: true
-```
-
-Prompts and gate criteria can reference input values with XML-like tokens:
-
-```yaml
-prompt: |
-  Implement this request:
-  <specflow_task>
-```
-
-When running through the CLI, pass values with `-D`:
-
-```sh
-specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix the failing login test"
-```
+Put retry limits on gate branches with `maxTraversals`. In v2, `maxTraversals` belongs to the branch, not the edge.
 
 ## Edges And Context Transmission
 
@@ -230,38 +255,55 @@ The transmitted content becomes available to the target prompt as `<specflow_cha
 `outputTag` must be an XML-safe tag name. `handoffPrompt` is optional.
 
 Do not add transmission fields to edges within the same session, because the next step already has the same conversation context.
-Do not add transmission fields to edges that point to gates, start from inputs, or point to end nodes.
+Do not add transmission fields to edges that start from start nodes, point to gates, or point to end nodes.
+
+Do not write `loopback` or edge-level `maxTraversals` in v2 YAML.
 
 ## Loops
 
-Loops must be explicitly marked as loopbacks and must be controlled by a gate branch.
+v2 loops are intentional graph cycles. Authors express them with normal edges plus bounded gate branches; Specflow derives the loop-closing edge for validation, execution, and UI highlighting.
 
 ```yaml
+nodes:
+  verdict:
+    kind: gate
+    title: Review verdict
+    decisionCriteria: Choose pass or rework.
+    branches:
+      pass:
+      rework:
+        label: needs rework
+        maxTraversals: 2
+
 edges:
   - from: verdict
     branch: rework
     to: implement
-    loopback: true
-    maxTraversals: 2
 ```
 
-`maxTraversals` is only allowed on edges that start from a gate, and it must be a positive integer.
-It is useful for limiting retry paths such as review-to-rework loops.
+Loop validation expects each cyclic strongly connected component to include a gate and have a single entry point. Gate branches that stay inside the loop must define `maxTraversals`.
+
+The UI highlights derived loop-closing edges with a distinct loop color. You do not need to run a separate loop-detect command or add `loopback` by hand.
 
 ## Validation Checklist
 
 Before running a workflow, check these rules:
 
 - The file name without `.yaml` matches `[a-z][a-z0-9-]*`.
-- `version` is `1`.
+- `version` is `2`.
 - The file includes `sessions`, `nodes`, and `edges`.
+- The file has at least one `start` node.
+- Start edges target step nodes.
+- Multiple start nodes do not target steps in the same session.
+- `variables` names start with `specflow_`.
+- No node uses `kind: input`.
 - Every session has an `agentServerId` before running.
 - Every `step.session` references an existing session.
 - Every `gate` defines branches, and every edge from a gate selects a branch.
-- Edges do not point to `input` nodes and do not start from `end` nodes.
-- The graph formed by non-loopback edges has no cycles.
+- Edges do not target `start` nodes and do not start from `end` nodes.
 - `transmit: true` is accompanied by `outputTag`.
-- `input.variableName` starts with `specflow_` and is unique within the workflow.
+- Edges do not define `loopback` or `maxTraversals`.
+- Loop-control gate branches define positive `maxTraversals`.
 
 Validate a workflow:
 

@@ -1,9 +1,9 @@
 ---
 title: Aflow Agent 使用教程
-description: 学习如何用 Aflow Agent 创建、改写、校验、运行和恢复 Specflow workflows。
+description: 学习如何用 Aflow Agent 创建、改写、校验、运行和继续 Specflow workflows。
 category: tutorial
 order: 4
-updatedAt: "2026-06-09 01:12:49 CEST"
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - aflow
   - agent
@@ -14,11 +14,11 @@ tags:
 
 Aflow Agent 是 Specflow 的终端工作流 Agent。它运行在项目目录中，通过对话理解业务目标，帮助你创建 workflow、基于已有 workflow fork/adapt 出本地变体、校验 YAML、运行 workflow，并在运行结束后继续进入某个节点对应的 agent session。
 
-和直接使用 `specflow run` 不同，Aflow 的重点是交互式协作。它会在缺少必要信息时询问用户，在有 input node 的 workflow 运行前逐个收集输入，并在运行过程中把节点状态、pause 交互和 session resume 放在同一个 TUI 里。
+和直接使用 `specflow run` 不同，Aflow 的重点是交互式协作。它会在缺少必要信息时询问用户，在 workflow 运行前逐个收集 required 变量，并在运行过程中把节点状态、pause 交互和 session resume 放在同一个 TUI 里。
 
 Aflow 不要求用户必须记住 slash command。只要你在聊天中表达出“想把这个过程沉淀成 workflow”、“想用 Specflow 跑一套流程”、“基于某个通用 workflow 改成当前业务版本”等意图，Aflow 就可以理解目标，并自行调用 workflow 工具完成创建、复制、改写或校验。
 
-## 启动模式
+## 启动 Aflow
 
 无参数启动 Aflow：
 
@@ -26,13 +26,15 @@ Aflow 不要求用户必须记住 slash command。只要你在聊天中表达出
 aflow
 ```
 
-Aflow 会打开一个小型 TUI 模式选择：
+Aflow 会直接进入 agent TUI。
 
-- `Native Aflow`：启动原本的 Aflow agent TUI。
-- `Specflow`：只启动 Specflow server，并打开 workspace UI。
-- `Designer`：只启动 Specflow server，并打开 `/design` 的 [Designer UI](designer.md)。
+如果只想打开浏览器 workspace UI，不启动 Aflow agent 对话，使用：
 
-Specflow 和 Designer 模式不会启动 Aflow agent 对话。它们会准备 workspace、启动本地 server、尝试打开默认浏览器，并保持 server 运行直到终端进程退出。
+```sh
+specflow
+```
+
+Designer UI 由同一个 Specflow server 提供，路径是 `/design`；先启动 `specflow`，再打开打印出来的 server URL 加 `/design`。
 
 ## Aflow 特有能力
 
@@ -74,7 +76,7 @@ Aflow 会读取已有 workflow，先复制一份新的 YAML 到 `.aflow/.specflo
 /specflow-validate
 ```
 
-Aflow 会根据上下文推断要校验哪个 workflow。缺少路径或 workflow id 时，它会询问用户。校验会检查 YAML 结构、节点边关系、input 变量、agent server 引用，以及 pause 节点是否使用了可交互 agent。
+Aflow 会根据上下文推断要校验哪个 workflow。缺少路径或 workflow id 时，它会询问用户。校验会检查 YAML 结构、variables、节点边关系、agent server 引用，以及 pause 节点是否使用了可交互 agent。
 
 ### 运行 workflow
 
@@ -84,7 +86,7 @@ Aflow 会根据上下文推断要校验哪个 workflow。缺少路径或 workflo
 /specflow-run
 ```
 
-Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow；如果 workflow 有 required input node，Aflow 会逐个询问输入值。
+Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow；如果 workflow 有 required variables，Aflow 会逐个询问输入值。
 
 运行过程中，TUI 会显示每个节点的简要状态，并优先显示 node title，便于用户理解当前跑到哪个业务步骤。节点完成、失败、跳过、等待人工交互时，Aflow 会把状态更新回当前界面。
 
@@ -94,7 +96,7 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 
 用户可以在 pause 界面里继续给该 agent 发消息，也可以确认继续 workflow。适合需要人工确认、补充业务判断、检查中间产物的节点。
 
-### 恢复 workflow run
+### Continue workflow run
 
 在 Aflow 里输入：
 
@@ -102,7 +104,7 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 /specflow-resume
 ```
 
-这个命令用于恢复一个被 cancel、失败或中断的 workflow run。Aflow 会从 Specflow server 读取 run 状态，必要时修复 running/cancelled 状态，并从可恢复的位置继续。
+这个命令保留了旧名字，但 workflow run 层面的语义是 Continue：从 stopped、failed 或 interrupted 的源 run 创建一个 continuation run。Aflow 会从 Specflow server 读取 run 状态，必要时修复陈旧的 running/stopped 状态，并从可恢复的位置继续。
 
 ### 恢复节点 agent session
 
@@ -227,7 +229,7 @@ Pi 的模型与配置文档见：<https://pi.dev/docs/latest/models>。
 /specflow-run
 ```
 
-运行 workflow。Aflow 会询问缺失 input，显示节点状态，并在 pause 节点让你进入对应 agent。
+运行 workflow。Aflow 会询问缺失变量，显示节点状态，并在 pause 节点让你进入对应 agent。
 
 ```text
 /specflow-resume-session

@@ -1,9 +1,9 @@
 ---
 title: Aflow Agent Tutorial
-description: Learn how to use Aflow Agent to create, adapt, validate, run, and resume Specflow workflows.
+description: Learn how to use Aflow Agent to create, adapt, validate, run, and continue Specflow workflows.
 category: tutorial
 order: 4
-updatedAt: "2026-06-09 01:12:49 CEST"
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - aflow
   - agent
@@ -14,11 +14,11 @@ tags:
 
 Aflow Agent is Specflow's terminal workflow agent. It runs in your project directory and uses conversation to understand business goals, help you create workflows, fork/adapt existing workflows into local variants, validate YAML, run workflows, and continue into an agent session associated with a workflow node after the run finishes.
 
-Unlike direct `specflow run`, Aflow is designed for interactive collaboration. It asks when required information is missing, collects required input node values before a workflow run, and keeps node status, pause interaction, and session resume inside the same TUI.
+Unlike direct `specflow run`, Aflow is designed for interactive collaboration. It asks when required information is missing, collects required workflow variables before a workflow run, and keeps node status, pause interaction, and session resume inside the same TUI.
 
 You do not have to memorize slash commands. If you say in chat that you want to turn a process into a workflow, run something with Specflow, or adapt a general workflow to a specific business case, Aflow can understand the intent and call workflow tools to create, copy, adapt, or validate the workflow.
 
-## Startup Modes
+## Starting Aflow
 
 Start Aflow with no arguments:
 
@@ -26,13 +26,15 @@ Start Aflow with no arguments:
 aflow
 ```
 
-Aflow opens a small TUI mode picker:
+Aflow starts the agent TUI directly.
 
-- `Native Aflow`: start the original Aflow agent TUI.
-- `Specflow`: start only the Specflow server and open the workspace UI.
-- `Designer`: start only the Specflow server and open the [Designer UI](designer.md) at `/design`.
+To start the browser workspace UI without opening an Aflow agent conversation, use:
 
-Specflow and Designer mode do not start the Aflow agent conversation. They prepare the workspace, start the local server, try to open the default browser, and keep the server running until the terminal process exits.
+```sh
+specflow
+```
+
+The Designer UI is served by the same Specflow server at `/design`; start `specflow` and open the printed server URL with `/design`.
 
 ## Aflow-Specific Capabilities
 
@@ -74,7 +76,7 @@ In Aflow, enter:
 /specflow-validate
 ```
 
-Aflow infers which workflow to validate from context. If the path or workflow id is missing, it asks the user. Validation checks YAML structure, node/edge relationships, input variables, agent server references, and whether pause nodes use interactive agents.
+Aflow infers which workflow to validate from context. If the path or workflow id is missing, it asks the user. Validation checks YAML structure, variables, node/edge relationships, agent server references, and whether pause nodes use interactive agents.
 
 ### Run Workflows
 
@@ -84,7 +86,7 @@ In Aflow, enter:
 /specflow-run
 ```
 
-Aflow runs workflows through the Specflow server. Before running, it validates the workflow. If the workflow has required input nodes, Aflow asks for those values one by one.
+Aflow runs workflows through the Specflow server. Before running, it validates the workflow. If the workflow has required variables, Aflow asks for those values one by one.
 
 During execution, the TUI shows concise status for each node and prioritizes node titles so users can understand the current business step. When nodes complete, fail, skip, or wait for human interaction, Aflow updates the current interface.
 
@@ -94,7 +96,7 @@ When a workflow reaches a `pauseAfterRun: true` node, Aflow switches the interfa
 
 The user can continue chatting with that agent in the pause interface, or confirm that the workflow should continue. This is useful for human confirmation, business judgment, and inspecting intermediate artifacts.
 
-### Resume Workflow Runs
+### Continue Workflow Runs
 
 In Aflow, enter:
 
@@ -102,7 +104,7 @@ In Aflow, enter:
 /specflow-resume
 ```
 
-This resumes a workflow run that was cancelled, failed, or interrupted. Aflow reads the run state from the Specflow server, repairs running/cancelled state when needed, and continues from a recoverable point.
+This command keeps its legacy name, but its workflow-run action is Continue: it creates a continuation run from a stopped, failed, or interrupted source run. Aflow reads the run state from the Specflow server, repairs stale running/stopped state when needed, and continues from a recoverable point.
 
 ### Resume Node Agent Sessions
 
@@ -227,7 +229,7 @@ Confirm that the new YAML can be parsed and run by Specflow.
 /specflow-run
 ```
 
-Run the workflow. Aflow asks for missing inputs, shows node status, and lets you enter the corresponding agent at pause nodes.
+Run the workflow. Aflow asks for missing variables, shows node status, and lets you enter the corresponding agent at pause nodes.
 
 ```text
 /specflow-resume-session

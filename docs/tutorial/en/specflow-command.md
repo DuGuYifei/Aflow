@@ -1,9 +1,9 @@
 ---
 title: Specflow Commands
-description: Learn what specflow, specflow validate, and specflow run do, and how to pass workflow inputs.
+description: Learn what specflow, specflow validate, and specflow run do, and how to pass workflow variables.
 category: tutorial
 order: 2
-updatedAt: "2026-06-09 01:12:49 CEST"
+updatedAt: "2026-06-13 06:27:21 CEST"
 tags:
   - cli
   - command
@@ -28,9 +28,9 @@ specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 
 `validate` parses the YAML and checks whether the workflow is runnable. It does not start any agent.
 
-It checks structural rules for sessions, nodes, edges, gates, loopbacks, input variable names, and `agentServerId` fields. It also reads the workspace agent server configuration. If a `pauseAfterRun: true` node uses a headless agent, validation fails because headless agents do not provide interactive sessions.
+It checks structural rules for sessions, variables, nodes, edges, gates, loops, and `agentServerId` fields. v2 workflows use explicit start nodes, top-level variables, derived loop-closing edges, and branch-level `maxTraversals`. v1 workflows remain readable for compatibility. Validation also reads the workspace agent server configuration. If a `pauseAfterRun: true` node uses a headless agent, validation fails because headless agents do not provide interactive sessions.
 
-If the workflow has required input nodes, `validate` still does not need `-D` values. Input values belong to a specific run, not to the workflow structure.
+If the workflow has required variables, `validate` still does not need `-D` values. Variable values belong to a specific run, not to the workflow structure.
 
 ## Run A Workflow
 
@@ -38,24 +38,23 @@ If the workflow has required input nodes, `validate` still does not need `-D` va
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 ```
 
-`run` validates the workflow, checks required input values and agent authentication status, then executes the workflow.
+`run` validates the workflow, checks required variable values and agent authentication status, then executes the workflow.
 
 The current `specflow run` path is a direct CLI path. It does not start the localhost server or open the browser UI. During execution it only prints concise node progress in the terminal; the UI run list, run log, SSE replay, and pause interaction are not connected to this CLI run.
 
-When the workflow completes successfully, the CLI exits. When it fails or is cancelled, the CLI also exits and returns a non-zero exit code.
+When the workflow completes successfully, the CLI exits. When it fails or is stopped, the CLI also exits and returns a non-zero exit code.
 
-If the workflow contains a `pauseAfterRun: true` node, the current CLI run path does not support interactive pause. It rejects the workflow before starting the agent. Use the UI/server path when a workflow needs manual pause and continue.
+If the workflow contains a `pauseAfterRun: true` node, the current CLI run path does not support interactive Pause/Play. It rejects the workflow before starting the agent. Use the UI/server path when a workflow needs manual Pause, Interrupt, Play, Stop, or Continue control. See [Specflow Glossary](glossary.md) for the fixed run-control terms.
 
-## Pass Input Node Values
+## Pass Workflow Variable Values
 
-If a workflow has an input node:
+If a v2 workflow has a required variable:
 
 ```yaml
-nodes:
-  task-input:
-    kind: input
+version: 2
+variables:
+  specflow_task:
     title: Task
-    variableName: specflow_task
     required: true
 ```
 
@@ -73,13 +72,15 @@ The full variable name is also supported:
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dspecflow_task="Fix the failing login test"
 ```
 
-For multiple input nodes, pass multiple `-D` values:
+For multiple variables, pass multiple `-D` values:
 
 ```sh
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
 ```
 
-If the workflow has no input nodes, no input arguments are required:
+v1 input nodes are also exposed as workflow variables during a run, so the same `-D` syntax works for legacy workflows.
+
+If the workflow has no required variables, no input arguments are required:
 
 ```sh
 specflow run .aflow/.specflow/agentflow/agentflows/nightly-review.yaml
