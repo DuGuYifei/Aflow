@@ -99,6 +99,7 @@ export function buildMigrateV2WorkflowPrompt(target: string): string {
     "- Do not teach or reintroduce v1 input nodes, edge loopback, or edge maxTraversals.",
     "",
     "After validation, summarize the new workflow id/path and the specific v1 keys that were removed or moved.",
+    "At the very end, print exactly: Finished",
   ].join("\n");
 }
 

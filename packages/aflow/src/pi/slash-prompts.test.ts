@@ -11,6 +11,7 @@ describe("slash prompts", () => {
     expect(prompt).toContain("Remove authored edge `loopback`.");
     expect(prompt).toContain("Move gate branch traversal limits from edge `maxTraversals`");
     expect(prompt).toContain("Do not teach or reintroduce v1 input nodes");
+    expect(prompt).toContain("At the very end, print exactly: Finished");
   });
 
   test("run prompt uses dynamic run_and_pause terminology instead of old play tool", () => {
