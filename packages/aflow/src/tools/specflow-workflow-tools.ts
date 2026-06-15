@@ -2,12 +2,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   assertServerRunnableAgentFlow,
   listAgentServers,
-  parseAgentFlowSource,
   prepareCanvasRun,
-  stringifyAgentFlowSource,
   type AgentFlowDoc,
   type CanvasDoc,
   type RunInputVariable,
+  type RunGraphOperation,
 } from "@specflow/server";
 import { Type } from "typebox";
 import { openPausedNodeAcpView, type AflowCustomUi } from "../acp/acp-session-view";
@@ -51,16 +50,10 @@ const RunIdParams = Type.Object({
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
 
-const PlayRunParams = Type.Object({
-  runId: Type.String({ description: "Specflow run id." }),
-  pauseAfterNextActivation: Type.Optional(Type.Boolean({ description: "Pause again after the next step/gate activation. Defaults to true for dynamic review." })),
-  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
-});
-
-const PatchRunSnapshotParams = Type.Object({
+const PatchRunGraphParams = Type.Object({
   runId: Type.String({ description: "Paused or interrupted Specflow run id." }),
-  agentflowYaml: Type.String({ description: "Complete replacement YAML for this run snapshot's Agentflow semantics. Does not update the saved workflow file." }),
-  summary: Type.String({ description: "Brief reason for this run snapshot edit." }),
+  operations: Type.Array(Type.Any({ description: "Structured runtime graph operations for this run snapshot." })),
+  summary: Type.String({ description: "Brief reason for this run graph edit." }),
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
 
@@ -245,9 +238,9 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
     name: "specflow_get_run_checkpoint",
     label: "Get Run Checkpoint",
     description: "Inspect a paused/interrupted Specflow run checkpoint for dynamic review. Returns completedNodeText and editable snapshot guidance.",
-    promptSnippet: "Inspect the current dynamic run checkpoint before deciding whether to patch the run snapshot.",
+    promptSnippet: "Refresh an existing Dynamic run checkpoint only when the current checkpoint context may be stale or incomplete.",
     promptGuidelines: [
-      "Use for paused or interrupted dynamic runs before patching or playing.",
+      "Use only after a Dynamic checkpoint result explicitly indicates the run is in Dynamic mode.",
       "Base normal dynamic decisions on completedNodeText, which is the assistant-text-only node output passed to downstream workflow logic.",
       "Do not assume tool call details are included in completedNodeText.",
     ],
@@ -263,40 +256,32 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "specflow_patch_run_snapshot",
-    label: "Patch Run Snapshot",
-    description: "Patch only a paused/interrupted run snapshot from Agentflow YAML. Does not edit the saved workflow.",
-    promptSnippet: "Patch a dynamic run snapshot after reviewing completedNodeText and reachability.",
+    name: "specflow_patch_run_graph",
+    label: "Patch Run Graph",
+    description: "Patch only the current Dynamic run snapshot with structured graph operations. Does not edit the saved workflow.",
+    promptSnippet: "Patch a Dynamic run snapshot with structured graph operations only after checkpoint context shows a clear future-workflow issue.",
     promptGuidelines: [
-      "Only patch current, future, or history_future nodes.",
-      "Do not add/delete nodes or change edge endpoints during runtime snapshot editing.",
+      "Use only after a Dynamic checkpoint result identifies a clear need to change reachable future workflow.",
+      "Submit structured graph operations, not a full YAML or full canvas snapshot.",
+      "The server response is authoritative editability and migration feedback.",
       "Remember non-gate fan-out is queued fan-out: all outgoing targets run unless a gate selects a branch.",
     ],
-    parameters: PatchRunSnapshotParams,
+    parameters: PatchRunGraphParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
       const run = await connection.client.getRun(params.runId);
-      if (!run.canvasSnapshot) {
-        return textResult("Run snapshot layout is missing; cannot patch this run snapshot.", {
-          runId: params.runId,
-          status: run.status,
-          cancelled: true,
-        });
-      }
-      const parsed = parseAgentFlowSource(params.agentflowYaml, run.workflowId);
-      const patched = await connection.client.patchRunSnapshot(params.runId, {
-        agentflowSnapshot: parsed,
-        canvasSnapshot: run.canvasSnapshot,
+      const patched = await connection.client.patchRunGraph(params.runId, {
+        operations: params.operations as RunGraphOperation[],
         summary: params.summary,
       });
       return textResult([
-        `Run snapshot patched: ${params.runId}`,
-        `Snapshot revision: ${patched.snapshotRevision}`,
+        `Run graph patched: ${params.runId}`,
+        `Snapshot revision: ${patched.snapshotRevision ?? "(unchanged)"}`,
         "",
         "Dynamic review guidance:",
         "- Base decisions on completedNodeText unless tool/timeline details are explicitly needed.",
-        "- Editable runtime classes are current, future, and history_future.",
-        "- history_only, inactive, and topology edits are rejected by the server.",
+        "- The patch affected only this run snapshot; the saved agentflow is unchanged.",
+        "- Server validation/migration feedback is authoritative. Do not retry rejected operations unchanged.",
         "- Non-gate fan-out is queued fan-out; all outgoing targets run unless a gate controls selection.",
       ].join("\n"), {
         runId: params.runId,
@@ -309,21 +294,22 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "specflow_play_run",
-    label: "Play Run",
-    description: "Continue the same paused/interrupted Specflow run, optionally pausing after the next activation for dynamic review.",
-    promptSnippet: "Play a dynamic run after inspecting or patching its run snapshot.",
+    name: "specflow_run_and_pause",
+    label: "Run And Pause",
+    description: "Continue the same Dynamic run to its next checkpoint. Always pauses after the next activation internally.",
+    promptSnippet: "Continue an existing Dynamic run to its next checkpoint only after a Dynamic checkpoint result instructs you to continue.",
     promptGuidelines: [
-      "Use pauseAfterNextActivation: true for the dynamic review loop.",
+      "Use only after a Dynamic checkpoint result explicitly indicates the run is in Dynamic mode.",
+      "This tool always pauses after the next activation internally.",
       "This continues the same run id; it does not create a continuation run.",
     ],
-    parameters: PlayRunParams,
+    parameters: RunIdParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
       const runBeforePlay = await connection.client.getRun(params.runId);
       const nodeDisplay = await buildRunNodeDisplay(connection.client, runBeforePlay);
       await connection.client.playRun(params.runId, {
-        pauseAfterNextActivation: params.pauseAfterNextActivation ?? true,
+        pauseAfterNextActivation: true,
       });
       const checkpoint = await monitorDynamicRun(connection.client, params.runId, {
         signal,
@@ -376,16 +362,16 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "specflow_resume_workflow",
-    label: "Resume Workflow",
-    description: "Resume a cancelled or failed Specflow workflow run.",
-    promptSnippet: "Resume a cancelled or failed Specflow workflow run.",
-    promptGuidelines: ["Use after extracting a run id from /specflow-resume context."],
+    name: "specflow_continue_workflow",
+    label: "Continue Workflow",
+    description: "Continue a stopped or failed Specflow workflow run by creating a continuation run.",
+    promptSnippet: "Continue a stopped or failed Specflow workflow run.",
+    promptGuidelines: ["Use after extracting a run id from /specflow-continue context."],
     parameters: RunIdParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
-      const run = await connection.client.resumeWorkflowRun(params.runId);
-      return textResult(`Workflow resume started: ${run.id}`, {
+      const run = await connection.client.continueWorkflowRun(params.runId);
+      return textResult(`Workflow continuation started: ${run.id}`, {
         runId: run.id,
         resumedFromRunId: run.resumedFromRunId ?? params.runId,
         status: run.status,
@@ -407,7 +393,10 @@ type DynamicCheckpointDetails = {
   reachability?: RunReachability;
   editableNodes?: Array<{ nodeId: string; title: string; editClass: RuntimeEditClass }>;
   nonEditableNodes?: Array<{ nodeId: string; title: string; editClass: RuntimeEditClass }>;
-  agentflowYaml?: string;
+  graph?: {
+    nodes: Array<{ id: string; kind: string; title: string; editClass?: RuntimeEditClass }>;
+    edges: Array<{ id: string; from: string; to: string; branch?: string }>;
+  };
   nodeStates?: Record<string, string>;
   pausedNodeId?: string;
   errorMsg?: string;
@@ -424,9 +413,10 @@ async function chooseDynamicReviewMode(
   const selected = await ui.select([
     "Choose Specflow run mode",
     "",
+    "Normal run uses the saved workflow behavior.",
     "Dynamic run pauses after each node so Aflow can review completed node text and optionally adjust only this run snapshot.",
     "The saved agentflow will not be changed.",
-  ].join("\n"), suggested === true ? [dynamicLabel, normalLabel] : [dynamicLabel, normalLabel]);
+  ].join("\n"), suggested === true ? [normalLabel, dynamicLabel] : [normalLabel, dynamicLabel]);
   if (!selected) return undefined;
   return selected === dynamicLabel ? "dynamic" : "normal";
 }
@@ -485,7 +475,7 @@ async function buildDynamicCheckpointResult(
   const completed = completedNodeOutput(run, nodes);
   const editableNodes = reachability ? runtimeNodeSummaries(reachability, nodes, ["current", "future", "history_future"]) : undefined;
   const nonEditableNodes = reachability ? runtimeNodeSummaries(reachability, nodes, ["history_only", "inactive"]) : undefined;
-  const agentflowYaml = run.agentflowSnapshot ? stringifyAgentFlowSource(run.agentflowSnapshot) : undefined;
+  const graph = run.agentflowSnapshot ? runtimeGraphSummary(run.agentflowSnapshot, nodes, reachability) : undefined;
   const details: DynamicCheckpointDetails = {
     dynamicReview: true,
     runId: run.id,
@@ -498,7 +488,7 @@ async function buildDynamicCheckpointResult(
     ...(reachability ? { reachability } : {}),
     ...(editableNodes ? { editableNodes } : {}),
     ...(nonEditableNodes ? { nonEditableNodes } : {}),
-    ...(agentflowYaml ? { agentflowYaml } : {}),
+    ...(graph ? { graph } : {}),
     nodeStates: run.nodeStates,
     pausedNodeId: run.pausedNodeId,
     errorMsg: run.errorMsg,
@@ -550,6 +540,27 @@ function runtimeNodeSummaries(
     .filter((entry): entry is { nodeId: string; title: string; editClass: RuntimeEditClass } => Boolean(entry.editClass && allowed.has(entry.editClass)));
 }
 
+function runtimeGraphSummary(
+  agentflow: AgentFlowDoc,
+  nodes: Map<string, NodeDisplayInfo>,
+  reachability: RunReachability | undefined,
+): NonNullable<DynamicCheckpointDetails["graph"]> {
+  return {
+    nodes: agentflow.nodes.map((node) => ({
+      id: node.id,
+      kind: node.kind,
+      title: nodes.get(node.id)?.title ?? ("title" in node && typeof node.title === "string" ? node.title : node.id),
+      editClass: reachability?.nodes[node.id],
+    })),
+    edges: agentflow.edges.map((edge) => ({
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+      ...(edge.branch ? { branch: edge.branch } : {}),
+    })),
+  };
+}
+
 function formatDynamicCheckpointText(details: DynamicCheckpointDetails): string {
   const lines = [
     `Dynamic run checkpoint: ${details.runId}`,
@@ -574,27 +585,37 @@ function formatDynamicCheckpointText(details: DynamicCheckpointDetails): string 
     "Non-editable nodes:",
     formatRuntimeNodeList(details.nonEditableNodes),
     "",
+    "Runtime graph summary:",
+    formatRuntimeGraph(details.graph),
+    "",
     "Dynamic review guidance:",
-    "- Patch only this run snapshot; the saved agentflow is unchanged.",
-    "- Allowed edit classes are current, future, and history_future.",
-    "- history_only, inactive, and topology edits are rejected by the server.",
+    "- Treat this as a lightweight alignment check. In most checkpoints, continue unchanged with specflow_run_and_pause.",
+    "- Patch only when completedNodeText gives clear evidence that the remaining run will drift from the user's goal, miss required information, choose the wrong branch, use stale assumptions, or hit avoidable downstream failure.",
+    "- Patch only this run snapshot with specflow_patch_run_graph structured operations; the saved agentflow is unchanged.",
+    "- Allowed edit classes are current, future, and history_future. history_only and inactive edits are rejected unless the server can migrate a future topology operation.",
+    "- For paused checkpoints, the current activation output is fixed. If it is wrong, insert a reachable future repair/review node or restructure future flow.",
+    "- For interrupted checkpoints, current-node prompt/config edits may affect the re-entered activation, but keep node identity stable.",
+    "- Server validation and migration feedback is authoritative.",
     "- Non-gate fan-out is queued fan-out; every outgoing target runs unless a gate controls branch selection.",
   );
-  if (details.agentflowYaml) {
-    lines.push(
-      "",
-      "Current run snapshot Agentflow YAML:",
-      "```yaml",
-      details.agentflowYaml,
-      "```",
-    );
-  }
   return lines.join("\n");
 }
 
 function formatRuntimeNodeList(nodes: Array<{ nodeId: string; title: string; editClass: RuntimeEditClass }> | undefined): string {
   if (!nodes || nodes.length === 0) return "- (none)";
   return nodes.map((node) => `- ${node.title} (${node.nodeId}): ${node.editClass}`).join("\n");
+}
+
+function formatRuntimeGraph(graph: DynamicCheckpointDetails["graph"] | undefined): string {
+  if (!graph) return "- (snapshot graph unavailable)";
+  return [
+    "Nodes:",
+    ...graph.nodes.map((node) => `- ${node.title} (${node.id}, ${node.kind}${node.editClass ? `, ${node.editClass}` : ""})`),
+    "Edges:",
+    ...(graph.edges.length > 0
+      ? graph.edges.map((edge) => `- ${edge.id}: ${edge.from} -> ${edge.to}${edge.branch ? ` [branch ${edge.branch}]` : ""}`)
+      : ["- (none)"]),
+  ].join("\n");
 }
 
 function isTerminalStatus(status: string): boolean {

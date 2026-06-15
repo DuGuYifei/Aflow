@@ -21,7 +21,7 @@ Usage:
   aflow /specflow-validate <workflow-id|path> [--server URL]
   aflow /specflow-migrate-v2 <workflow-id|path> [--server URL]
   aflow /specflow-run <workflow-id> [--context TEXT] [-Dspecflow_name=value] [--server URL]
-  aflow /specflow-resume <run-id> [--server URL]
+  aflow /specflow-continue <run-id> [--server URL]
   aflow /specflow-resume-session <run-id> [--server URL]
 
 Slash commands inside the TUI:
@@ -29,7 +29,7 @@ Slash commands inside the TUI:
   /specflow-fork-adapt        Copy a workflow to agentflows-local and adapt it as a v2 draft
   /specflow-validate          Validate a workflow after inferring or asking for the target
   /specflow-run               Run a workflow and ask missing specflow_* variables one by one
-  /specflow-resume            Resume a cancelled or failed Specflow run
+  /specflow-continue          Continue a stopped or failed Specflow run
   /specflow-resume-session    Choose ACP/native resume for a recorded agent session
 
 Direct /specflow-run options:

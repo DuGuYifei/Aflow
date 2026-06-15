@@ -2,7 +2,7 @@ import type { CommandIO } from "./io";
 import { parseCommonCommandOptions } from "./args";
 import { runAflowAgent } from "../pi/pi-sdk-host";
 import { buildCreateWorkflowPrompt, buildForkAdaptWorkflowPrompt, buildMigrateV2WorkflowPrompt } from "../pi/slash-prompts";
-import { specflowResumeCommand } from "./commands/resume";
+import { specflowContinueCommand } from "./commands/continue";
 import { specflowResumeSessionCommand } from "./commands/resume-session";
 import { specflowRunCommand } from "./commands/run";
 import { aflowUpgradeCommand } from "./commands/upgrade";
@@ -21,7 +21,7 @@ const DIRECT_COMMANDS = new Set([
   "specflow-validate",
   "specflow-run",
   "specflow-migrate-v2",
-  "specflow-resume",
+  "specflow-continue",
   "specflow-resume-session",
 ]);
 
@@ -68,8 +68,8 @@ async function dispatchParsedCommand(command: string, args: string[], context: D
     await specflowRunCommand(args, context);
     return;
   }
-  if (command === "specflow-resume") {
-    await specflowResumeCommand(args, context);
+  if (command === "specflow-continue") {
+    await specflowContinueCommand(args, context);
     return;
   }
   if (command === "specflow-resume-session") {

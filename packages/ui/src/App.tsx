@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable, RunSnapshot, RunReachability, RuntimeEditClass } from './types';
+import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable, RunSnapshot, RunReachability, RuntimeEditClass, RunGraphOperation } from './types';
 import { edgeKey, isSymbolKey } from './appearance';
 import {
   fetchCanvases, fetchCanvas, saveAgentFlow, saveCanvasLayoutDoc, agentFlowFromCanvas, canvasLayoutFromCanvas, uploadCanvasAssets, runCanvas,
@@ -10,7 +10,7 @@ import {
   fetchAgentSession, fetchResumableSession, fetchRunLogsRange, continueWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
   apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction, startAflowMigration,
-  patchRunSnapshot, fetchRunReachability,
+  patchRunGraph, fetchRunReachability,
   saveRunBestPractice,
   AgentAuthenticationRequiredError,
   type SseEventType,
@@ -81,6 +81,106 @@ function runtimeEditImpactKey(editClass: RuntimeEditClass | undefined): string {
   if (editClass === 'inactive') return 'runtime.inactive';
   if (editClass === 'current') return 'runtime.current';
   return 'runtime.affectsFuture';
+}
+
+function buildRunGraphOperations(previous: RunSnapshot, next: RunSnapshot): RunGraphOperation[] {
+  const operations: RunGraphOperation[] = [];
+  const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
+  const nextNodes = new Map(next.nodes.map((node) => [node.id, node]));
+  for (const node of previous.nodes) {
+    if (!nextNodes.has(node.id)) operations.push({ op: 'remove_node', nodeId: node.id });
+  }
+  for (const node of next.nodes) {
+    const previousNode = previousNodes.get(node.id);
+    if (!previousNode) {
+      operations.push({ op: 'add_node', node: stripNodeLayout(node), position: { x: node.x, y: node.y, w: node.w } });
+      continue;
+    }
+    const patch = diffObject(stripNodeLayout(previousNode), stripNodeLayout(node));
+    if (Object.keys(patch).length > 0) operations.push({ op: 'update_node', nodeId: node.id, patch: patch as Partial<WorkflowNode> });
+    const position = diffObject(
+      { x: previousNode.x, y: previousNode.y, w: previousNode.w },
+      { x: node.x, y: node.y, w: node.w },
+    );
+    if (Object.keys(position).length > 0) operations.push({ op: 'update_node_layout', nodeId: node.id, position });
+  }
+
+  const previousEdges = new Map(previous.edges.map((edge) => [edge.id, edge]));
+  const nextEdges = new Map(next.edges.map((edge) => [edge.id, edge]));
+  for (const edge of previous.edges) {
+    if (!nextEdges.has(edge.id)) operations.push({ op: 'remove_edge', edgeId: edge.id });
+  }
+  for (const edge of next.edges) {
+    const previousEdge = previousEdges.get(edge.id);
+    if (!previousEdge) {
+      operations.push({ op: 'add_edge', edge });
+      continue;
+    }
+    if (previousEdge.from !== edge.from || previousEdge.to !== edge.to) {
+      operations.push({ op: 'replace_edge_endpoint', edgeId: edge.id, from: edge.from, to: edge.to });
+    }
+    const patch = diffObject(omitKeys(previousEdge, ['id', 'from', 'to']), omitKeys(edge, ['id', 'from', 'to']));
+    if (Object.keys(patch).length > 0) operations.push({ op: 'update_edge', edgeId: edge.id, patch: patch as Partial<Edge> });
+  }
+
+  const previousSessions = new Map(previous.sessions.map((session) => [session.id, session]));
+  const nextSessions = new Map(next.sessions.map((session) => [session.id, session]));
+  for (const session of previous.sessions) {
+    if (!nextSessions.has(session.id)) operations.push({ op: 'remove_session', sessionId: session.id });
+  }
+  for (const session of next.sessions) {
+    const previousSession = previousSessions.get(session.id);
+    if (!previousSession) {
+      operations.push({ op: 'add_session', session });
+      continue;
+    }
+    const patch = diffObject(omitKeys(previousSession, ['id']), omitKeys(session, ['id']));
+    if (Object.keys(patch).length > 0) operations.push({ op: 'update_session', sessionId: session.id, patch: patch as Partial<Session> });
+  }
+
+  const previousVariables = new Map((previous.variables ?? []).map((variable) => [variable.name, variable]));
+  const nextVariables = new Map((next.variables ?? []).map((variable) => [variable.name, variable]));
+  for (const variable of previous.variables ?? []) {
+    if (!nextVariables.has(variable.name)) operations.push({ op: 'remove_variable', name: variable.name });
+  }
+  for (const variable of next.variables ?? []) {
+    const previousVariable = previousVariables.get(variable.name);
+    if (!previousVariable) {
+      operations.push({ op: 'add_variable', variable });
+      continue;
+    }
+    const patch = diffObject(omitKeys(previousVariable, ['name']), omitKeys(variable, ['name']));
+    if (Object.keys(patch).length > 0) operations.push({ op: 'update_variable', name: variable.name, patch: patch as Partial<Variable> });
+  }
+
+  return operations;
+}
+
+function stripNodeLayout(node: WorkflowNode): Omit<WorkflowNode, 'x' | 'y' | 'w'> {
+  const { x: _x, y: _y, w: _w, ...semantic } = node;
+  return semantic;
+}
+
+function omitKeys(value: object, keys: string[]): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!keys.includes(key)) result[key] = entry;
+  }
+  return result;
+}
+
+function diffObject(previous: Record<string, unknown>, next: Record<string, unknown>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+  for (const key of keys) {
+    if (stableJson(previous[key]) === stableJson(next[key])) continue;
+    patch[key] = next[key] === undefined ? null : next[key];
+  }
+  return patch;
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(value ?? null);
 }
 
 type ConversationConfigState = {
@@ -505,6 +605,7 @@ export function App() {
 
     const previousSnapshot = run.canvasSnapshot;
     const nextSnapshot = mutate(previousSnapshot);
+    const operations = buildRunGraphOperations(previousSnapshot, nextSnapshot);
     const sequence = ++snapshotPatchSequenceRef.current;
     const editedAt = new Date().toISOString();
 
@@ -522,14 +623,15 @@ export function App() {
       .catch(() => undefined)
       .then(async () => {
         try {
-          const result = await patchRunSnapshot(run.id, nextSnapshot, summary);
+          if (operations.length === 0) return;
+          const result = await patchRunGraph(run.id, operations, summary);
           if (sequence !== snapshotPatchSequenceRef.current) return;
           setRuns((previousRuns) => {
             const updated = previousRuns.map((candidate) =>
               candidate.id === run.id
                 ? {
                     ...candidate,
-                    canvasSnapshot: result.snapshot,
+                    canvasSnapshot: result.snapshot ?? nextSnapshot,
                     snapshotRevision: result.snapshotRevision,
                     snapshotEditedAt: editedAt,
                     snapshotEditSummary: summary,
@@ -539,7 +641,7 @@ export function App() {
             runsRef.current = updated;
             return updated;
           });
-          setRunReachability(result.reachability);
+          if (result.reachability) setRunReachability(result.reachability);
         } catch (error) {
           console.error('Failed to update run snapshot', error);
           if (sequence === snapshotPatchSequenceRef.current) {

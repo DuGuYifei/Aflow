@@ -32,6 +32,8 @@ import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRang
 import { prepareCanvasRun } from "./agentflow/run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
 import { computeRunReachability } from "./agentflow/run-reachability";
+import { applyRunGraphPatch, type RunGraphOperation } from "./agentflow/run-graph-patch";
+import { LiveRunRecordStore } from "./agentflow/live-run-record-store";
 import { assertServerRunnableAgentFlow, collectAgentFlowDiagnostics } from "./agentflow/agentflow-validation";
 import { assertSymbolKey, keyFromLabel } from "./agentflow/agentflow-source";
 import {
@@ -589,6 +591,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
   const restoreControllers = new Map<string, AbortController>();
   const activeConversations = new Map<string, ActiveConversation>();
   const runControllers = new Map<string, AbortController>();
+  const liveRunRecords = new LiveRunRecordStore();
   const resumeRequests = new Set<string>();
 
   // Reconcile any runs left "running" from a previous process — server restart
@@ -984,6 +987,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     }
 
     await saveRun(record, root);
+    liveRunRecords.register(record);
     const runStatusAt = playFrom ? new Date().toISOString() : record.startedAt;
     if (resumeFrom) {
       resumeFrom.source.resumedByRunId = runId;
@@ -1351,6 +1355,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       })
       .finally(() => {
         runControllers.delete(runId);
+        liveRunRecords.delete(runId);
       });
 
     return Response.json({ runId });
@@ -2189,18 +2194,18 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       }
     }
 
-    // PATCH /api/runs/:id/snapshot
-    const runSnapshotMatch = pathname.match(/^\/api\/runs\/([^/]+)\/snapshot$/);
-    if (runSnapshotMatch && request.method === "PATCH") {
-      const id = runSnapshotMatch[1];
+    // PATCH /api/runs/:id/graph — structured runtime graph patch for paused/interrupted runs.
+    const runGraphPatchMatch = pathname.match(/^\/api\/runs\/([^/]+)\/graph$/);
+    if (runGraphPatchMatch && request.method === "PATCH") {
+      const id = runGraphPatchMatch[1];
       let record: RunRecord;
       try {
-        record = await loadRun(id, root);
+        record = await liveRunRecords.loadAuthoritative(id, root);
       } catch {
         return Response.json({ error: "Run not found" }, { status: 404 });
       }
       if (record.status !== "paused" && record.status !== "interrupted") {
-        return Response.json({ error: "Only paused or interrupted run snapshots can be edited" }, { status: 409 });
+        return Response.json({ error: "Only paused or interrupted run graphs can be edited" }, { status: 409 });
       }
       let body: unknown;
       try {
@@ -2208,48 +2213,71 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       } catch {
         return Response.json({ error: "Invalid JSON" }, { status: 400 });
       }
-      const parsed = parseRunSnapshotPatch(body);
+      const parsed = parseRunGraphPatch(body);
       if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400 });
-      const missingRequiredNode = firstMissingCheckpointNode(record, parsed.agentflow);
-      if (missingRequiredNode) {
+
+      const patched = applyRunGraphPatch({
+        record,
+        operations: parsed.operations,
+        summary: parsed.summary,
+      });
+      if (patched.rejectedOperations.length > 0) {
         return Response.json({
-          code: "SNAPSHOT_EDIT_REQUIRED_NODE_REMOVED",
-          nodeId: missingRequiredNode,
-          error: `Cannot remove checkpoint node "${missingRequiredNode}" from an active run snapshot`,
+          ok: false,
+          rejectedOperations: patched.rejectedOperations,
+          appliedOperations: patched.appliedOperations,
+          migrationPreview: patched.migrationPreview,
         }, { status: 409 });
       }
-      const reachabilityEditError = validateSnapshotReachabilityPatch(record, parsed.agentflow);
-      if (reachabilityEditError) {
-        return Response.json(reachabilityEditError, { status: 409 });
-      }
+
       try {
-        assertServerRunnableAgentFlow(parsed.agentflow, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
-        const prepared = prepareCanvasRun(parsed.agentflow, {
+        assertServerRunnableAgentFlow(patched.agentflow, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
+        const prepared = prepareCanvasRun(patched.agentflow, {
           initialInput: record.initialInput,
           variableValues: record.variableValues,
         });
         if (prepared.missingVariables.length > 0) {
           return Response.json({
-            error: "Run snapshot is missing required variable values",
+            error: "Run graph patch leaves missing required variable values",
             missingVariables: prepared.missingVariables.map((variable) => variable.name),
           }, { status: 409 });
         }
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 409 });
       }
-      record.agentflowSnapshot = parsed.agentflow;
-      record.canvasSnapshot = parsed.layout;
+
+      record.agentflowSnapshot = patched.agentflow;
+      record.canvasSnapshot = patched.layout;
+      if (patched.checkpoint) record.checkpoint = patched.checkpoint as unknown as Record<string, unknown>;
+      for (const change of patched.migrationPreview.nodeStateChanges ?? []) {
+        if (change.to) record.nodeStates[change.nodeId] = change.to as RunState;
+        else delete record.nodeStates[change.nodeId];
+      }
       record.snapshotRevision = (record.snapshotRevision ?? 0) + 1;
       record.snapshotEditedAt = new Date().toISOString();
       record.snapshotEditSummary = parsed.summary;
       await saveRun(record, root);
-      const reachability = computeRunReachability(record);
+      eventBus.emit(`${id}:run`, { runId: id, status: record.status, workflowId: record.workflowId, error: record.errorMsg, control: record.control });
       const snapshot = combineAgentFlowAndLayout(record.agentflowSnapshot, record.canvasSnapshot);
       return Response.json({
         ok: true,
         snapshotRevision: record.snapshotRevision,
         snapshot,
-        reachability,
+        reachability: computeRunReachability(record),
+        appliedOperations: patched.appliedOperations,
+        rejectedOperations: [],
+        migrationPreview: patched.migrationPreview,
+        topologyCapabilities: {
+          canAddFutureNode: true,
+          canRemoveFutureNode: true,
+          canReconnectFutureEdge: true,
+          canInsertAfterCurrent: true,
+          restrictions: [
+            "Current node id and kind cannot be changed.",
+            "Completed history facts cannot be rewritten.",
+            "Topology-changing patches discard old future queue and rebuild from the current checkpoint frontier.",
+          ],
+        },
       });
     }
 
@@ -2863,141 +2891,24 @@ function isTerminalRunRecordStatus(status: string): boolean {
   return status === "success" || status === "error" || status === "stopped" || status === "cancelled";
 }
 
-function parseRunSnapshotPatch(body: unknown):
-  | { agentflow: AgentFlowDoc; layout: CanvasLayoutDoc; summary?: string }
+function parseRunGraphPatch(body: unknown):
+  | { operations: RunGraphOperation[]; summary?: string }
   | { error: string } {
   if (!body || typeof body !== "object") return { error: "Request body must be an object" };
   const raw = body as Record<string, unknown>;
+  const operations = raw.operations;
+  if (!Array.isArray(operations)) return { error: "operations must be an array" };
   const summary = typeof raw.summary === "string"
     ? raw.summary
     : typeof raw.snapshotEditSummary === "string"
       ? raw.snapshotEditSummary
       : undefined;
-  if (raw.snapshot && typeof raw.snapshot === "object") {
-    const snapshot = raw.snapshot as CanvasDoc;
-    if (typeof snapshot.id !== "string" || !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.edges) || !Array.isArray(snapshot.sessions)) {
-      return { error: "snapshot must be a complete canvas document" };
-    }
-    const { agentflow, layout } = splitCanvasDoc(snapshot);
-    return { agentflow, layout, summary };
-  }
-  const agentflow = raw.agentflowSnapshot;
-  const layout = raw.canvasSnapshot;
-  if (!agentflow || typeof agentflow !== "object" || !layout || typeof layout !== "object") {
-    return { error: "Provide either snapshot or agentflowSnapshot + canvasSnapshot" };
-  }
-  const agentflowDoc = agentflow as AgentFlowDoc;
-  const layoutDoc = layout as CanvasLayoutDoc;
-  if (typeof agentflowDoc.id !== "string" || !Array.isArray(agentflowDoc.nodes) || !Array.isArray(agentflowDoc.edges) || !Array.isArray(agentflowDoc.sessions)) {
-    return { error: "agentflowSnapshot is invalid" };
-  }
-  if (typeof layoutDoc.workflowId !== "string" || !Array.isArray(layoutDoc.nodes)) {
-    return { error: "canvasSnapshot is invalid" };
-  }
-  return { agentflow: agentflowDoc, layout: layoutDoc, summary };
-}
-
-function firstMissingCheckpointNode(record: RunRecord, agentflow: AgentFlowDoc): string | undefined {
-  const existingNodeIds = new Set(agentflow.nodes.map((node) => node.id));
-  for (const nodeId of requiredCheckpointNodeIds(record.checkpoint)) {
-    if (!existingNodeIds.has(nodeId)) return nodeId;
-  }
-  return undefined;
-}
-
-function validateSnapshotReachabilityPatch(record: RunRecord, nextAgentflow: AgentFlowDoc): Record<string, unknown> | undefined {
-  const reachability = computeRunReachability(record);
-  const editableClasses = new Set(["current", "future", "history_future"]);
-  const currentNodes = new Map(record.agentflowSnapshot.nodes.map((node) => [node.id, node]));
-  const nextNodes = new Map(nextAgentflow.nodes.map((node) => [node.id, node]));
-  const currentNodeIds = new Set(currentNodes.keys());
-  const nextNodeIds = new Set(nextNodes.keys());
-  if (!sameStringSet(currentNodeIds, nextNodeIds)) {
-    return {
-      code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
-      error: "Adding or deleting nodes in an active run snapshot is not supported.",
-    };
-  }
-  for (const [nodeId, currentNode] of currentNodes.entries()) {
-    const nextNode = nextNodes.get(nodeId);
-    if (!nextNode || stableJson(currentNode) === stableJson(nextNode)) continue;
-    const editClass = reachability.nodes[nodeId] ?? "inactive";
-    if (!editableClasses.has(editClass)) {
-      return {
-        code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
-        nodeId,
-        editClass,
-        error: `Node "${nodeId}" is ${editClass} and cannot be edited for this run.`,
-      };
+  for (const [index, operation] of operations.entries()) {
+    if (!operation || typeof operation !== "object" || typeof (operation as { op?: unknown }).op !== "string") {
+      return { error: `operations[${index}] must be an object with an op string` };
     }
   }
-
-  const currentEdges = new Map(record.agentflowSnapshot.edges.map((edge) => [edge.id, edge]));
-  const nextEdges = new Map(nextAgentflow.edges.map((edge) => [edge.id, edge]));
-  if (!sameStringSet(new Set(currentEdges.keys()), new Set(nextEdges.keys()))) {
-    return {
-      code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
-      error: "Adding or deleting edges in an active run snapshot is not supported.",
-    };
-  }
-  for (const [edgeId, currentEdge] of currentEdges.entries()) {
-    const nextEdge = nextEdges.get(edgeId);
-    if (!nextEdge || stableJson(currentEdge) === stableJson(nextEdge)) continue;
-    if (currentEdge.from !== nextEdge.from || currentEdge.to !== nextEdge.to) {
-      return {
-        code: "SNAPSHOT_EDIT_TOPOLOGY_UNSUPPORTED",
-        edgeId,
-        error: "Changing edge endpoints in an active run snapshot is not supported.",
-      };
-    }
-    const fromClass = reachability.nodes[currentEdge.from] ?? "inactive";
-    const toClass = reachability.nodes[currentEdge.to] ?? "inactive";
-    if (!editableClasses.has(fromClass) && !editableClasses.has(toClass)) {
-      return {
-        code: "SNAPSHOT_EDIT_UNREACHABLE_EDGE",
-        edgeId,
-        error: `Edge "${edgeId}" is not on a reachable future path for this run.`,
-      };
-    }
-  }
-
-  const currentSessions = new Map(record.agentflowSnapshot.sessions.map((session) => [session.id, session]));
-  for (const nextSession of nextAgentflow.sessions) {
-    const currentSession = currentSessions.get(nextSession.id);
-    if (!currentSession || stableJson(currentSession) === stableJson(nextSession)) continue;
-    const referencedByEditableNode = record.agentflowSnapshot.nodes.some((node) => {
-      if (node.kind !== "step" || node.sessionId !== nextSession.id) return false;
-      return editableClasses.has(reachability.nodes[node.id] ?? "inactive");
-    });
-    if (!referencedByEditableNode) {
-      return {
-        code: "SNAPSHOT_EDIT_UNREACHABLE_SESSION",
-        sessionId: nextSession.id,
-        error: `Session "${nextSession.id}" is not referenced by an editable node in this run.`,
-      };
-    }
-  }
-  return undefined;
-}
-
-function sameStringSet(left: Set<string>, right: Set<string>): boolean {
-  if (left.size !== right.size) return false;
-  for (const value of left) {
-    if (!right.has(value)) return false;
-  }
-  return true;
-}
-
-function stableJson(value: unknown): string {
-  return JSON.stringify(sortJsonValue(value));
-}
-
-function sortJsonValue(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(sortJsonValue);
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => [key, sortJsonValue(entry)]));
+  return { operations: operations as RunGraphOperation[], summary };
 }
 
 function parseWorkflowExecutionCheckpoint(value: Record<string, unknown> | undefined): WorkflowExecutionCheckpoint | undefined {
@@ -3024,29 +2935,6 @@ function updateCheckpointPendingCompletionOutput(record: RunRecord, nodeId: stri
   if (pendingCompletion.origin) pendingCompletion.origin.output = output;
   record.checkpoint = checkpoint as unknown as Record<string, unknown>;
   return true;
-}
-
-function requiredCheckpointNodeIds(checkpoint: Record<string, unknown> | undefined): string[] {
-  if (!checkpoint) return [];
-  const ids = new Set<string>();
-  if (typeof checkpoint.activeNodeId === "string") ids.add(checkpoint.activeNodeId);
-  if (typeof checkpoint.interruptedNodeId === "string") ids.add(checkpoint.interruptedNodeId);
-  const suspension = checkpoint.suspension;
-  if (suspension && typeof suspension === "object" && typeof (suspension as { nodeId?: unknown }).nodeId === "string") {
-    ids.add((suspension as { nodeId: string }).nodeId);
-  }
-  const pendingCompletion = checkpoint.pendingCompletion;
-  if (pendingCompletion && typeof pendingCompletion === "object" && typeof (pendingCompletion as { nodeId?: unknown }).nodeId === "string") {
-    ids.add((pendingCompletion as { nodeId: string }).nodeId);
-  }
-  if (Array.isArray(checkpoint.queue)) {
-    for (const entry of checkpoint.queue) {
-      if (entry && typeof entry === "object" && typeof (entry as { nodeId?: unknown }).nodeId === "string") {
-        ids.add((entry as { nodeId: string }).nodeId);
-      }
-    }
-  }
-  return [...ids];
 }
 
 function buildAflowMigrationTask(input: {

@@ -38,7 +38,7 @@ export function buildRunWorkflowPrompt(args: string): string {
     "",
     "Infer the workflow id, optional run context, and known specflow_* variable values from the conversation and command arguments. If the workflow id is missing, ask the user which workflow to run. Once the workflow is identified, call `specflow_run_workflow`; it will ask required workflow variables one by one in the TUI and then ask the user to choose Dynamic run or Normal run.",
     "If the workflow id is missing or ambiguous, use `specflow_list_workflows` when helpful and then `ask_user` to choose one. Pass any already-known specflow_* variables as `variableValues` instead of asking for them again. Use `initialInput` only for freeform run context that is not one of the declared workflow variables.",
-    "`specflow_run_workflow` is responsible for the full TUI run flow. In Normal run it displays node status, handles pauseAfterRun ACP interaction, and after completion lists recorded agent sessions. In Dynamic run it pauses after activations and returns completedNodeText so you can decide whether to patch only the run snapshot before calling specflow_play_run.",
+    "`specflow_run_workflow` is responsible for the full TUI run flow. In Normal run it displays node status, handles pauseAfterRun ACP interaction, and after completion lists recorded agent sessions. In Dynamic run it creates the run, pauses after the first activation, and returns the first checkpoint; later checkpoints are reached with `specflow_run_and_pause`.",
     "If the user explicitly asks for dynamic optimization, pass dynamicReview: true; the TUI still confirms the run mode.",
     "Do not ask for a separate native command after a normal run just to repeat run-end choices; the run tool already offers native resume through the session picker.",
     "Do not execute shell `specflow run`. That is the standalone CLI path, rejects pauseAfterRun workflows, and does not provide Aflow's ACP pause interaction.",
@@ -48,16 +48,16 @@ export function buildRunWorkflowPrompt(args: string): string {
   ].join("\n");
 }
 
-export function buildResumeWorkflowPrompt(args: string): string {
+export function buildContinueWorkflowPrompt(args: string): string {
   return [
-    "Resume a cancelled or failed Specflow workflow run.",
+    "Continue a stopped or failed Specflow workflow run.",
     "",
-    "`specflow_resume_workflow` resumes an interrupted workflow run. It is not the same as resuming an individual agent session; ACP Resume/Inspect is offered by the run-end session picker.",
+    "`specflow_continue_workflow` creates a continuation run from a stopped or failed workflow run. It is not the same as resuming or inspecting an individual agent session; ACP Resume/Inspect is offered by the run-end session picker.",
     "Infer the run id from context only when it is clear. If it is missing or ambiguous, use `ask_user` instead of guessing.",
-    commandGuidance("specflow_resume_workflow"),
+    commandGuidance("specflow_continue_workflow"),
     "",
     "User command arguments:",
-    args.trim() || "(No explicit run id supplied. Infer the intended run from context, or ask the user which run to resume.)",
+    args.trim() || "(No explicit run id supplied. Infer the intended run from context, or ask the user which run to continue.)",
   ].join("\n");
 }
 

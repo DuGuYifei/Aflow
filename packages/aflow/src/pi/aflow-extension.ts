@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import {
   buildCreateWorkflowPrompt,
+  buildContinueWorkflowPrompt,
   buildForkAdaptWorkflowPrompt,
   buildResumeSessionPrompt,
-  buildResumeWorkflowPrompt,
   buildRunWorkflowPrompt,
   buildValidateWorkflowPrompt,
 } from "./slash-prompts";
@@ -19,7 +19,7 @@ const AFLOW_LOGO_LINES = [
 ];
 const AFLOW_IDENTITY_LINES = [
   `${AFLOW_GREEN}Aflow Agent${RESET} is built on Pi.`,
-  `${DIM}- You can ask Aflow to create, adapt, validate, run, and resume Specflow workflows.${RESET}`,
+  `${DIM}- You can ask Aflow to create, adapt, validate, run, and continue Specflow workflows.${RESET}`,
   `${DIM}- Pi can explain its own features and look up its docs. Ask it how to use or extend Pi / Aflow.${RESET}`,
 ];
 
@@ -55,10 +55,10 @@ export function createAflowPiExtension(): ExtensionFactory {
       },
     });
 
-    pi.registerCommand("specflow-resume", {
-      description: "Resume a cancelled or failed Specflow workflow run",
+    pi.registerCommand("specflow-continue", {
+      description: "Continue a stopped or failed Specflow workflow run",
       handler: async (args, ctx) => {
-        sendAflowCommandPrompt(pi, ctx, buildResumeWorkflowPrompt(args));
+        sendAflowCommandPrompt(pi, ctx, buildContinueWorkflowPrompt(args));
       },
     });
 

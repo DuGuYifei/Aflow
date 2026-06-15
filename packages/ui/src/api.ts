@@ -1,4 +1,4 @@
-import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent, WorkflowDiagnostic } from './types';
+import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent, WorkflowDiagnostic, RunGraphOperation } from './types';
 import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
 
 export interface CanvasDoc {
@@ -842,8 +842,6 @@ export async function continueWorkflowRun(runId: string): Promise<{ runId: strin
   return response.json();
 }
 
-export const resumeWorkflowRun = continueWorkflowRun;
-
 export async function pauseRun(id: string): Promise<{ status: string; controlIntent?: RunControlIntent }> {
   const response = await fetch(`/api/runs/${id}/pause`, { method: 'POST' });
   if (!response.ok) throw new Error(await apiError(response, 'Failed to pause run'));
@@ -888,17 +886,25 @@ export async function stopRun(id: string): Promise<void> {
 
 export const cancelRun = stopRun;
 
-export async function patchRunSnapshot(
+export async function patchRunGraph(
   runId: string,
-  snapshot: CanvasDoc,
+  operations: RunGraphOperation[],
   summary?: string,
-): Promise<{ ok: boolean; snapshotRevision: number; snapshot: CanvasDoc; reachability: RunReachability }> {
-  const response = await fetch(`/api/runs/${runId}/snapshot`, {
+): Promise<{
+  ok: boolean;
+  snapshotRevision: number;
+  snapshot: CanvasDoc;
+  reachability: RunReachability;
+  appliedOperations?: Array<{ index: number; op: string; status: 'applied' | 'skipped' }>;
+  rejectedOperations?: Array<{ index: number; op: string; code: string; message: string; nodeId?: string; edgeId?: string }>;
+  migrationPreview?: unknown;
+}> {
+  const response = await fetch(`/api/runs/${runId}/graph`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ snapshot, ...(summary ? { summary } : {}) }),
+    body: JSON.stringify({ operations, ...(summary ? { summary } : {}) }),
   });
-  if (!response.ok) throw new Error(await apiError(response, 'Failed to update run snapshot'));
+  if (!response.ok) throw new Error(await apiError(response, 'Failed to update run graph'));
   return response.json();
 }
 

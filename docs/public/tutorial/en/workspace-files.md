@@ -277,6 +277,8 @@ If the workflow YAML references these assets and the team or CI needs to reprodu
 
 These files store each run's summary, status, node outputs, agent invocations, agent sessions, workflow snapshot, canvas snapshot, and runtime variable values.
 
+Paused, interrupted, and Dynamic runs edit the run snapshot through structured runtime graph patches. Those edits are stored on the run record and do not change the saved workflow YAML/canvas unless the user later saves a run snapshot as a new workflow.
+
 Older versions may contain:
 
 ```text

@@ -8,41 +8,44 @@ import { loadCanvas, saveCanvas } from "./agentflow/canvas-store";
 import { upsertLocalAgentServer } from "./agent-server-config";
 import { loadRun, saveRun, type RunRecord } from "./agentflow/run-store";
 import type { CanvasDoc } from "./agentflow/canvas-doc";
+import { applyRunGraphPatch } from "./agentflow/run-graph-patch";
 
 describe("run snapshot editing API", () => {
-  test("patches only paused run snapshots and protects checkpoint nodes", async () => {
+  test("graph patches only paused run snapshots and protects current checkpoint nodes", async () => {
     const root = await tempProject();
     await saveCanvas("wf", sampleCanvas(), root);
-    await saveRun(samplePausedRun(), root);
+    const run = samplePausedRun();
+    run.checkpoint = {
+      ...run.checkpoint!,
+      activeNodeId: "step-1",
+    };
+    await saveRun(run, root);
 
     const handle = createApiHandler(testBridge(), root);
-    const withoutCheckpointNode = {
-      ...sampleCanvas(),
-      nodes: sampleCanvas().nodes.filter((node) => node.id !== "step-2"),
-      edges: [],
-    };
-    const rejected = await handle(new Request("http://specflow.test/api/runs/run1/snapshot", {
+    const rejected = await handle(new Request("http://specflow.test/api/runs/run1/graph", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ snapshot: withoutCheckpointNode }),
+      body: JSON.stringify({ operations: [{ op: "remove_node", nodeId: "step-1" }] }),
     }));
     expect(rejected?.status).toBe(409);
+    expect(await rejected!.json()).toMatchObject({
+      rejectedOperations: [expect.objectContaining({ code: "SNAPSHOT_EDIT_REQUIRED_NODE_REMOVED", nodeId: "step-1" })],
+    });
 
-    const patchedCanvas = sampleCanvas();
-    patchedCanvas.nodes = patchedCanvas.nodes.map((node) => node.id === "step-2" && node.kind === "step"
-      ? { ...node, prompt: "updated future prompt" }
-      : node);
-    const patched = await handle(new Request("http://specflow.test/api/runs/run1/snapshot", {
+    const patched = await handle(new Request("http://specflow.test/api/runs/run1/graph", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ snapshot: patchedCanvas, summary: "update future prompt" }),
+      body: JSON.stringify({
+        summary: "update future prompt",
+        operations: [{ op: "update_node", nodeId: "step-2", patch: { prompt: "updated future prompt" } }],
+      }),
     }));
     expect(patched?.status).toBe(200);
     const body = await patched!.json() as { snapshotRevision: number };
     expect(body.snapshotRevision).toBe(1);
-    const run = await loadRun("run1", root);
-    expect(run.snapshotEditSummary).toBe("update future prompt");
-    expect(run.agentflowSnapshot.nodes.find((node) => node.id === "step-2" && node.kind === "step")).toMatchObject({
+    const patchedRun = await loadRun("run1", root);
+    expect(patchedRun.snapshotEditSummary).toBe("update future prompt");
+    expect(patchedRun.agentflowSnapshot.nodes.find((node) => node.id === "step-2" && node.kind === "step")).toMatchObject({
       prompt: "updated future prompt",
     });
   });
@@ -62,41 +65,159 @@ describe("run snapshot editing API", () => {
     expect(reachability.nodes["inactive"]).toBe("inactive");
   });
 
-  test("rejects snapshot edits to history-only and inactive nodes", async () => {
+  test("rejects graph edits to history-only and inactive nodes", async () => {
     const root = await tempProject();
     await saveRun(samplePausedRun(), root);
     const handle = createApiHandler(testBridge(), root);
 
-    const historyOnlyPatch = sampleCanvas();
-    historyOnlyPatch.nodes = historyOnlyPatch.nodes.map((node) => node.id === "archived" && node.kind === "step"
-      ? { ...node, prompt: "should not change history only" }
-      : node);
-    const historyOnly = await handle(new Request("http://specflow.test/api/runs/run1/snapshot", {
+    const historyOnly = await handle(new Request("http://specflow.test/api/runs/run1/graph", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ snapshot: historyOnlyPatch }),
+      body: JSON.stringify({ operations: [{ op: "update_node", nodeId: "archived", patch: { prompt: "should not change history only" } }] }),
     }));
     expect(historyOnly?.status).toBe(409);
     expect(await historyOnly!.json()).toMatchObject({
-      code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
-      nodeId: "archived",
-      editClass: "history_only",
+      rejectedOperations: [expect.objectContaining({
+        code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
+        nodeId: "archived",
+      })],
     });
 
-    const inactivePatch = sampleCanvas();
-    inactivePatch.nodes = inactivePatch.nodes.map((node) => node.id === "inactive" && node.kind === "step"
-      ? { ...node, prompt: "should not change inactive" }
-      : node);
-    const inactive = await handle(new Request("http://specflow.test/api/runs/run1/snapshot", {
+    const inactive = await handle(new Request("http://specflow.test/api/runs/run1/graph", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ snapshot: inactivePatch }),
+      body: JSON.stringify({ operations: [{ op: "update_node", nodeId: "inactive", patch: { prompt: "should not change inactive" } }] }),
     }));
     expect(inactive?.status).toBe(409);
     expect(await inactive!.json()).toMatchObject({
-      code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
-      nodeId: "inactive",
-      editClass: "inactive",
+      rejectedOperations: [expect.objectContaining({
+        code: "SNAPSHOT_EDIT_UNREACHABLE_NODE",
+        nodeId: "inactive",
+      })],
+    });
+  });
+
+  test("rejected graph patch does not mutate the live run record object", () => {
+    const run = samplePausedRun();
+    const originalNodeStates = { ...run.nodeStates };
+    const originalNodeIds = run.agentflowSnapshot.nodes.map((node) => node.id);
+
+    const result = applyRunGraphPatch({
+      record: run,
+      operations: [
+        {
+          op: "add_node",
+          node: {
+            kind: "step",
+            id: "repair",
+            alias: "R1",
+            title: "Repair",
+            prompt: "repair later",
+            sessionId: "s1",
+          },
+          position: { x: 520, y: 240, w: 220 },
+        },
+        { op: "update_node", nodeId: "archived", patch: { prompt: "invalid history edit" } },
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.appliedOperations).toEqual([expect.objectContaining({ op: "add_node" })]);
+    expect(result.rejectedOperations).toEqual([expect.objectContaining({ code: "SNAPSHOT_EDIT_UNREACHABLE_NODE" })]);
+    expect(run.nodeStates).toEqual(originalNodeStates);
+    expect(run.agentflowSnapshot.nodes.map((node) => node.id)).toEqual(originalNodeIds);
+  });
+
+  test("graph patch saves runtime layout changes through the same endpoint", async () => {
+    const root = await tempProject();
+    await saveRun(samplePausedRun(), root);
+    const handle = createApiHandler(testBridge(), root);
+
+    const response = await handle(new Request("http://specflow.test/api/runs/run1/graph", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        summary: "move future node",
+        operations: [{ op: "update_node_layout", nodeId: "step-2", position: { x: 640, y: 220, w: 260 } }],
+      }),
+    }));
+    expect(response?.status).toBe(200);
+    const patched = await loadRun("run1", root);
+    expect(patched.canvasSnapshot.nodes.find((node) => node.nodeId === "step-2")).toMatchObject({
+      x: 640,
+      y: 220,
+      w: 260,
+    });
+  });
+
+  test("graph patch can insert a future repair node and rebuild queued future state", async () => {
+    const root = await tempProject();
+    const run = samplePausedRun();
+    run.nodeStates = {
+      "step-1": "paused",
+      "step-2": "pending",
+      done: "pending",
+      archived: "success",
+      inactive: "pending",
+    };
+    run.checkpoint = {
+      queue: [{ nodeId: "step-2", traversal: 0 }],
+      pendingInputs: {
+        "step-2:0": { input: ["old future input"], edgeValues: {} },
+      },
+      completedNodeIds: ["step-1"],
+      completedExecutionKeys: ["step-1:0"],
+      skippedNodeIds: [],
+      inactiveEdgeIds: [],
+      branchTraversals: {},
+      activeNodeId: "step-1",
+      pendingCompletion: {
+        nodeId: "step-1",
+        traversal: 0,
+        executionKey: "step-1:0",
+        output: "current output",
+        origin: { agentId: "test-agent", sessionId: "s1", output: "current output" },
+      },
+      createdAt: "2026-06-13T10:00:01.000Z",
+    };
+    await saveRun(run, root);
+    const handle = createApiHandler(testBridge(), root);
+
+    const response = await handle(new Request("http://specflow.test/api/runs/run1/graph", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        summary: "insert repair node",
+        operations: [{
+          op: "insert_node_between",
+          sourceNodeId: "step-1",
+          targetNodeId: "step-2",
+          node: {
+            kind: "step",
+            id: "repair",
+            alias: "R1",
+            title: "Repair",
+            prompt: "repair the previous output",
+            sessionId: "s1",
+          },
+        }],
+      }),
+    }));
+    expect(response?.status).toBe(200);
+    const body = await response!.json() as { migrationPreview: { queueRebuild: { discardedFutureQueueEntries: Array<{ nodeId: string; traversal?: number }> } } };
+    expect(body.migrationPreview.queueRebuild.discardedFutureQueueEntries).toEqual([{ nodeId: "step-2", traversal: 0 }]);
+
+    const patched = await loadRun("run1", root);
+    expect(patched.agentflowSnapshot.nodes.map((node) => node.id)).toContain("repair");
+    expect(patched.agentflowSnapshot.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: "step-1", to: "repair" }),
+      expect.objectContaining({ from: "repair", to: "step-2" }),
+    ]));
+    expect(patched.checkpoint?.queue).toEqual([]);
+    expect(patched.checkpoint?.pendingInputs).toEqual({});
+    expect(patched.checkpoint?.pendingCompletion).toMatchObject({
+      nodeId: "step-1",
+      output: "current output",
     });
   });
 

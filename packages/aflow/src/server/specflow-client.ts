@@ -1,5 +1,5 @@
 import type { AgentServerEntry } from "@specflow/agent-proxy";
-import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "@specflow/server";
+import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc, RunGraphOperation } from "@specflow/server";
 
 export interface SpecflowHealth {
   app: string;
@@ -109,11 +109,15 @@ export interface RunReachability {
   [key: string]: unknown;
 }
 
-export interface RunSnapshotPatchResponse {
+export interface RunGraphPatchResponse {
   ok: boolean;
-  snapshotRevision: number;
-  snapshot: CanvasDoc;
-  reachability: RunReachability;
+  snapshotRevision?: number;
+  snapshot?: CanvasDoc;
+  reachability?: RunReachability;
+  appliedOperations?: Array<{ index: number; op: string; status: "applied" | "skipped" }>;
+  rejectedOperations?: Array<{ index: number; op: string; code: string; message: string; nodeId?: string; edgeId?: string }>;
+  migrationPreview?: unknown;
+  topologyCapabilities?: unknown;
 }
 
 export interface PausedNodeSession {
@@ -285,8 +289,8 @@ export class SpecflowClient {
     return this.normalizeStartedRun(started, id);
   }
 
-  async resumeWorkflowRun(id: string): Promise<RunRecordSummary> {
-    const started = await this.request<RunRecordSummary | { runId: string }>(`/api/runs/${encodeURIComponent(id)}/resume-workflow`, {
+  async continueWorkflowRun(id: string): Promise<RunRecordSummary> {
+    const started = await this.request<RunRecordSummary | { runId: string }>(`/api/runs/${encodeURIComponent(id)}/continue`, {
       method: "POST",
     });
     return this.normalizeStartedRun(started);
@@ -321,11 +325,11 @@ export class SpecflowClient {
     return this.request<RunReachability>(`/api/runs/${encodeURIComponent(id)}/reachability`);
   }
 
-  async patchRunSnapshot(
+  async patchRunGraph(
     id: string,
-    body: { agentflowSnapshot: AgentFlowDoc; canvasSnapshot: CanvasLayoutDoc; summary?: string },
-  ): Promise<RunSnapshotPatchResponse> {
-    return this.request<RunSnapshotPatchResponse>(`/api/runs/${encodeURIComponent(id)}/snapshot`, {
+    body: { operations: RunGraphOperation[]; summary?: string },
+  ): Promise<RunGraphPatchResponse> {
+    return this.request<RunGraphPatchResponse>(`/api/runs/${encodeURIComponent(id)}/graph`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),

@@ -75,6 +75,22 @@ export interface RunReachability {
   completedNodeIds: string[];
 }
 
+export type RunGraphOperation =
+  | { op: 'update_node'; nodeId: string; patch: Partial<WorkflowNode> }
+  | { op: 'update_node_layout'; nodeId: string; position: { x?: number; y?: number; w?: number } }
+  | { op: 'update_edge'; edgeId: string; patch: Partial<Edge> }
+  | { op: 'add_node'; node: Omit<WorkflowNode, 'x' | 'y' | 'w'>; position?: { x?: number; y?: number; w?: number } }
+  | { op: 'remove_node'; nodeId: string }
+  | { op: 'add_edge'; edge: Edge }
+  | { op: 'remove_edge'; edgeId: string }
+  | { op: 'replace_edge_endpoint'; edgeId: string; from?: string; to?: string }
+  | { op: 'add_session'; session: Session }
+  | { op: 'update_session'; sessionId: string; patch: Partial<Session> }
+  | { op: 'remove_session'; sessionId: string }
+  | { op: 'add_variable'; variable: Variable }
+  | { op: 'update_variable'; name: string; patch: Partial<Variable> }
+  | { op: 'remove_variable'; name: string };
+
 export interface Run {
   id: string;
   workflowId?: string;
