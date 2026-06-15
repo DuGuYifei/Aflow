@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -28,7 +29,7 @@ describe("design runtime manager", () => {
     expect(state.status).toBe("running");
     expect(state.port).toBeGreaterThanOrEqual(6200);
     expect(state.port).not.toBe(6500);
-    expect(await fetch(state.url ?? "").then((response) => response.text())).toBe("ok");
+    expect(await localHttpText(state.url ?? "")).toBe("ok");
     const config = JSON.parse(await readFile(join(projectRoot, ".aflow-design/project.json"), "utf8")) as { lastRuntime?: { port?: number } };
     expect(config.lastRuntime?.port).toBe(state.port);
 
@@ -36,3 +37,16 @@ describe("design runtime manager", () => {
     expect(stopped.status).toBe("stopped");
   });
 });
+
+function localHttpText(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(new URL(url), (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; });
+      response.on("end", () => resolve(body));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}

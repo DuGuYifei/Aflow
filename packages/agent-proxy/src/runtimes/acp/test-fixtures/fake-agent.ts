@@ -16,7 +16,6 @@ class FakeAgent implements acp.Agent {
   readonly #sessions = new Map<string, {
     promptCount: number;
     modeCalls: string[];
-    modelCalls: string[];
     configCalls: string[];
   }>();
   readonly #restoreCapabilities = new Set((process.env.SPECFLOW_FAKE_ACP_RESTORE ?? "")
@@ -109,10 +108,6 @@ class FakeAgent implements acp.Agent {
         currentModeId: "auto",
         availableModes: [{ id: "auto", name: "Auto" }],
       },
-      models: {
-        currentModelId: "test-model",
-        availableModels: [{ modelId: "test-model", name: "Test Model" }],
-      },
       configOptions: [
         ...(process.env.SPECFLOW_FAKE_ACP_CODEX_MODEL_CONFIG === "1"
           ? [{
@@ -135,16 +130,11 @@ class FakeAgent implements acp.Agent {
   }
 
   #newSessionState() {
-    return { promptCount: 0, modeCalls: [], modelCalls: [], configCalls: [] };
+    return { promptCount: 0, modeCalls: [], configCalls: [] };
   }
 
   async setSessionMode(params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
     this.#sessions.get(params.sessionId)?.modeCalls.push(params.modeId);
-    return {};
-  }
-
-  async unstable_setSessionModel(params: acp.SetSessionModelRequest): Promise<acp.SetSessionModelResponse> {
-    this.#sessions.get(params.sessionId)?.modelCalls.push(params.modelId);
     return {};
   }
 
@@ -164,7 +154,6 @@ class FakeAgent implements acp.Agent {
     await this.#sendText(sessionId, `authenticated:${this.#isAuthenticated()}\n`);
     await this.#sendText(sessionId, `authentications:${this.#authenticationCount}\n`);
     if (session.modeCalls.length > 0) await this.#sendText(sessionId, `modeCalls:${session.modeCalls.join(",")}\n`);
-    if (session.modelCalls.length > 0) await this.#sendText(sessionId, `modelCalls:${session.modelCalls.join(",")}\n`);
     if (session.configCalls.length > 0) await this.#sendText(sessionId, `configCalls:${session.configCalls.join(",")}\n`);
     await this.#sendText(sessionId, `prompt:${text}\n`);
     await this.#sendText(sessionId, `blocks:${params.prompt.map((block) => block.type).join(",")}\n`);

@@ -327,7 +327,6 @@ export class AcpAgentConnection {
       });
       const promptResult = await this.#client.connection.prompt({
         sessionId,
-        messageId: request.messageId,
         prompt: preparePromptBlocks(request, this.#initializeResponse),
       });
       request.onLifecycleEvent?.({
@@ -626,7 +625,6 @@ export async function runAcpAgent(
     });
     const promptResult = await client.connection.prompt({
       sessionId,
-      messageId: request.messageId,
       prompt: preparePromptBlocks(request, initializeResponse),
     });
     request.onLifecycleEvent?.({
@@ -1143,14 +1141,12 @@ async function applyPerRequestOverrides(input: {
 interface SessionCapsSnapshot {
   modes: acp.SessionModeState | null;
   configOptions: acp.SessionConfigOption[] | null;
-  models: NonNullable<acp.NewSessionResponse["models"]> | null;
 }
 
-function snapshotSession(session: Pick<acp.NewSessionResponse, "modes" | "configOptions" | "models">): SessionCapsSnapshot {
+function snapshotSession(session: Pick<acp.NewSessionResponse, "modes" | "configOptions">): SessionCapsSnapshot {
   return {
     modes: session.modes ?? null,
     configOptions: session.configOptions ?? null,
-    models: session.models ?? null,
   };
 }
 

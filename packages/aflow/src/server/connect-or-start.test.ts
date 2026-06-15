@@ -14,10 +14,10 @@ describe("connectOrStartSpecflowServer", () => {
     });
 
     try {
-      const health = await connection.client.health();
+      const health = connection.health;
 
       expect(connection.started).toBe(true);
-      expect(resolve(health.workspaceRoot ?? "")).toBe(resolve(root));
+      expect(resolve(health?.workspaceRoot ?? "")).toBe(resolve(root));
       expect(await pathExists(join(root, ".aflow/.specflow/agentflow/agentflows"))).toBe(true);
       expect(await pathExists(join(root, ".aflow/.specflow/agentflow/agentflows-local"))).toBe(true);
       expect(await pathExists(join(root, ".aflow/.specflow/agentflow/canvas"))).toBe(true);

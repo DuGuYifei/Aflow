@@ -1,4 +1,6 @@
 import { access } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { assertSupportedReactNodeVersion, type NodeVersionReader } from "./node-version";
@@ -258,7 +260,8 @@ async function findAvailablePort(): Promise<number> {
   throw httpError(409, `No available React preview port found starting at ${PREVIEW_PORT_START}.`);
 }
 
-function portAvailable(port: number): Promise<boolean> {
+async function portAvailable(port: number): Promise<boolean> {
+  if (await runtimeResponds(previewUrl(port))) return false;
   return new Promise((resolve) => {
     const server = createServer();
     server.once("error", () => resolve(false));
@@ -280,16 +283,23 @@ async function waitForRuntime(url: string): Promise<boolean> {
 }
 
 async function runtimeResponds(url: string): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 700);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    return response.status < 500;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return localHttpStatus(url, 700).then((status) => status !== undefined && status < 500);
+}
+
+function localHttpStatus(url: string, timeoutMs: number): Promise<number | undefined> {
+  return new Promise((resolveRequest) => {
+    const target = new URL(url);
+    const request = (target.protocol === "https:" ? httpsRequest : httpRequest)(target, (response) => {
+      response.resume();
+      resolveRequest(response.statusCode);
+    });
+    request.setTimeout(timeoutMs, () => {
+      request.destroy();
+      resolveRequest(undefined);
+    });
+    request.on("error", () => resolveRequest(undefined));
+    request.end();
+  });
 }
 
 function expandedCommand(command: DesignProjectDevCommand, port: number): DesignProjectDevCommand {
