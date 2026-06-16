@@ -3,7 +3,7 @@
 
 import asset0 from "../../ui/dist/apple-touch-icon.png" with { type: "file" };
 import asset1 from "../../ui/dist/assets/index-BiaX6zx0.css" with { type: "file" };
-import asset2 from "../../ui/dist/assets/index-Dtnt6_H_.js" with { type: "file" };
+import asset2 from "../../ui/dist/assets/index-CP1v57lu.js" with { type: "file" };
 import asset3 from "../../ui/dist/favicon-96x96.png" with { type: "file" };
 import asset4 from "../../ui/dist/favicon.ico" with { type: "file" };
 import asset5 from "../../ui/dist/favicon.svg" with { type: "file" };
@@ -15,7 +15,7 @@ import asset9 from "../../ui/dist/web-app-manifest-512x512.png" with { type: "fi
 export const staticUiAssets: Record<string, string> = {
   "/apple-touch-icon.png": asset0,
   "/assets/index-BiaX6zx0.css": asset1,
-  "/assets/index-Dtnt6_H_.js": asset2,
+  "/assets/index-CP1v57lu.js": asset2,
   "/favicon-96x96.png": asset3,
   "/favicon.ico": asset4,
   "/favicon.svg": asset5,

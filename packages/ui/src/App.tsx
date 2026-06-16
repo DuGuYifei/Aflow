@@ -1863,7 +1863,10 @@ export function App() {
     const loadRecordedContext = async () => {
       if (recordedContextLoaded) return;
       recordedContextLoaded = true;
-      const recorded = apiRunLogsToTimelineEvents(await fetchRunLogs(session.latestRunId))
+      const recorded = apiRunLogsToTimelineEvents(
+        await fetchRunLogs(session.latestRunId),
+        { includeTimelineSnapshots: true },
+      )
         .filter((event) =>
           !('agentInvocationId' in event)
           || !event.agentInvocationId

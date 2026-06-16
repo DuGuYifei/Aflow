@@ -88,4 +88,59 @@ describe("apiRunLogsToTimelineEvents", () => {
       ],
     }]);
   });
+
+  test("skips timeline snapshots by default for run log display", () => {
+    const events: ApiRunLogEvent[] = [{
+      type: "acp_timeline",
+      id: "snapshot-1",
+      at: "2026-05-19T10:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "timeline_snapshot",
+      status: "success",
+      rawEventCount: 1,
+      blocks: [{
+        id: "message-1",
+        at: "2026-05-19T10:00:00.000Z",
+        source: "agentflow",
+        scopeId: "run1",
+        runId: "run1",
+        kind: "message",
+        role: "assistant",
+        text: "already rendered raw logs",
+      }],
+    }, {
+      type: "node_status",
+      runId: "run1",
+      nodeId: "gate",
+      status: "done",
+      gateDecision: { branchId: "pass", reason: "approved" },
+    }];
+
+    expect(apiRunLogsToTimelineEvents(events)).toEqual([{
+      type: "gate-decision",
+      nodeId: "gate",
+      branchId: "pass",
+      reason: "approved",
+      branches: undefined,
+    }]);
+  });
+
+  test("can keep timeline snapshots for compact restore context", () => {
+    const events: ApiRunLogEvent[] = [{
+      type: "acp_timeline",
+      id: "snapshot-1",
+      at: "2026-05-19T10:00:00.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      runId: "run1",
+      kind: "timeline_snapshot",
+      status: "success",
+      rawEventCount: 1,
+      blocks: [],
+    }];
+
+    expect(apiRunLogsToTimelineEvents(events, { includeTimelineSnapshots: true })).toEqual(events);
+  });
 });

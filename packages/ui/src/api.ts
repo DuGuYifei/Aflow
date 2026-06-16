@@ -1056,11 +1056,21 @@ export function apiRunToUiRun(runRecord: ApiRunRecord): Run {
   };
 }
 
-export function apiRunLogsToTimelineEvents(events: ApiRunLogEvent[]): TimelineEvent[] {
+export interface RunLogsToTimelineOptions {
+  includeTimelineSnapshots?: boolean;
+}
+
+export function apiRunLogsToTimelineEvents(
+  events: ApiRunLogEvent[],
+  options: RunLogsToTimelineOptions = {},
+): TimelineEvent[] {
   const hasAcpTimeline = events.some(isAcpTimelineEvent);
   if (hasAcpTimeline) {
     return events.flatMap((event): TimelineEvent[] => {
-      if (isAcpTimelineEvent(event)) return [event];
+      if (isAcpTimelineEvent(event)) {
+        if (event.kind === 'timeline_snapshot' && !options.includeTimelineSnapshots) return [];
+        return [event];
+      }
       if (event.type === 'node_status' && event.gateDecision) {
         return [{
           type: 'gate-decision',
