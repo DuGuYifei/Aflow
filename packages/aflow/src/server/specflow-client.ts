@@ -1,5 +1,5 @@
 import type { AgentServerEntry } from "@specflow/agent-proxy";
-import type { CanvasDoc } from "@specflow/server";
+import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc, RunGraphOperation } from "@specflow/server";
 
 export interface SpecflowHealth {
   app: string;
@@ -37,6 +37,32 @@ export interface RunRecordDetail extends RunRecordSummary {
   duration?: string;
   nodeStates?: Record<string, string>;
   nodeOutputs?: Record<string, string>;
+  control?: {
+    intent?: unknown;
+    pauseRequested?: boolean;
+    interruptedNodeId?: string;
+    reason?: string;
+  };
+  checkpoint?: {
+    pendingCompletion?: {
+      nodeId?: string;
+      output?: string;
+    };
+    suspension?: {
+      nodeId?: string;
+      source?: string;
+    };
+    interruptedNodeId?: string;
+    activeNodeId?: string;
+    [key: string]: unknown;
+  };
+  agentflowSnapshot?: AgentFlowDoc;
+  canvasSnapshot?: CanvasLayoutDoc;
+  snapshotRevision?: number;
+  snapshotEditedAt?: string;
+  snapshotEditSummary?: string;
+  initialInput?: string;
+  variableValues?: Record<string, string>;
   agentInvocations?: Array<{
     id?: string;
     nodeId?: string;
@@ -73,6 +99,30 @@ export interface RunLogEventPage {
   events: RunLogEvent[];
   total: number;
   startIndex: number;
+}
+
+export type RuntimeEditClass = "current" | "future" | "history_future" | "history_only" | "inactive";
+
+export interface RunReachability {
+  nodes: Record<string, RuntimeEditClass>;
+  edges?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export interface RunGraphPatchResponse {
+  ok: boolean;
+  snapshotRevision?: number;
+  snapshot?: CanvasDoc;
+  reachability?: RunReachability;
+  appliedOperations?: Array<{ index: number; op: string; status: "applied" | "skipped" }>;
+  rejectedOperations?: Array<{ index: number; op: string; code: string; message: string; nodeId?: string; edgeId?: string }>;
+  migrationPreview?: unknown;
+  topologyCapabilities?: unknown;
+}
+
+export interface SaveRunBestPracticeResponse {
+  ok: boolean;
+  workflow: CanvasSummary;
 }
 
 export interface PausedNodeSession {
@@ -234,7 +284,7 @@ export class SpecflowClient {
 
   async runCanvas(
     id: string,
-    body: { initialInput?: string; variableValues?: Record<string, string> },
+    body: { initialInput?: string; variableValues?: Record<string, string>; pauseAfterFirstActivation?: boolean },
   ): Promise<RunRecordSummary> {
     const started = await this.request<RunRecordSummary | { runId: string }>(`/api/canvases/${encodeURIComponent(id)}/run`, {
       method: "POST",
@@ -244,8 +294,8 @@ export class SpecflowClient {
     return this.normalizeStartedRun(started, id);
   }
 
-  async resumeWorkflowRun(id: string): Promise<RunRecordSummary> {
-    const started = await this.request<RunRecordSummary | { runId: string }>(`/api/runs/${encodeURIComponent(id)}/resume-workflow`, {
+  async continueWorkflowRun(id: string): Promise<RunRecordSummary> {
+    const started = await this.request<RunRecordSummary | { runId: string }>(`/api/runs/${encodeURIComponent(id)}/continue`, {
       method: "POST",
     });
     return this.normalizeStartedRun(started);
@@ -258,6 +308,48 @@ export class SpecflowClient {
 
   async getRun(id: string): Promise<RunRecordDetail> {
     return this.request<RunRecordDetail>(`/api/runs/${encodeURIComponent(id)}`);
+  }
+
+  async pauseRun(id: string): Promise<unknown> {
+    return this.request<unknown>(`/api/runs/${encodeURIComponent(id)}/pause`, { method: "POST" });
+  }
+
+  async playRun(id: string, body: { pauseAfterNextActivation?: boolean } = {}): Promise<unknown> {
+    return this.request<unknown>(`/api/runs/${encodeURIComponent(id)}/play`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async interruptRun(id: string): Promise<unknown> {
+    return this.request<unknown>(`/api/runs/${encodeURIComponent(id)}/interrupt`, { method: "POST" });
+  }
+
+  async getRunReachability(id: string): Promise<RunReachability> {
+    return this.request<RunReachability>(`/api/runs/${encodeURIComponent(id)}/reachability`);
+  }
+
+  async patchRunGraph(
+    id: string,
+    body: { operations: RunGraphOperation[]; summary?: string },
+  ): Promise<RunGraphPatchResponse> {
+    return this.request<RunGraphPatchResponse>(`/api/runs/${encodeURIComponent(id)}/graph`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async saveRunBestPractice(
+    id: string,
+    body: { name?: string; shared?: boolean } = {},
+  ): Promise<SaveRunBestPracticeResponse> {
+    return this.request<SaveRunBestPracticeResponse>(`/api/runs/${encodeURIComponent(id)}/best-practice`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
   }
 
   async getRunLogs(id: string, options: { tail?: number } = {}): Promise<RunLogEvent[] | RunLogEventPage> {
@@ -280,10 +372,18 @@ export class SpecflowClient {
     );
   }
 
-  async continuePausedNode(runId: string, nodeId: string): Promise<{ ok: boolean; paused: PausedNodeSession }> {
-    return this.request<{ ok: boolean; paused: PausedNodeSession }>(
+  async continuePausedNode(
+    runId: string,
+    nodeId: string,
+    body: { play?: boolean; pauseAfterNextActivation?: boolean } = {},
+  ): Promise<{ ok: boolean; paused: PausedNodeSession; played?: unknown }> {
+    return this.request<{ ok: boolean; paused: PausedNodeSession; played?: unknown }>(
       `/api/runs/${encodeURIComponent(runId)}/paused-nodes/${encodeURIComponent(nodeId)}/continue`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
     );
   }
 

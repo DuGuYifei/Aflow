@@ -133,6 +133,12 @@ export interface AgentRunRequest {
   restoreFromAcpSessionId?: string;
   signal?: AbortSignal;
   onTerminalEvent?: (event: AgentTerminalEvent) => void;
+  onWorkflowSessionResolved?: (event: {
+    sessionId?: string;
+    workflowSessionId?: string;
+    parentWorkflowSessionId?: string;
+    sessionForked?: boolean;
+  }) => void;
   onLifecycleEvent?: (event: AgentLifecycleEvent) => void;
   onPermissionRequest?: (request: AgentPermissionRequest) => Promise<AgentPermissionResult>;
   onSessionUpdate?: (event: AgentSessionUpdateEvent) => void;

@@ -1,5 +1,6 @@
 import type { RunControlIntent, RunStatus } from '../types';
 import { useI18n } from '../i18n';
+import { FloatingTooltip } from './floating-tooltip';
 import { Icon, type IconName } from './icon';
 
 interface RuntimeControlBarProps {
@@ -32,15 +33,16 @@ export function RuntimeControlBar({
     action: () => void,
     options: { primary?: boolean; success?: boolean; warning?: boolean; danger?: boolean; disabled?: boolean } = {},
   ) => (
-    <button
-      className={`runtime-control-button quick-tooltip${options.primary ? ' primary' : ''}${options.success ? ' success' : ''}${options.warning ? ' warning' : ''}${options.danger ? ' danger' : ''}`}
-      data-tooltip={label}
-      disabled={busy || options.disabled}
-      aria-label={label}
-      onClick={action}
-    >
-      <Icon name={busy ? 'loader' : icon} size={15} />
-    </button>
+    <FloatingTooltip content={label}>
+      <button
+        className={`runtime-control-button${options.primary ? ' primary' : ''}${options.success ? ' success' : ''}${options.warning ? ' warning' : ''}${options.danger ? ' danger' : ''}`}
+        disabled={busy || options.disabled}
+        aria-label={label}
+        onClick={action}
+      >
+        <Icon name={busy ? 'loader' : icon} size={15} />
+      </button>
+    </FloatingTooltip>
   );
 
   return (

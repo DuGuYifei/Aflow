@@ -3,7 +3,7 @@ title: Aflow Agent 使用教程
 description: 学习如何用 Aflow Agent 创建、改写、校验、运行和继续 Specflow workflows。
 category: tutorial
 order: 4
-updatedAt: "2026-06-13 06:27:21 CEST"
+updatedAt: "2026-06-15 00:00:00 CEST"
 tags:
   - aflow
   - agent
@@ -14,7 +14,7 @@ tags:
 
 Aflow Agent 是 Specflow 的终端工作流 Agent。它运行在项目目录中，通过对话理解业务目标，帮助你创建 workflow、基于已有 workflow fork/adapt 出本地变体、校验 YAML、运行 workflow，并在运行结束后继续进入某个节点对应的 agent session。
 
-和直接使用 `specflow run` 不同，Aflow 的重点是交互式协作。它会在缺少必要信息时询问用户，在 workflow 运行前逐个收集 required 变量，并在运行过程中把节点状态、pause 交互和 session resume 放在同一个 TUI 里。
+和直接使用 `specflow run` 不同，Aflow 的重点是交互式协作。它会在缺少必要信息时询问用户，在 workflow 运行前逐个收集 required 变量，并在运行过程中把节点状态、pause 交互、workflow continuation 和 session resume 放在同一个 TUI 里。
 
 Aflow 不要求用户必须记住 slash command。只要你在聊天中表达出“想把这个过程沉淀成 workflow”、“想用 Specflow 跑一套流程”、“基于某个通用 workflow 改成当前业务版本”等意图，Aflow 就可以理解目标，并自行调用 workflow 工具完成创建、复制、改写或校验。
 
@@ -90,6 +90,8 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 
 运行过程中，TUI 会显示每个节点的简要状态，并优先显示 node title，便于用户理解当前跑到哪个业务步骤。节点完成、失败、跳过、等待人工交互时，Aflow 会把状态更新回当前界面。
 
+在有 TUI 时，`/specflow-run` 会询问使用 `Normal run` 还是 `Dynamic run`。默认是 `Normal run`。`Dynamic run` 会在每次 activation 后暂停，让 Aflow 读取刚完成节点的文本输出；只有当它明确发现业务目标偏离、必要信息缺失、分支可能错误或后续会发生可避免失败时，才会 patch 本次 run 的 snapshot 后继续。Dynamic patch 不会修改已保存的 workflow YAML/canvas。
+
 ### Pause 节点交互
 
 当 workflow 跑到 `pauseAfterRun: true` 的节点时，Aflow 会把界面切到该节点的 ACP 交互 TUI。这个界面会保留必要的 workflow 信息，并显示最近的上下文消息，方便用户知道 agent 前面做了什么。
@@ -101,10 +103,10 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 在 Aflow 里输入：
 
 ```text
-/specflow-resume
+/specflow-continue
 ```
 
-这个命令保留了旧名字，但 workflow run 层面的语义是 Continue：从 stopped、failed 或 interrupted 的源 run 创建一个 continuation run。Aflow 会从 Specflow server 读取 run 状态，必要时修复陈旧的 running/stopped 状态，并从可恢复的位置继续。
+这个命令会从 stopped 或 failed 的源 run 创建一个 continuation run。Aflow 会从 Specflow server 读取 run 状态，必要时修复陈旧的 running/stopped 状态，并从可恢复的位置继续。
 
 ### 恢复节点 agent session
 
@@ -179,7 +181,7 @@ Aflow 的原生命令推荐来自内置 adapter 表。`{sessionId}` 会替换成
 
 ### Workflow 工具
 
-Aflow 的 tool 能读取、创建、复制、校验、运行和恢复 workflow。模型只有在确实需要完成用户目标时才应该写 workflow；如果只是解释语法、查看已有配置或回答问题，应优先读取和说明，不要无理由创建新文件。
+Aflow 的 tool 能读取、创建、复制、校验、运行和继续 workflow。模型只有在确实需要完成用户目标时才应该写 workflow；如果只是解释语法、查看已有配置或回答问题，应优先读取和说明，不要无理由创建新文件。
 
 ## 通用 Pi 能力
 

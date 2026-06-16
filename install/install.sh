@@ -58,6 +58,11 @@ fi
 
 asset="specflow-code-$platform-$cpu.tar.gz"
 url="https://github.com/$REPO/releases/download/$VERSION/$asset"
+checksums_url="https://github.com/$REPO/releases/download/$VERSION/SHA256SUMS"
+binary_checksums_url="https://github.com/$REPO/releases/download/$VERSION/SHA256SUMS_BINARIES"
+target_version="${VERSION#v}"
+install_path="$INSTALL_DIR/$BIN_NAME"
+aflow_install_path="$INSTALL_DIR/$AFLOW_BIN_NAME"
 tmp="$(mktemp -d)"
 
 cleanup() {
@@ -65,16 +70,96 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | sed 's/[[:space:]].*//'
+    return
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | sed 's/[[:space:]].*//'
+    return
+  fi
+  echo "specflow installer: missing required command: sha256sum or shasum" >&2
+  exit 1
+}
+
+checksum_for() {
+  target="$1"
+  file="$2"
+  while read -r sum name; do
+    if [ "$name" = "$target" ]; then
+      printf '%s\n' "$sum"
+      return 0
+    fi
+  done < "$file"
+  return 1
+}
+
+tool_version() {
+  path="$1"
+  kind="$2"
+  if [ ! -x "$path" ]; then
+    return 1
+  fi
+  output="$("$path" --version 2>/dev/null | head -n 1)" || return 1
+  case "$kind" in
+    specflow) output="${output#specflow }" ;;
+  esac
+  printf '%s\n' "$output"
+}
+
+binary_checksums_match() {
+  specflow_target="specflow-code-$platform-$cpu/specflow"
+  aflow_target="specflow-code-$platform-$cpu/aflow"
+  checksum_file="$tmp/SHA256SUMS_BINARIES"
+
+  if ! curl -fsSL "$binary_checksums_url" -o "$checksum_file"; then
+    return 1
+  fi
+
+  specflow_expected="$(checksum_for "$specflow_target" "$checksum_file" || true)"
+  aflow_expected="$(checksum_for "$aflow_target" "$checksum_file" || true)"
+  if [ -z "$specflow_expected" ] || [ -z "$aflow_expected" ]; then
+    return 1
+  fi
+
+  [ "$(sha256_file "$install_path")" = "$specflow_expected" ] || return 1
+  [ "$(sha256_file "$aflow_install_path")" = "$aflow_expected" ] || return 1
+}
+
+specflow_current="$(tool_version "$install_path" specflow || true)"
+aflow_current="$(tool_version "$aflow_install_path" aflow || true)"
+
+if [ "$specflow_current" = "$target_version" ] && [ "$aflow_current" = "$target_version" ]; then
+  if binary_checksums_match; then
+    echo "Specflow and Aflow $VERSION are already up to date."
+    exit 0
+  fi
+  echo "Installed version matches $VERSION but checksum differs or is unavailable; reinstalling..."
+fi
+
 echo "Installing Specflow and Aflow $VERSION for $platform-$cpu..."
 if ! curl -fL "$url" -o "$tmp/$asset"; then
   echo "specflow installer: release asset not found: $url" >&2
   exit 1
 fi
+if ! curl -fsSL "$checksums_url" -o "$tmp/SHA256SUMS"; then
+  echo "specflow installer: checksum file not found: $checksums_url" >&2
+  exit 1
+fi
+expected="$(checksum_for "$asset" "$tmp/SHA256SUMS" || true)"
+if [ -z "$expected" ]; then
+  echo "specflow installer: checksum entry not found for $asset" >&2
+  exit 1
+fi
+actual="$(sha256_file "$tmp/$asset")"
+if [ "$actual" != "$expected" ]; then
+  echo "specflow installer: checksum mismatch for $asset" >&2
+  exit 1
+fi
 tar -xzf "$tmp/$asset" -C "$tmp"
 
 mkdir -p "$INSTALL_DIR"
-install_path="$INSTALL_DIR/$BIN_NAME"
-aflow_install_path="$INSTALL_DIR/$AFLOW_BIN_NAME"
 mv "$tmp/specflow" "$install_path"
 mv "$tmp/aflow" "$aflow_install_path"
 chmod +x "$install_path"

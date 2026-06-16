@@ -115,6 +115,13 @@ jobs:
           tar -czf specflow-code-linux-x64.tar.gz -C specflow-code-linux-x64 specflow aflow
           (cd specflow-code-windows-x64 && zip -9 ../specflow-code-windows-x64.zip specflow.exe aflow.exe)
           shasum -a 256 specflow-code-*.tar.gz specflow-code-*.zip > SHA256SUMS
+          shasum -a 256 \
+            specflow-code-darwin-arm64/specflow specflow-code-darwin-arm64/aflow \
+            specflow-code-darwin-x64/specflow specflow-code-darwin-x64/aflow \
+            specflow-code-linux-arm64/specflow specflow-code-linux-arm64/aflow \
+            specflow-code-linux-x64/specflow specflow-code-linux-x64/aflow \
+            specflow-code-windows-x64/specflow.exe specflow-code-windows-x64/aflow.exe \
+            > SHA256SUMS_BINARIES
 
       - name: Attach binaries to release
         env:
@@ -128,6 +135,7 @@ jobs:
             dist/release/specflow-code-linux-x64.tar.gz \
             dist/release/specflow-code-windows-x64.zip \
             dist/release/SHA256SUMS \
+            dist/release/SHA256SUMS_BINARIES \
             --clobber
 
   bump-snapshot-pr:

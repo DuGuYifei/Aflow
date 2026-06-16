@@ -14,6 +14,6 @@
     "@specflow/bridge": "workspace:*",
     "@specflow/shared": "workspace:*",
     "@specflow/workflow": "workspace:*",
-    "yaml": "^2.8.4"
+    "yaml": "^2.9.0"
   }
 }

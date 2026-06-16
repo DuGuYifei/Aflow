@@ -277,6 +277,8 @@ Specflow 预热或 UI 保存 registry agent 时可能会在本地配置里记录
 
 这些文件保存每次 run 的摘要、状态、节点输出、agent invocation、agent session、workflow snapshot、canvas snapshot 和运行时变量值。
 
+paused、interrupted 和 Dynamic run 会通过结构化 runtime graph patch 编辑 run snapshot。这些修改保存在 run record 上，不会改动已保存的 workflow YAML/canvas；除非用户后续明确把 run snapshot 另存为新的 workflow。
+
 旧版本可能存在：
 
 ```text

@@ -1,6 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+const appendQueues = new Map<string, Promise<void>>();
+
 export function acpEventLogPath(dir: string, id: string): string {
   return join(dir, `${id}.jsonl`);
 }
@@ -11,8 +13,19 @@ export async function appendAcpEventLogEntry<T>(
   event: T,
 ): Promise<void> {
   const path = acpEventLogPath(dir, id);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(event)}\n`, { flag: "a" });
+  const previous = appendQueues.get(path) ?? Promise.resolve();
+  const write = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify(event)}\n`, { flag: "a" });
+    });
+  appendQueues.set(path, write);
+  try {
+    await write;
+  } finally {
+    if (appendQueues.get(path) === write) appendQueues.delete(path);
+  }
 }
 
 export async function listAcpEventLogEntries<T>(

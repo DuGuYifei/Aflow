@@ -3,7 +3,7 @@ title: Aflow Agent Tutorial
 description: Learn how to use Aflow Agent to create, adapt, validate, run, and continue Specflow workflows.
 category: tutorial
 order: 4
-updatedAt: "2026-06-13 06:27:21 CEST"
+updatedAt: "2026-06-15 00:00:00 CEST"
 tags:
   - aflow
   - agent
@@ -14,7 +14,7 @@ tags:
 
 Aflow Agent is Specflow's terminal workflow agent. It runs in your project directory and uses conversation to understand business goals, help you create workflows, fork/adapt existing workflows into local variants, validate YAML, run workflows, and continue into an agent session associated with a workflow node after the run finishes.
 
-Unlike direct `specflow run`, Aflow is designed for interactive collaboration. It asks when required information is missing, collects required workflow variables before a workflow run, and keeps node status, pause interaction, and session resume inside the same TUI.
+Unlike direct `specflow run`, Aflow is designed for interactive collaboration. It asks when required information is missing, collects required workflow variables before a workflow run, and keeps node status, pause interaction, workflow continuation, and session resume inside the same TUI.
 
 You do not have to memorize slash commands. If you say in chat that you want to turn a process into a workflow, run something with Specflow, or adapt a general workflow to a specific business case, Aflow can understand the intent and call workflow tools to create, copy, adapt, or validate the workflow.
 
@@ -90,6 +90,8 @@ Aflow runs workflows through the Specflow server. Before running, it validates t
 
 During execution, the TUI shows concise status for each node and prioritizes node titles so users can understand the current business step. When nodes complete, fail, skip, or wait for human interaction, Aflow updates the current interface.
 
+When the TUI is available, `/specflow-run` asks whether to use `Normal run` or `Dynamic run`. `Normal run` is the default. `Dynamic run` pauses after each activation so Aflow can inspect the completed node text and, only when there is clear evidence of business drift or avoidable downstream failure, patch this run's snapshot before continuing. Dynamic patches do not edit the saved workflow YAML/canvas.
+
 ### Pause Node Interaction
 
 When a workflow reaches a `pauseAfterRun: true` node, Aflow switches the interface into the ACP interaction TUI for that node. The interface keeps the necessary workflow information and shows recent context messages so the user can see what the agent has done so far.
@@ -101,10 +103,10 @@ The user can continue chatting with that agent in the pause interface, or confir
 In Aflow, enter:
 
 ```text
-/specflow-resume
+/specflow-continue
 ```
 
-This command keeps its legacy name, but its workflow-run action is Continue: it creates a continuation run from a stopped, failed, or interrupted source run. Aflow reads the run state from the Specflow server, repairs stale running/stopped state when needed, and continues from a recoverable point.
+This command creates a continuation run from a stopped or failed source run. Aflow reads the run state from the Specflow server, repairs stale running/stopped state when needed, and continues from a recoverable point.
 
 ### Resume Node Agent Sessions
 
@@ -179,7 +181,7 @@ GLM and Pi are currently treated as ACP-only. Dirac is recorded as having native
 
 ### Workflow Tools
 
-Aflow tools can read, create, copy, validate, run, and resume workflows. The model should only write workflows when doing so is necessary for the user's goal. If the user only asks for syntax, existing configuration, or an explanation, the agent should read and explain first instead of creating files without a reason.
+Aflow tools can read, create, copy, validate, run, and continue workflows. The model should only write workflows when doing so is necessary for the user's goal. If the user only asks for syntax, existing configuration, or an explanation, the agent should read and explain first instead of creating files without a reason.
 
 ## General Pi Capabilities
 

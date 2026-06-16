@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import type { Session, WorkflowNode, TimelineEvent, Variable, RunStatus } from '../types';
 import type { AgentServerEntry, AgentSessionRecord, PausedNodeSession, RestoreMode } from '../api';
 import { useI18n } from '../i18n';
@@ -267,35 +267,12 @@ function LogsTab({
   };
 
   const termRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const prevLenRef = useRef(0);
   const prevFirstRef = useRef<TimelineEvent | undefined>(undefined);
+  const prevLastRef = useRef<TimelineEvent | undefined>(undefined);
   const prevHeightRef = useRef(0);
-  useEffect(() => {
-    const events = timelineEvents ?? [];
-    const element = termRef.current;
-    if (!element) {
-      prevLenRef.current = events.length;
-      prevFirstRef.current = events[0];
-      return;
-    }
-    const prevLen = prevLenRef.current;
-    const prevFirst = prevFirstRef.current;
-    const currFirst = events[0];
-    const grew = events.length > prevLen;
-    const firstChanged = prevLen > 0 && currFirst !== prevFirst;
-    if (grew && firstChanged) {
-      // Prepend (Load earlier): keep the currently-visible content under the
-      // user's eye by compensating scrollTop for the height added at the top.
-      const delta = element.scrollHeight - prevHeightRef.current;
-      element.scrollTop = element.scrollTop + delta;
-    } else if (grew) {
-      // Live append: pin to bottom.
-      element.scrollTop = element.scrollHeight;
-    }
-    prevLenRef.current = events.length;
-    prevFirstRef.current = currFirst;
-    prevHeightRef.current = element.scrollHeight;
-  }, [timelineEvents]);
+  const prevActiveEntryIdRef = useRef<string | undefined>(undefined);
 
   const sessionTree = buildLogSessionTree({ sessions, stepNodes, timelineEvents, agentSessions, activeRunId, t });
   const activeEntry = findLogSessionEntry(sessionTree, activeSessionId) ?? sessionTree[0]?.root ?? sessionTree[0]?.forks[0];
@@ -323,13 +300,13 @@ function LogsTab({
       }
       return true;
     }
+    // Events explicitly tagged with this session win over display metadata.
+    if ('specflowSessionId' in event && event.specflowSessionId) {
+      return event.specflowSessionId === activeEntry.id;
+    }
     if (event.type === 'display-message' && event.fork) {
       if (activeEntry.kind === 'fork') return event.fork.specflowSessionId === activeEntry.id;
       return event.fork.parentSpecflowSessionId === activeEntry.id;
-    }
-    // Events explicitly tagged with this session win.
-    if ('specflowSessionId' in event && event.specflowSessionId) {
-      return event.specflowSessionId === activeEntry.id;
     }
     // Events with a nodeId: only show if that node belongs to the active session.
     if ('nodeId' in event && event.nodeId) {
@@ -338,6 +315,55 @@ function LogsTab({
     // Unscoped run-level events (system messages, cancellation, etc) appear in every tab.
     return true;
   });
+
+  useLayoutEffect(() => {
+    const events = visibleEvents;
+    const element = termRef.current;
+    const currFirst = events[0];
+    const currLast = events.at(-1);
+    const activeEntryId = activeEntry?.id;
+    if (!element) {
+      prevLenRef.current = events.length;
+      prevFirstRef.current = currFirst;
+      prevLastRef.current = currLast;
+      prevActiveEntryIdRef.current = activeEntryId;
+      return;
+    }
+    const prevLen = prevLenRef.current;
+    const prevFirst = prevFirstRef.current;
+    const prevLast = prevLastRef.current;
+    const activeChanged = activeEntryId !== prevActiveEntryIdRef.current;
+    const grew = events.length > prevLen;
+    const firstChanged = prevLen > 0 && currFirst !== prevFirst;
+    const lastChanged = currLast !== prevLast;
+    const prepended = grew && firstChanged && !lastChanged;
+
+    if (activeChanged) {
+      element.scrollTop = element.scrollHeight;
+      stickToBottomRef.current = true;
+    } else if (prepended) {
+      // Prepend (Load earlier): keep the currently-visible content under the
+      // user's eye by compensating scrollTop for the height added at the top.
+      const delta = element.scrollHeight - prevHeightRef.current;
+      element.scrollTop = element.scrollTop + delta;
+      stickToBottomRef.current = isNearLogBottom(element);
+    } else if (lastChanged && stickToBottomRef.current) {
+      element.scrollTop = element.scrollHeight;
+      stickToBottomRef.current = true;
+    }
+
+    prevLenRef.current = events.length;
+    prevFirstRef.current = currFirst;
+    prevLastRef.current = currLast;
+    prevActiveEntryIdRef.current = activeEntryId;
+    prevHeightRef.current = element.scrollHeight;
+  }, [visibleEvents, activeEntry?.id]);
+
+  const onTermScroll = () => {
+    const element = termRef.current;
+    if (!element) return;
+    stickToBottomRef.current = isNearLogBottom(element);
+  };
 
   return (
     <div className="sessions-body logs">
@@ -360,7 +386,7 @@ function LogsTab({
             t={t}
           />
         </div>
-        <div className="term-stream" ref={termRef}>
+        <div className="term-stream" ref={termRef} onScroll={onTermScroll}>
           {canLoadEarlierLogs && onLoadEarlierLogs && (
             <div style={{
               display: 'flex',
@@ -1018,4 +1044,8 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
       </div>
     </div>
   );
+}
+
+function isNearLogBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 24;
 }

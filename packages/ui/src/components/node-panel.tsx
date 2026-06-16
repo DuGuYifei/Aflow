@@ -30,6 +30,7 @@ interface NodePanelProps {
   workflowVersion: 1 | 2;
   viewMode: 'edit' | 'run';
   readonly?: boolean;
+  identityReadonly?: boolean;
   editImpactLabel?: string;
   timelineEvents: TimelineEvent[];
   onClose: () => void;
@@ -64,7 +65,7 @@ export function NodePanel(props: NodePanelProps) {
     return <GatePanelContent {...props} node={props.node} readonly={readonly} />;
   }
   if (props.node.kind === 'end') {
-    return <EndPanelContent node={props.node} run={props.run} nodes={props.nodes} readonly={readonly} editImpactLabel={props.editImpactLabel} onClose={props.onClose} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />;
+    return <EndPanelContent node={props.node} run={props.run} nodes={props.nodes} readonly={readonly} identityReadonly={props.identityReadonly} editImpactLabel={props.editImpactLabel} onClose={props.onClose} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />;
   }
   return <StepPanelContent {...props} node={props.node} readonly={readonly} tab={tab} setTab={setTab} />;
 }
@@ -173,7 +174,7 @@ function StepOverview(props: NodePanelProps & {
     <>
       {run && <NodeRunStatusBadge status={node.runState} />}
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} identityReadonly={props.identityReadonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.session')}</div>
@@ -348,7 +349,7 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
           : t('node.gateForkRuntimeHint'))}
       </div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} identityReadonly={props.identityReadonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.decisionCriteria')}</div>
@@ -449,7 +450,7 @@ function StartPanelContent(props: NodePanelProps & { node: Extract<WorkflowNode,
       {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">{t('node.startHint')}</div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} identityReadonly={props.identityReadonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
     </RightPanel>
@@ -479,7 +480,7 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode & { runStat
       <EditImpactNote label={props.editImpactLabel} />
       {run && <NodeRunStatusBadge status={node.runState} />}
       <NodeLockToggle node={node} readonly={readonly} onEditNode={props.onEditNode} />
-      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} identityReadonly={props.identityReadonly} onEditNode={props.onEditNode} onRenameNode={props.onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
       <div className="section-title">{t('node.variableName')}</div>
@@ -531,7 +532,7 @@ function InputPanelContent(props: NodePanelProps & { node: InputNode & { runStat
   );
 }
 
-function EndPanelContent({ node, run, nodes, readonly, editImpactLabel, onClose, onEditNode, onRenameNode }: { node: Extract<WorkflowNode, { kind: 'end' }> & { runState?: RunState }; run?: Run; nodes: WorkflowNode[]; readonly: boolean; editImpactLabel?: string; onClose: () => void; onEditNode: (id: string, patch: Record<string, unknown>) => void; onRenameNode: (oldId: string, newId: string) => void }) {
+function EndPanelContent({ node, run, nodes, readonly, identityReadonly, editImpactLabel, onClose, onEditNode, onRenameNode }: { node: Extract<WorkflowNode, { kind: 'end' }> & { runState?: RunState }; run?: Run; nodes: WorkflowNode[]; readonly: boolean; identityReadonly?: boolean; editImpactLabel?: string; onClose: () => void; onEditNode: (id: string, patch: Record<string, unknown>) => void; onRenameNode: (oldId: string, newId: string) => void }) {
   const { t } = useI18n();
   return (
     <RightPanel label={<><Icon name="check" size={11} />{t('node.end')}</>} title={<PanelNodeTitle node={node} />} onClose={onClose}>
@@ -539,7 +540,7 @@ function EndPanelContent({ node, run, nodes, readonly, editImpactLabel, onClose,
       {run && <NodeRunStatusBadge status={node.runState} />}
       <div className="code-hint">{t('node.endHint')}</div>
       <NodeLockToggle node={node} readonly={readonly} onEditNode={onEditNode} />
-      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} onEditNode={onEditNode} onRenameNode={onRenameNode} />
+      <NodeIdentityFields node={node} nodes={nodes} readonly={readonly} identityReadonly={identityReadonly} onEditNode={onEditNode} onRenameNode={onRenameNode} />
       <div className="section-title">{t('node.alias')}</div>
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => onEditNode(node.id, { alias: event.target.value })} />
     </RightPanel>
@@ -550,12 +551,14 @@ function NodeIdentityFields({
   node,
   nodes,
   readonly,
+  identityReadonly,
   onEditNode,
   onRenameNode,
 }: {
   node: WorkflowNode;
   nodes: WorkflowNode[];
   readonly: boolean;
+  identityReadonly?: boolean;
   onEditNode: (id: string, patch: Record<string, unknown>) => void;
   onRenameNode: (oldId: string, newId: string) => void;
 }) {
@@ -591,7 +594,7 @@ function NodeIdentityFields({
       <input
         className={`input${error ? ' invalid' : ''}`}
         value={draftId}
-        disabled={readonly}
+        disabled={identityReadonly ?? readonly}
         onChange={(event) => {
           setDraftId(event.target.value);
           if (error) setError('');

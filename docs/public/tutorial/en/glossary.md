@@ -3,7 +3,7 @@ title: Specflow Glossary
 description: Fixed terms for workflow execution, run control, snapshots, and loop traversal.
 category: tutorial
 order: 6
-updatedAt: "2026-06-13 06:27:21 CEST"
+updatedAt: "2026-06-15 00:00:00 CEST"
 tags:
   - glossary
   - workflow
@@ -26,7 +26,8 @@ tags:
 - `Activation`: one scheduled node execution.
 - `Traversal`: the count of repeated activations through a loop or bounded gate branch.
 - `Run Snapshot`: the editable workflow copy stored on a run. Paused and interrupted runs edit this snapshot, not the original workflow YAML.
+- `Runtime Graph Patch`: a structured edit operation applied to a paused or interrupted run snapshot. It can update reachable future nodes, edges, variables, sessions, and layout while the server preserves completed history facts and migrates the checkpoint.
+- `Dynamic Run`: an Aflow run mode that pauses after activations, reviews completed node text, optionally applies runtime graph patches to the current run snapshot, and then plays the same run to the next checkpoint.
 - `History Only`: a node or edge that has already contributed to this run and is not expected to affect remaining execution.
 - `History + Future`: a completed node that can still run again, usually because a loop can reach it.
 - `Loop-Closing Edge`: a derived runtime/UI marker for the edge that closes a cycle. It is highlighted in the canvas but is not an authored v2 `loopback` property.
-

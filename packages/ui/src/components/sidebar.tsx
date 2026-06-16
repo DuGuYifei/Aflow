@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Workflow, Run, WorkflowDiagnostic } from '../types';
 import { useI18n } from '../i18n';
+import { formatWorkflowDiagnostic, formatWorkflowDiagnosticSeverity, getWorkflowListDiagnostics } from '../workflow-diagnostics';
+import { FloatingTooltip } from './floating-tooltip';
 import { Icon } from './icon';
 
 interface SidebarProps {
@@ -35,26 +37,30 @@ const MIN_PANEL_WIDTH = 150;
 const MAX_PANEL_WIDTH = 460;
 
 function WorkflowDiagnosticsBadge({ diagnostics }: { diagnostics: WorkflowDiagnostic[] }) {
-  if (diagnostics.length === 0) return null;
-  const visibleDiagnostics = diagnostics.slice(0, 8);
+  const { t } = useI18n();
+  const workflowListDiagnostics = getWorkflowListDiagnostics(diagnostics);
+  if (workflowListDiagnostics.length === 0) return null;
+  const visibleDiagnostics = workflowListDiagnostics.slice(0, 8);
+  const severitySeparator = t('diagnostics.severitySeparator');
   const tooltip = [
     ...visibleDiagnostics.map((diagnostic) =>
-      `${diagnostic.severity === 'error' ? 'Error' : 'Warning'}: ${diagnostic.message}`),
-    ...(diagnostics.length > visibleDiagnostics.length
-      ? [`+${diagnostics.length - visibleDiagnostics.length} more`]
+      `${formatWorkflowDiagnosticSeverity(diagnostic.severity, t)}${severitySeparator}${formatWorkflowDiagnostic(diagnostic, t)}`),
+    ...(workflowListDiagnostics.length > visibleDiagnostics.length
+      ? [t('diagnostics.more', { count: workflowListDiagnostics.length - visibleDiagnostics.length })]
       : []),
   ].join('\n');
-  const label = `${diagnostics.length} workflow validation ${diagnostics.length === 1 ? 'issue' : 'issues'}`;
+  const label = t('diagnostics.workflowIssuesLabel', { count: workflowListDiagnostics.length });
   return (
-    <span
-      className="wf-diagnostics quick-tooltip"
-      data-tooltip={tooltip}
-      aria-label={label}
-      tabIndex={0}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <Icon name="alert" size={12} />
-    </span>
+    <FloatingTooltip content={tooltip} placement="right" multiline>
+      <span
+        className="wf-diagnostics"
+        aria-label={label}
+        tabIndex={0}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <Icon name="alert" size={12} />
+      </span>
+    </FloatingTooltip>
   );
 }
 
@@ -311,27 +317,34 @@ export function Sidebar({
                 <span className="label">{run.label}</span>
                 <div className="actions" onClick={(event) => event.stopPropagation()}>
                   {onResumeRun && !run.resumedByRunId && (run.status === 'stopped' || run.status === 'error') && (
-                    <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.continueRunTitle')} aria-label={t('sidebar.continueRunTitle')} onClick={() => onResumeRun(run.id)}>
-                      <Icon name="play-circle" size={11} />
-                    </button>
+                    <FloatingTooltip content={t('sidebar.continueRunTitle')}>
+                      <button className="btn sm icon" aria-label={t('sidebar.continueRunTitle')} onClick={() => onResumeRun(run.id)}>
+                        <Icon name="play-circle" size={11} />
+                      </button>
+                    </FloatingTooltip>
                   )}
                   {onSaveBestPractice && run.status === 'success' && (
-                    <button
-                      className="btn sm icon quick-tooltip"
-                      data-tooltip={t('sidebar.saveBestPracticeTitle')}
-                      aria-label={t('sidebar.saveBestPracticeTitle')}
-                      disabled={bestPracticeBusyRunId === run.id}
-                      onClick={() => onSaveBestPractice(run.id)}
-                    >
-                      <Icon name={bestPracticeBusyRunId === run.id ? 'loader' : 'star'} size={11} />
-                    </button>
+                    <FloatingTooltip content={t('sidebar.saveBestPracticeTitle')}>
+                      <button
+                        className="btn sm icon"
+                        aria-label={t('sidebar.saveBestPracticeTitle')}
+                        disabled={bestPracticeBusyRunId === run.id}
+                        onClick={() => onSaveBestPractice(run.id)}
+                      >
+                        <Icon name={bestPracticeBusyRunId === run.id ? 'loader' : 'star'} size={11} />
+                      </button>
+                    </FloatingTooltip>
                   )}
-                  <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.rerunTitle')} aria-label={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
-                    <Icon name="rotate" size={11} />
-                  </button>
-                  <button className="btn sm icon quick-tooltip" data-tooltip={t('sidebar.delete')} aria-label={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
-                    <Icon name="trash" size={11} />
-                  </button>
+                  <FloatingTooltip content={t('sidebar.rerunTitle')}>
+                    <button className="btn sm icon" aria-label={t('sidebar.rerunTitle')} onClick={() => onRerunRun(run.id)}>
+                      <Icon name="rotate" size={11} />
+                    </button>
+                  </FloatingTooltip>
+                  <FloatingTooltip content={t('sidebar.delete')}>
+                    <button className="btn sm icon" aria-label={t('sidebar.delete')} onClick={() => onDeleteRun(run.id)}>
+                      <Icon name="trash" size={11} />
+                    </button>
+                  </FloatingTooltip>
                 </div>
               </div>
               <div className="ticket">{run.ticket}</div>

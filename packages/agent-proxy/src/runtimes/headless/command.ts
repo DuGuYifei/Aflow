@@ -12,6 +12,10 @@ export async function runHeadlessAgent(
   const args = resolved.settings.argsTemplate.map((argument) => renderArg(argument, request.prompt));
   let output = "";
   let stderr = "";
+  request.onWorkflowSessionResolved?.({
+    workflowSessionId: request.workflowSessionId,
+    sessionForked: false,
+  });
   const child = spawn(resolved.command.command, args, {
     cwd: resolved.command.cwd ?? request.cwd,
     env: { ...process.env, ...(resolved.command.env ?? {}) },

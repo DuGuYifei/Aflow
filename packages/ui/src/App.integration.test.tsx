@@ -400,17 +400,30 @@ describe("App run integration", () => {
     source.emit("node-status", {
       nodeId: "node-1",
       status: "success",
+      at: "2026-05-25T00:00:01.000Z",
       gateDecision: { branchId: "revise", reason: "Blueprint still needs complete localized copy." },
       gateBranches: [
-        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: 1, available: true },
+        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: Number.MAX_SAFE_INTEGER, available: true },
         { branchId: "revise", label: "revise", traversalsUsed: 2, maxTraversals: 2, available: false },
+      ],
+    });
+    source.emit("node-status", {
+      nodeId: "node-1",
+      status: "success",
+      at: "2026-05-25T00:00:02.000Z",
+      gateDecision: { branchId: "revise", reason: "Blueprint still needs complete localized copy." },
+      gateBranches: [
+        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: Number.MAX_SAFE_INTEGER, available: true },
+        { branchId: "revise", label: "revise", traversalsUsed: 3, maxTraversals: 3, available: false },
       ],
     });
 
     await waitForText("Blueprint still needs complete localized copy.");
+    await waitForText("approve 0/∞");
     await waitForText("revise 2/2 exhausted");
+    await waitForText("revise 3/3 exhausted");
     const gates = document.querySelectorAll(".term-stream .timeline-gate");
-    if (gates.length !== 1) throw new Error(`Expected one gate decision entry, got ${gates.length}`);
+    if (gates.length !== 2) throw new Error(`Expected two gate decision entries, got ${gates.length}`);
   });
 
   test("loads the first existing workflow when the renamed example is absent", async () => {
@@ -458,9 +471,112 @@ describe("App run integration", () => {
     await waitForText("Start run");
     await waitFor(() => {
       const badge = document.querySelector(".wf-diagnostics");
-      return badge instanceof window.HTMLElement
-        && Boolean(badge.getAttribute("data-tooltip")?.includes("Loop must be controlled by a gate."));
+      return badge instanceof window.HTMLElement;
     });
+    await showTooltip(document.querySelector(".wf-diagnostics"), "Error: Loop structure is invalid.");
+  });
+
+  test("hides workflow-list diagnostics that are not user-facing warnings", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{
+            code: "REQUIRED_VARIABLE_NEEDS_RUNTIME_VALUE",
+            severity: "warning",
+            message: "Required variable needs a runtime value.",
+            variableName: "specflow_task",
+          }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    expect(document.querySelector(".wf-diagnostics")).toBe(null);
+  });
+
+  test("falls back to server diagnostic messages for unknown workflow diagnostic codes", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{ code: "FUTURE_CODE", severity: "warning", message: "Future warning." }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    await showTooltip(document.querySelector(".wf-diagnostics"), "Warning: Future warning.");
+  });
+
+  test("localizes workflow diagnostics in the workflow list tooltip", async () => {
+    localStorage.setItem("sf-lang", "zh-CN");
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url === "/api/canvases") {
+        return json([{
+          id: "example-code-frontend-flow",
+          name: "Workflow",
+          diagnostics: [{
+            code: "NON_GATE_FANOUT",
+            severity: "warning",
+            message: "Step has multiple outgoing edges.",
+            nodeId: "split",
+          }],
+        }]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("开始运行");
+    await showTooltip(document.querySelector(".wf-diagnostics"), "警告：步骤“split”有多条出边。");
+  });
+
+  test("shows portal tooltips for run card actions", async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (input: RequestInfo | URL, initialValue?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+      const method = initialValue?.method ?? "GET";
+      if (method === "GET" && url.startsWith("/api/runs?")) {
+        return json([sampleRun("success")]);
+      }
+      return defaultFetch(input, initialValue);
+    };
+
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Run #1");
+    await showTooltip(document.querySelector('button[aria-label="Run this snapshot again"]'), "Run this snapshot again");
+  });
+
+  test("shows portal tooltips for canvas toolbar buttons", async () => {
+    root = createRoot(container);
+    renderApp(root);
+
+    await waitForText("Start run");
+    await showTooltip(document.querySelector('button[aria-label="Zoom out"]'), "Zoom out");
   });
 
   test("adds a session and renders it immediately", async () => {
@@ -1380,6 +1496,21 @@ function clickBottomBarHandle(): void {
   const button = bottomBar?.getElementsByTagName("button")[0];
   if (!button) throw new Error("Bottom bar handle not found");
   button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+async function showTooltip(target: Element | null, expectedText: string): Promise<void> {
+  if (!(target instanceof window.HTMLElement)) throw new Error(`Tooltip target not found: ${expectedText}`);
+  const trigger = target.closest(".floating-tooltip-trigger");
+  if (!(trigger instanceof window.HTMLElement)) throw new Error(`Tooltip trigger not found: ${expectedText}`);
+  await waitFor(() => trigger.dataset.floatingTooltipReady === "true");
+  trigger.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }));
+  await waitFor(() => {
+    const tooltip = document.querySelector(".floating-tooltip");
+    return tooltip instanceof window.HTMLElement
+      && tooltip.textContent?.includes(expectedText) === true
+      && window.getComputedStyle(tooltip).position === "fixed";
+  });
+  trigger.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }));
 }
 
 function setInputValue(input: HTMLInputElement, value: string): void {

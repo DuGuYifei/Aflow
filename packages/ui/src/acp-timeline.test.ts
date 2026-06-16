@@ -43,6 +43,39 @@ describe("ACP timeline parser", () => {
     expect(items[1]).toMatchObject({ kind: "tool", title: "Write file", status: "completed" });
   });
 
+  test("keeps gate decisions in timestamp order", () => {
+    const events: TimelineEvent[] = [{
+      type: "acp_timeline",
+      id: "before",
+      at: "2026-05-25T00:00:01.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      kind: "assistant_delta",
+      text: "Before gate",
+    }, {
+      type: "acp_timeline",
+      id: "after",
+      at: "2026-05-25T00:00:03.000Z",
+      source: "agentflow",
+      scopeId: "run1",
+      kind: "assistant_delta",
+      text: "After gate",
+    }, {
+      type: "gate-decision",
+      nodeId: "gate",
+      at: "2026-05-25T00:00:02.000Z",
+      branchId: "continue",
+      reason: "Keep going",
+    }];
+
+    const items = buildTimelineItems(events);
+
+    expect(items).toHaveLength(3);
+    expect(items[0]).toMatchObject({ kind: "message", role: "agent", text: "Before gate" });
+    expect(items[1]).toMatchObject({ kind: "gate", branchId: "continue", reason: "Keep going" });
+    expect(items[2]).toMatchObject({ kind: "message", role: "agent", text: "After gate" });
+  });
+
   test("deduplicates user chunks without invocation ids after a displayed user message", () => {
     const events: TimelineEvent[] = [{
       type: "display-message",

@@ -1,10 +1,69 @@
 # TODO
 
-本文只保留当前 goal 的验收结果和仍需执行的工作。已经完成的历史 ACP roadmap 不再作为待办重复维护；当前 node/edge 行为详见 `.specflow/product/node-edge-current-state.md`。
+本文只维护当前仍需要跟进的工作，并保留近期完成项作为上下文。已经完成的历史 ACP roadmap 不再作为待办重复维护；当前 node/edge 行为详见 `.specflow/product/node-edge-current-state.md`。
 
-## Current Goal Acceptance Checklist
+## Open Work
 
-核对日期：2026-05-24。已勾选项目已由实现与测试确认。
+### Spec And Workflow Documents
+
+- [ ] 实现 spec 文档生成、更新及 flow 完成后的自动更新。（waiting maturation）
+- [ ] `specflow generate-spec` 命令。
+- [ ] `specflow update-spec` 命令。
+
+### Runtime, Logs, And Observability
+
+- [ ] 日志大小上限、文件数量上限。
+- [ ] 运行中节点被选中时，下方 session 日志自动切换到该节点所属 session。
+- [ ] server 模式启动 OTEL。
+
+### Agent And Platform Integrations
+
+- [ ] MCP 系统接入。
+- [ ] 优化 workflow 的 agent/server 中台链路，包括 workflow 快照和日志快照传递。
+- [ ] token 计数。和  `usage_update` token 记录与展示。
+- [ ] `sessionUpdate: "plan"` - [ACP agent plan](https://agentclientprotocol.com/protocol/v1/agent-plan)。
+- [ ] `ask_user_question` based on client capability。（可能只有 Claude Code 支持）
+- [ ] SKILL 模式。
+- [ ] 更新 pi。
+
+### UI, Product, And Distribution
+
+- [ ] app。
+- [ ] UI 更新为和 homepage 一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
+- [ ] i18n 应当直接写入对应文件内，而不是统一分配，难以维护。
+- [ ] homepage switch to master branch to download。
+
+## Recently Completed
+
+### Dynamic Run And Aflow Agent
+
+- [x] aflow agent 可以接管 flow run，随时 pause / interrupt，并修改后续节点。
+- [x] interrupt / pause 更改节点后运行不会恢复原样。
+- [x] dynamic run 支持增删节点、修改当前节点 prompt/config，并保持运行快照生效。
+- [x] 优化 agentflow prompt for dynamic flow。
+- [x] v1 -> v2 完成后提示 `Finished`。
+
+### Runtime And Workspace
+
+- [x] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。（只是单纯 server 没反应，不是 bug）
+- [x] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界，清理 `.specflow` 下的文件 / 文件夹。
+- [x] example yaml 放入 `agentflows-local`。
+- [x] Design 的版本记录直接用 git，靠一个按钮。
+
+### Resolved Bugs
+
+- [x] fork session 与 gate fork 实时显示到 Logs 面板。
+- [x] Variables 页签在 run/history 视图显示本次输入值。
+- [x] 修复 session 显示时共享 session 的问题。
+- [x] 重新进入运行中的 workflow 时，session 会主动刷新。
+- [x] UI: input value 节点不能连线。
+- [x] UI: 新建 workflow 不再默认创建 unconfigured session。
+- [x] 程序退出并重启时，如果发现 run logs 里有 running 节点，先改为 cancel/stopped 状态。
+- [x] 修复更改 node key 后点击另一个节点会带过去的问题。
+
+## Completed Acceptance Baseline
+
+核对日期：2026-05-24。以下项目已由实现与测试确认。
 
 ### Node And Prompt Model
 
@@ -53,38 +112,3 @@
 - [x] Gate 输出必须为纯 JSON；首次 parse/schema/branch 校验失败时，在同一 fork session 内自动 repair 一次。
 - [x] 右侧节点面板支持编辑 node key；标题为空时使用 node key 拆词作为 fallback。
 - [x] Run/history 视图中节点状态显示为只读 status badge，变量页签显示本次输入值而非可编辑输入框。
-
-## Open Work
-
-- [ ] 实现 spec 文档生成、更新及 flow 完成后的自动更新。(waiting maturation)
-- [ ] specflow generate-spec 命令
-- [ ] specflow update-spec 命令
-- [x] 解决偶发的 `[Bun.serve]: request timed out after 10 seconds`，并确定合理的 `idleTimeout` 策略。(只是单纯server没反应，不是bug)
-- [x] 定义 workspace `.specflow` 与用户级/全局 agent 安装配置的归属边界，清理 .specflow 下的文件 / 文件夹
-- [x] example yaml可能应该放入 agentflows-local
-- [ ] MCP系统接入
-- [ ] token计数
-- [ ] 优化workflow的agent或server中台，整体链路（还得发送workflow快照和日志快照）
-- [ ] 日志大小上限，文件数量上限
-- [ ] 运行中节点被选中，下方session应该自动切换到该节点所属session看日志。
-- [ ] app
-- [ ] UI更新为和homepage一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
-- [ ] SKILL模式
-- [x] Design 的 版本记录，可能直接用git，靠一个按钮。
-- [ ] i18n应当直接写入对应文件内，而不是统一分配，难以维护
-- [ ] 更新 pi
-- [ ] sessionUpdate: "plan" - [acp agent plan](https://agentclientprotocol.com/protocol/v1/agent-plan)
-- [ ] token usage_update
-- [ ] askuerquetion based on client capability （可能只有claude code支持）
-- [ ] server 模式，启动OTEL
-- [ ] aflow agent可以接管 flow run，随时暂停 / interrupt，修改后续节点。（可能只需要文字部分，和自己去感知代码变动）。aflow可以interview，或者直接去交流。
-
-## Resolved Bugs
-
-- [x] fork session 与 gate fork 实时显示到 Logs 面板。
-- [x] Variables 页签在 run/history 视图显示本次输入值。
-- [x] session似乎在显示时候共享了session
-- [x] 重新进入运行中的workflow，session不会更新，应该要主动发一次请求是不是？（好像解决了，但是不记得了）
-- [x] UI: input value节点不能连线
-- [x] UI: 新建workflow，会有一个默认的unconfigured session，应该默认不创建。
-- [x] 当直接退出程序并重启时，如果直接发现run-logs里有running的节点，则先改为cancel状态。

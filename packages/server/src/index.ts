@@ -7,6 +7,7 @@ export * from "./agentflow/agentflow-validation";
 export * from "./agentflow/canvas-to-workflow";
 export * from "./agentflow/cli-runner";
 export * from "./agentflow/run-inputs";
+export * from "./agentflow/run-graph-patch";
 export * from "./agentflow/agent-session-store";
 export * from "./agentflow/run-log-store";
 export * from "./agent-server-config";

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   appendRunLogEvent,
+  createRunLogWriter,
   deleteRunLog,
   listRunLogEvents,
   listRunTimelineRestoreEvents,
@@ -130,5 +131,70 @@ describe("run log store", () => {
 
     const events = await listRunTimelineRestoreEvents(root, "run1");
     expect(events.map((event) => event.type === "acp_timeline" ? event.id : event.type)).toEqual(["snapshot-1", "assistant-2"]);
+  });
+
+  test("serializes mixed run log writes through one writer", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-logs-"));
+    const writer = createRunLogWriter(root);
+    const writes: Promise<void>[] = [];
+    const payload = "x".repeat(128 * 1024);
+
+    for (let index = 0; index < 40; index += 1) {
+      writes.push(writer.append({
+        type: "node_status",
+        runId: "run1",
+        nodeId: `node-${index}`,
+        status: "done",
+        at: "2026-05-19T00:00:00.000Z",
+        output: payload,
+      }));
+      writes.push(writer.append({
+        type: "acp_timeline",
+        id: `timeline-${index}`,
+        at: "2026-05-19T00:00:00.000Z",
+        source: "agentflow",
+        scopeId: "run1",
+        runId: "run1",
+        kind: "assistant_delta",
+        text: payload,
+      }));
+    }
+
+    await Promise.all(writes);
+    await writer.flush();
+
+    const raw = await readFile(runLogPath(root, "run1"), "utf8");
+    const lines = raw.trim().split(/\r?\n/);
+    expect(lines).toHaveLength(80);
+    for (const line of lines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+    const events = await listRunLogEvents(root, "run1");
+    expect(events).toHaveLength(80);
+    expect(events[0]).toMatchObject({ type: "node_status", nodeId: "node-0" });
+    expect(events[1]).toMatchObject({ type: "acp_timeline", id: "timeline-0" });
+  });
+
+  test("serializes direct concurrent appends to the same run log", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-run-logs-"));
+    const payload = "y".repeat(128 * 1024);
+
+    await Promise.all(Array.from({ length: 40 }, (_, index) => appendRunLogEvent(root, {
+      type: "terminal",
+      id: `terminal-${index}`,
+      runId: "run1",
+      stream: "stdout",
+      sequence: index,
+      chunk: payload,
+      createdAt: "2026-05-19T00:00:00.000Z",
+    })));
+
+    const raw = await readFile(runLogPath(root, "run1"), "utf8");
+    const lines = raw.trim().split(/\r?\n/);
+    expect(lines).toHaveLength(40);
+    for (const line of lines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+    expect(await listRunLogEvents(root, "run1")).toHaveLength(40);
   });
 });
