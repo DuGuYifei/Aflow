@@ -120,6 +120,11 @@ export interface RunGraphPatchResponse {
   topologyCapabilities?: unknown;
 }
 
+export interface SaveRunBestPracticeResponse {
+  ok: boolean;
+  workflow: CanvasSummary;
+}
+
 export interface PausedNodeSession {
   runId: string;
   nodeId: string;
@@ -331,6 +336,17 @@ export class SpecflowClient {
   ): Promise<RunGraphPatchResponse> {
     return this.request<RunGraphPatchResponse>(`/api/runs/${encodeURIComponent(id)}/graph`, {
       method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async saveRunBestPractice(
+    id: string,
+    body: { name?: string; shared?: boolean } = {},
+  ): Promise<SaveRunBestPracticeResponse> {
+    return this.request<SaveRunBestPracticeResponse>(`/api/runs/${encodeURIComponent(id)}/best-practice`, {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });

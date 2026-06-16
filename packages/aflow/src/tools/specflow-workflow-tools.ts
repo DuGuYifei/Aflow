@@ -29,7 +29,9 @@ import {
 } from "../resume/session-resume";
 
 type NativeHandoffUi = Parameters<typeof handoffToNativeTerminalFromTui>[1];
-type WorkflowUi = AflowCustomUi & NativeHandoffUi;
+type WorkflowUi = AflowCustomUi & NativeHandoffUi & {
+  input(title: string, placeholder?: string): Promise<string | undefined>;
+};
 
 const WorkflowTargetParams = Type.Object({
   target: Type.String({ description: "Workflow id or path to a workflow YAML file." }),
@@ -234,6 +236,12 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
           nodeDisplay,
         });
         if (isTerminalStatus(checkpoint.run.status)) {
+          const bestPractice = await offerDynamicSnapshotSave({
+            client: connection.client,
+            run: checkpoint.run,
+            hasUI: ctx.hasUI,
+            ui: ctx.hasUI ? ctx.ui : undefined,
+          });
           const sessionResume = await offerRunSessionResume({
             client: connection.client,
             run: checkpoint.run,
@@ -241,8 +249,9 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
             hasUI: ctx.hasUI,
             ui: ctx.hasUI ? ctx.ui : undefined,
           });
-          return textResult([formatRunSummary(checkpoint.run, nodeDisplay), sessionResume.text].filter(Boolean).join("\n\n"), {
+          return textResult([formatRunSummary(checkpoint.run, nodeDisplay), bestPractice.text, sessionResume.text].filter(Boolean).join("\n\n"), {
             ...checkpoint.details,
+            bestPractice: bestPractice.details,
             agentSessions: sessionResume.sessions,
             sessionResume: sessionResume.details,
             serverUrl: connection.url,
@@ -419,6 +428,12 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         nodeDisplay,
       });
       if (isTerminalStatus(checkpoint.run.status)) {
+        const bestPractice = await offerDynamicSnapshotSave({
+          client: connection.client,
+          run: checkpoint.run,
+          hasUI: ctx.hasUI,
+          ui: ctx.hasUI ? ctx.ui : undefined,
+        });
         const sessionResume = await offerRunSessionResume({
           client: connection.client,
           run: checkpoint.run,
@@ -426,8 +441,9 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
           hasUI: ctx.hasUI,
           ui: ctx.hasUI ? ctx.ui : undefined,
         });
-        return textResult([formatRunSummary(checkpoint.run, nodeDisplay), sessionResume.text].filter(Boolean).join("\n\n"), {
+        return textResult([formatRunSummary(checkpoint.run, nodeDisplay), bestPractice.text, sessionResume.text].filter(Boolean).join("\n\n"), {
           ...checkpoint.details,
+          bestPractice: bestPractice.details,
           agentSessions: sessionResume.sessions,
           sessionResume: sessionResume.details,
           serverUrl: connection.url,
@@ -520,6 +536,58 @@ async function chooseDynamicReviewMode(
   ].join("\n"), suggested === true ? [normalLabel, dynamicLabel] : [normalLabel, dynamicLabel]);
   if (!selected) return undefined;
   return selected === dynamicLabel ? "dynamic" : "normal";
+}
+
+async function offerDynamicSnapshotSave(input: {
+  client: SpecflowClient;
+  run: RunRecordDetail;
+  hasUI: boolean;
+  ui?: WorkflowUi;
+}): Promise<{ text: string; details?: Record<string, unknown> }> {
+  if (input.run.status !== "success") {
+    return { text: "", details: { eligible: false, reason: `status:${input.run.status}` } };
+  }
+  if (!input.run.agentflowSnapshot || !input.run.canvasSnapshot) {
+    input.ui?.notify("Dynamic run snapshot is missing; cannot save it as a workflow.", "warning");
+    return { text: "Dynamic run snapshot was not saved because the run snapshot is missing.", details: { selected: false, reason: "missing-snapshot" } };
+  }
+  if (!input.hasUI || !input.ui) {
+    return { text: "", details: { selected: false, reason: "no-ui" } };
+  }
+
+  const saveLabel = "Save snapshot as workflow";
+  const skipLabel = "Skip";
+  const selected = await input.ui.select([
+    "Save this Dynamic run snapshot as a workflow?",
+    "",
+    "This creates a new local workflow from the final run snapshot.",
+    "The original saved agentflow is not changed.",
+  ].join("\n"), [saveLabel, skipLabel]);
+  if (!selected || selected === skipLabel) {
+    return { text: "Dynamic run snapshot was not saved.", details: { selected: false } };
+  }
+
+  const defaultName = `${input.run.agentflowSnapshot.name || input.run.workflowId} best practice`;
+  const name = await input.ui.input("Workflow name for the saved snapshot", defaultName);
+  if (name === undefined) {
+    return { text: "Dynamic run snapshot save was cancelled.", details: { selected: true, saved: false, cancelled: true } };
+  }
+
+  try {
+    const result = await input.client.saveRunBestPractice(input.run.id, { name: name.trim() || defaultName });
+    input.ui.notify(`Saved workflow: ${result.workflow.name}`, "info");
+    return {
+      text: `Saved Dynamic run snapshot as workflow: ${result.workflow.name} (${result.workflow.id}).`,
+      details: { selected: true, saved: true, workflow: result.workflow },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    input.ui.notify(`Failed to save Dynamic run snapshot: ${message}`, "warning");
+    return {
+      text: `Failed to save Dynamic run snapshot as workflow: ${message}`,
+      details: { selected: true, saved: false, error: message },
+    };
+  }
 }
 
 async function monitorDynamicRun(

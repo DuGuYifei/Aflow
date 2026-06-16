@@ -47,6 +47,7 @@ describe("SpecflowClient", () => {
       });
       if (url.endsWith("/api/runs/run-1/reachability")) return jsonResponse({ nodes: {} });
       if (url.endsWith("/api/runs/run-1/graph")) return jsonResponse({ ok: true, snapshotRevision: 2, snapshot: {}, reachability: { nodes: {} } });
+      if (url.endsWith("/api/runs/run-1/best-practice")) return jsonResponse({ ok: true, workflow: { id: "saved", name: "Saved", local: true } });
       if (url.endsWith("/api/runs/run-1/continue")) return jsonResponse({ runId: "run-continued" });
       return jsonResponse({ ok: true });
     }) as typeof fetch;
@@ -60,6 +61,7 @@ describe("SpecflowClient", () => {
       operations: [{ op: "update_node", nodeId: "node-1", patch: { title: "Updated" } }],
       summary: "graph edit",
     });
+    await client.saveRunBestPractice("run-1", { name: "Saved" });
 
     expect(requests.map((request) => [request.method, new URL(request.url).pathname, request.body])).toEqual([
       ["POST", "/api/runs/run-1/play", { pauseAfterNextActivation: true }],
@@ -71,6 +73,7 @@ describe("SpecflowClient", () => {
         operations: [{ op: "update_node", nodeId: "node-1", patch: { title: "Updated" } }],
         summary: "graph edit",
       }],
+      ["POST", "/api/runs/run-1/best-practice", { name: "Saved" }],
     ]);
   });
 });
