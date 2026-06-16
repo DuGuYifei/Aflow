@@ -3,7 +3,7 @@ title: Aflow Agent Tutorial
 description: Learn how to use Aflow Agent to create, adapt, validate, run, and continue Specflow workflows.
 category: tutorial
 order: 4
-updatedAt: "2026-06-15 00:00:00 CEST"
+updatedAt: "2026-06-16 00:00:00 CEST"
 tags:
   - aflow
   - agent
@@ -92,6 +92,8 @@ During execution, the TUI shows concise status for each node and prioritizes nod
 
 When the TUI is available, `/specflow-run` asks whether to use `Normal run` or `Dynamic run`. `Normal run` is the default. `Dynamic run` pauses after each activation so Aflow can inspect the completed node text and, only when there is clear evidence of business drift or avoidable downstream failure, patch this run's snapshot before continuing. Dynamic patches do not edit the saved workflow YAML/canvas.
 
+When a Dynamic run succeeds, Aflow asks whether to save the final run snapshot as a new local workflow before it opens the run-end session picker. Saving creates a new workflow from the final snapshot; it does not overwrite the original workflow.
+
 ### Pause Node Interaction
 
 When a workflow reaches a `pauseAfterRun: true` node, Aflow switches the interface into the ACP interaction TUI for that node. The interface keeps the necessary workflow information and shows recent context messages so the user can see what the agent has done so far.
@@ -129,7 +131,7 @@ If a custom agent has no verified native resume command, Aflow does not pretend 
 
 ### Run-End Session Picker
 
-After a workflow run finishes, if the run recorded agent sessions, Aflow lists those sessions in the TUI and lets the user choose whether to enter the code tool associated with a node. The list tries to show node title, session id, agent server, and agent type, so the user does not have to identify sessions from opaque ids alone.
+After a workflow run finishes, if the run recorded agent sessions, Aflow lists those sessions in the TUI and lets the user choose whether to enter the code tool associated with a node. For Dynamic runs, the optional final-snapshot save prompt appears before this session picker. The list tries to show node title, session id, agent server, and agent type, so the user does not have to identify sessions from opaque ids alone.
 
 Each session usually provides these options:
 

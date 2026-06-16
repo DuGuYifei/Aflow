@@ -3,7 +3,7 @@ title: Aflow Agent 使用教程
 description: 学习如何用 Aflow Agent 创建、改写、校验、运行和继续 Specflow workflows。
 category: tutorial
 order: 4
-updatedAt: "2026-06-15 00:00:00 CEST"
+updatedAt: "2026-06-16 00:00:00 CEST"
 tags:
   - aflow
   - agent
@@ -92,6 +92,8 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 
 在有 TUI 时，`/specflow-run` 会询问使用 `Normal run` 还是 `Dynamic run`。默认是 `Normal run`。`Dynamic run` 会在每次 activation 后暂停，让 Aflow 读取刚完成节点的文本输出；只有当它明确发现业务目标偏离、必要信息缺失、分支可能错误或后续会发生可避免失败时，才会 patch 本次 run 的 snapshot 后继续。Dynamic patch 不会修改已保存的 workflow YAML/canvas。
 
+当 Dynamic run 成功结束时，Aflow 会先询问是否把最终 run snapshot 保存成一个新的本地 workflow，然后再进入 run 结束后的 session 选择器。保存会基于最终 snapshot 新建 workflow，不会覆盖原始 workflow。
+
 ### Pause 节点交互
 
 当 workflow 跑到 `pauseAfterRun: true` 的节点时，Aflow 会把界面切到该节点的 ACP 交互 TUI。这个界面会保留必要的 workflow 信息，并显示最近的上下文消息，方便用户知道 agent 前面做了什么。
@@ -129,7 +131,7 @@ Aflow 会通过 Specflow server 跑 workflow。运行前它会先校验 workflow
 
 ### Run 结束后的 session 选择
 
-workflow run 结束后，如果本次 run 记录到了 agent session，Aflow 会在 TUI 中列出这些 session，让用户选择是否进入某个节点对应的代码工具继续工作。列表会尽量显示 node title、session id、agent server 和 agent 类型，避免用户只能凭一串 id 判断。
+workflow run 结束后，如果本次 run 记录到了 agent session，Aflow 会在 TUI 中列出这些 session，让用户选择是否进入某个节点对应的代码工具继续工作。对于 Dynamic run，可选的最终 snapshot 保存询问会先于这个 session 选择器出现。列表会尽量显示 node title、session id、agent server 和 agent 类型，避免用户只能凭一串 id 判断。
 
 每个 session 通常会提供这些选项：
 
