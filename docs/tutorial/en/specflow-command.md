@@ -3,7 +3,7 @@ title: Specflow Commands
 description: Learn what specflow, specflow validate, and specflow run do, and how to pass workflow variables.
 category: tutorial
 order: 2
-updatedAt: "2026-06-13 06:27:21 CEST"
+updatedAt: "2026-06-15 00:00:00 CEST"
 tags:
   - cli
   - command
@@ -44,7 +44,7 @@ The current `specflow run` path is a direct CLI path. It does not start the loca
 
 When the workflow completes successfully, the CLI exits. When it fails or is stopped, the CLI also exits and returns a non-zero exit code.
 
-If the workflow contains a `pauseAfterRun: true` node, the current CLI run path does not support interactive Pause/Play. It rejects the workflow before starting the agent. Use the UI/server path when a workflow needs manual Pause, Interrupt, Play, Stop, or Continue control. See [Specflow Glossary](glossary.md) for the fixed run-control terms.
+If the workflow contains a `pauseAfterRun: true` node, the current CLI run path does not support interactive Pause/Play. It rejects the workflow before starting the agent. Use the UI/server or Aflow run path when a workflow needs manual Pause, Interrupt, Play, Stop, or Continue control. See [Specflow Glossary](glossary.md) for the fixed run-control terms.
 
 ## Pass Workflow Variable Values
 
