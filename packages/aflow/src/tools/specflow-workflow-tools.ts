@@ -277,6 +277,14 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
       return textResult([
         `Run graph patched: ${params.runId}`,
         `Snapshot revision: ${patched.snapshotRevision ?? "(unchanged)"}`,
+        `Applied operations: ${patched.appliedOperations?.length ?? 0}`,
+        `Rejected operations: ${patched.rejectedOperations?.length ?? 0}`,
+        "",
+        "Migration preview:",
+        formatJsonBlock(patched.migrationPreview ?? {}),
+        "",
+        "Topology capabilities:",
+        formatJsonBlock(patched.topologyCapabilities ?? {}),
         "",
         "Dynamic review guidance:",
         "- Base decisions on completedNodeText unless tool/timeline details are explicitly needed.",
@@ -288,6 +296,10 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         status: run.status,
         snapshotRevision: patched.snapshotRevision,
         reachability: patched.reachability,
+        appliedOperations: patched.appliedOperations,
+        rejectedOperations: patched.rejectedOperations,
+        migrationPreview: patched.migrationPreview,
+        topologyCapabilities: patched.topologyCapabilities,
         serverUrl: connection.url,
       });
     },
@@ -615,6 +627,14 @@ function formatRuntimeGraph(graph: DynamicCheckpointDetails["graph"] | undefined
     ...(graph.edges.length > 0
       ? graph.edges.map((edge) => `- ${edge.id}: ${edge.from} -> ${edge.to}${edge.branch ? ` [branch ${edge.branch}]` : ""}`)
       : ["- (none)"]),
+  ].join("\n");
+}
+
+function formatJsonBlock(value: unknown): string {
+  return [
+    "```json",
+    JSON.stringify(value ?? {}, null, 2),
+    "```",
   ].join("\n");
 }
 

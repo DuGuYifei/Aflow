@@ -1,5 +1,5 @@
 import { useRef, useState, useMemo, useEffect, useCallback } from 'react';
-import type { WorkflowNode, Edge, Session, Selection, RunStateMap, GateNode, InputNode } from '../types';
+import type { WorkflowNode, Edge, Session, Selection, RunStateMap, GateNode, InputNode, RuntimeEditClass } from '../types';
 import { branchAccent, edgeKey, nextSymbolKey, sessionAccent } from '../appearance';
 import type { IconName } from './icon';
 import { Icon } from './icon';
@@ -7,6 +7,7 @@ import { FloatingTooltip } from './floating-tooltip';
 import { closesGateControlledCycle, isSameSessionContentEdge, wouldCreateExecutedCycle } from '../edge-semantics';
 import { useI18n } from '../i18n';
 import { nodeDisplayTitle, nodeTitleIsFallback } from '../node-display';
+import { runtimeClassCanEdit } from '../runtime-edit';
 
 // ── geometry ──────────────────────────────────────────────────────────────────
 
@@ -157,9 +158,10 @@ interface GateCardProps {
   onMouseDown: (element: React.MouseEvent, id: string) => void;
   onSelect: (id: string) => void;
   onAddBranch: (gateId: string) => void;
+  canAddBranch: boolean;
 }
 
-function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch }: GateCardProps) {
+function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch, canAddBranch }: GateCardProps) {
   const { t } = useI18n();
   const classNames = ['gate-wrap'];
   if (selected)               classNames.push('selected');
@@ -206,12 +208,14 @@ function GateCard({ node, selected, runState, onMouseDown, onSelect, onAddBranch
           </div>
         );
       })}
-      <div
-        className="gate-port-add"
-        style={{ right: -8, top: height * (branches.length + 1) / (branches.length + 2) - 7 }}
-        title={t('canvas.addBranchTitle')}
-        onClick={(event) => { event.stopPropagation(); onAddBranch(node.id); }}
-      >+</div>
+      {canAddBranch && (
+        <div
+          className="gate-port-add"
+          style={{ right: -8, top: height * (branches.length + 1) / (branches.length + 2) - 7 }}
+          title={t('canvas.addBranchTitle')}
+          onClick={(event) => { event.stopPropagation(); onAddBranch(node.id); }}
+        >+</div>
+      )}
     </div>
   );
 }
@@ -341,6 +345,10 @@ interface CanvasProps {
   onDeleteSelection: () => void;
   onContinuePausedNode?: (nodeId: string) => void;
   viewMode: 'edit' | 'run';
+  runtimeEdit?: {
+    enabled: boolean;
+    nodeClasses: Record<string, RuntimeEditClass>;
+  };
   zoom: number;
   setZoom: (z: number) => void;
   pan: { x: number; y: number };
@@ -405,6 +413,7 @@ export function Canvas({
   onAddNode, onAddEdge, onDeleteNode, onAddBranch,
   canCopyNode, canPasteNode, canDeleteSelection, onCopyNode, onPasteNode, onDeleteSelection, onContinuePausedNode,
   viewMode,
+  runtimeEdit,
   zoom, setZoom, pan, setPan,
 }: CanvasProps) {
   const { t } = useI18n();
@@ -433,6 +442,21 @@ export function Canvas({
   dragEdgeRef.current = dragEdge;
 
   const isEdit = viewMode === 'edit';
+  const runtimeEditing = viewMode === 'run' && runtimeEdit?.enabled === true;
+  const canEditGraph = isEdit || runtimeEditing;
+  const runtimeCanEditNode = useCallback((nodeId: string) => {
+    if (!runtimeEditing) return false;
+    return runtimeClassCanEdit(runtimeEdit?.nodeClasses[nodeId]);
+  }, [runtimeEditing, runtimeEdit]);
+  const runtimeCanConnectNode = useCallback((nodeId: string) => {
+    if (!runtimeEditing) return false;
+    return runtimeEdit?.nodeClasses[nodeId] !== 'history_only';
+  }, [runtimeEditing, runtimeEdit]);
+  const canUseAddMode = useCallback((targetMode: CanvasMode) => {
+    if (!isAddMode(targetMode)) return true;
+    if (isEdit) return workflowVersion === 1 ? targetMode !== 'add-start' : targetMode !== 'add-input';
+    return runtimeEditing && (targetMode === 'add-step' || targetMode === 'add-gate' || targetMode === 'add-end');
+  }, [isEdit, runtimeEditing, workflowVersion]);
 
   // ESC + Delete handling for canvas modes
   useEffect(() => {
@@ -450,12 +474,12 @@ export function Canvas({
 
   // Auto-reset to select if view becomes readonly while in add mode
   useEffect(() => {
-    if (!isEdit && isAddMode(mode)) {
+    if (!canUseAddMode(mode)) {
       setMode('select');
       setGhostPos(null);
       setDragEdge(null);
     }
-  }, [isEdit, mode]);
+  }, [canUseAddMode, mode]);
 
   useEffect(() => {
     if ((workflowVersion === 2 && mode === 'add-input') || (workflowVersion === 1 && mode === 'add-start')) {
@@ -613,7 +637,9 @@ export function Canvas({
                 (fromNode.kind === 'gate' && Boolean(dragInfo.branch))
                 || closesGateControlledCycle(edge, edgesRef.current, nodesRef.current)
               );
-              if (!secondGateInput && (!executionCycle || controlledLoopback) && !edgesRef.current.some((existing) => existing.id === edge.id)) {
+              const runtimeEndpointsEditable = !runtimeEditing
+                || (runtimeCanConnectNode(edge.from) && runtimeCanConnectNode(edge.to));
+              if (runtimeEndpointsEditable && !secondGateInput && (!executionCycle || controlledLoopback) && !edgesRef.current.some((existing) => existing.id === edge.id)) {
                 onAddEdge(workflowVersion === 1 && controlledLoopback ? { ...edge, loopback: true } : edge);
               }
             }
@@ -645,7 +671,7 @@ export function Canvas({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [mode, workflowVersion, clientToCanvas, onAddEdge, onSelectNodes, setPan, onNodeMove, onNodesMove]);
+  }, [mode, workflowVersion, clientToCanvas, onAddEdge, onSelectNodes, setPan, onNodeMove, onNodesMove, runtimeCanConnectNode, runtimeEditing]);
 
   // ── canvas mousedown ──────────────────────────────────────────────────────
 
@@ -664,8 +690,8 @@ export function Canvas({
     if (element.button !== 0) return;
     if (mode !== 'hand' && target.closest('.node, .gate-wrap, .start-node, .end-node, .input-node, .edge-tag, .edge-hover-target')) return;
 
-    // In add-mode and edit view: place node at click
-    if (isAddMode(mode) && isEdit) {
+    // In add-mode: place a node when the current view is allowed to edit this graph.
+    if (isAddMode(mode) && canEditGraph && canUseAddMode(mode)) {
       const position = clientToCanvas(element.clientX, element.clientY);
       const keyPrefix =
         mode === 'add-start' ? 'start'
@@ -738,12 +764,13 @@ export function Canvas({
       return;
     }
 
-    // Port drag-out (edit mode only)
-    if (isEdit) {
+    // Port drag-out
+    if (canEditGraph) {
       const outEl = target.closest('[data-port="out"], [data-port="gate-out"]') as HTMLElement | null;
       if (outEl) {
         element.stopPropagation();
         const fromId = outEl.getAttribute('data-node') ?? nodeId;
+        if (runtimeEditing && !runtimeCanConnectNode(fromId)) return;
         const branch = outEl.getAttribute('data-branch') ?? undefined;
         startEdgeDrag(fromId, branch, element.clientX, element.clientY);
         return;
@@ -762,8 +789,8 @@ export function Canvas({
     element.stopPropagation();
     if (isAddMode(mode)) return;
 
-    // In run view: select-only, no drag
-    if (!isEdit) {
+    // In readonly run view, or for non-editable runtime nodes, select only.
+    if (!canEditGraph || (runtimeEditing && !runtimeCanEditNode(nodeId))) {
       onSelectNode(nodeId);
       return;
     }
@@ -771,6 +798,7 @@ export function Canvas({
     if (selectedNodeIds.has(nodeId) && selectedNodeIds.size > 1) {
       const selectedNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
       if (selectedNodes.some((node) => (node as WorkflowNode & { locked?: boolean }).locked)) return;
+      if (runtimeEditing && selectedNodes.some((node) => !runtimeCanEditNode(node.id))) return;
       suppressClickRef.current = true;
       dragRef.current = {
         kind: 'nodes',
@@ -1024,6 +1052,7 @@ export function Canvas({
               runState={runState[node.id]}
               onMouseDown={onNodeMouseDown} onSelect={selectNode}
               onAddBranch={onAddBranch}
+              canAddBranch={isEdit || runtimeCanEditNode(node.id)}
             />
           );
           if (node.kind === 'start') return (
@@ -1069,7 +1098,7 @@ export function Canvas({
         )}
 
         {/* ghost preview while in add mode */}
-        {isAddMode(mode) && isEdit && ghostPos && <GhostNode mode={mode} position={ghostPos} />}
+        {isAddMode(mode) && canEditGraph && canUseAddMode(mode) && ghostPos && <GhostNode mode={mode} position={ghostPos} />}
 
         {/* hover prompt preview */}
         {hoverEdge && (() => {
@@ -1100,7 +1129,7 @@ export function Canvas({
         </div>
       )}
 
-      {/* toolbar — only in edit view */}
+      {/* toolbar */}
       {isEdit && (
         <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
           {workflowVersion === 2 && toolbarModeBtn('add-start', 'play-circle', t('canvas.addStartTitle'))}
@@ -1136,12 +1165,20 @@ export function Canvas({
       )}
       {!isEdit && (
         <div className="canvas-toolbar" onMouseDown={(event) => event.stopPropagation()}>
+          {runtimeEditing && (
+            <>
+              {toolbarModeBtn('add-step', 'step-node', t('canvas.addStepTitle'), t('canvas.addStepTooltip'))}
+              {toolbarModeBtn('add-gate', 'route', t('canvas.addGateTitle'))}
+              {toolbarModeBtn('add-end', 'check', t('canvas.addEndTitle'))}
+              <div className="divider" />
+            </>
+          )}
           {toolbarModeBtn('select', 'cursor', t('canvas.selectTool'))}
           {toolbarModeBtn('hand', 'hand', t('canvas.handTool'))}
           <div className="divider" />
           {toolbarActionBtn('copy', t('canvas.copyNode'), onCopyNode, true)}
           {toolbarActionBtn('paste', t('canvas.pasteNode'), () => onPasteNode(viewportCenterToCanvas()), true)}
-          {toolbarActionBtn('trash', t('canvas.deleteSelection'), onDeleteSelection, true)}
+          {toolbarActionBtn('trash', t('canvas.deleteSelection'), onDeleteSelection, !runtimeEditing || !canDeleteSelection)}
           <div className="divider" />
           <FloatingTooltip content={t('canvas.zoomOut')} placement="bottom">
             <button onClick={() => setZoom(Math.max(0.3, zoom - 0.1))} aria-label={t('canvas.zoomOut')}>

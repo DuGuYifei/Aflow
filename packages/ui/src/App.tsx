@@ -52,6 +52,7 @@ import {
   type CanvasNodeCopy,
   type CanvasPastePosition,
 } from './canvas-clipboard';
+import { runtimeClassCanDelete, runtimeClassCanEdit, runtimeEdgeCanEdit } from './runtime-edit';
 
 function runStatusFromEvent(status: string): RunStatus {
   if (status === 'success') return 'success';
@@ -87,8 +88,12 @@ function buildRunGraphOperations(previous: RunSnapshot, next: RunSnapshot): RunG
   const operations: RunGraphOperation[] = [];
   const previousNodes = new Map(previous.nodes.map((node) => [node.id, node]));
   const nextNodes = new Map(next.nodes.map((node) => [node.id, node]));
+  const removedNodeIds = new Set<string>();
   for (const node of previous.nodes) {
-    if (!nextNodes.has(node.id)) operations.push({ op: 'remove_node', nodeId: node.id });
+    if (!nextNodes.has(node.id)) {
+      removedNodeIds.add(node.id);
+      operations.push({ op: 'remove_node', nodeId: node.id });
+    }
   }
   for (const node of next.nodes) {
     const previousNode = previousNodes.get(node.id);
@@ -108,6 +113,7 @@ function buildRunGraphOperations(previous: RunSnapshot, next: RunSnapshot): RunG
   const previousEdges = new Map(previous.edges.map((edge) => [edge.id, edge]));
   const nextEdges = new Map(next.edges.map((edge) => [edge.id, edge]));
   for (const edge of previous.edges) {
+    if (removedNodeIds.has(edge.from) || removedNodeIds.has(edge.to)) continue;
     if (!nextEdges.has(edge.id)) operations.push({ op: 'remove_edge', edgeId: edge.id });
   }
   for (const edge of next.edges) {
@@ -663,17 +669,30 @@ export function App() {
   // ── canvas edit handlers ──────────────────────────────────────────────────
 
   const onNodeMove = useCallback((id: string, x: number, y: number) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => node.id === id ? { ...node, x, y } : node),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => node.id === id ? { ...node, x, y } : node);
       nodesRef.current = updated;
       scheduleLayoutSave();
       return updated;
     });
-  }, [scheduleLayoutSave]);
+  }, [patchActiveRunSnapshot, scheduleLayoutSave, t]);
 
   const onNodesMove = useCallback((moves: Array<{ id: string; x: number; y: number }>) => {
     if (moves.length === 0) return;
     const moveMap = new Map(moves.map((move) => [move.id, move]));
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.map((node) => {
+        const move = moveMap.get(node.id);
+        return move ? { ...node, x: move.x, y: move.y } : node;
+      }),
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = previousNodes.map((node) => {
         const move = moveMap.get(node.id);
@@ -683,7 +702,7 @@ export function App() {
       scheduleLayoutSave();
       return updated;
     });
-  }, [scheduleLayoutSave]);
+  }, [patchActiveRunSnapshot, scheduleLayoutSave, t]);
 
   const onEditNode = useCallback((id: string, patch: Record<string, unknown>) => {
     if (patchActiveRunSnapshot((snapshot) => ({
@@ -700,6 +719,8 @@ export function App() {
   }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onRenameNode = useCallback((oldId: string, newId: string) => {
+    const run = runsRef.current.find((candidate) => candidate.id === activeRunId);
+    if (runSnapshotCanEdit(run?.status)) return;
     const nextId = newId.trim();
     const currentNodes = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot?.nodes ?? nodesRef.current;
     if (nextId === oldId || !isSymbolKey(nextId) || currentNodes.some((node) => node.id === nextId)) return;
@@ -1030,13 +1051,18 @@ export function App() {
   // ── node/edge create (from canvas) ────────────────────────────────────────
 
   const onAddNode = useCallback((node: WorkflowNode) => {
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: [...snapshot.nodes, node],
+    }), t('app.snapshotEditedNode'))) return;
+
     setNodes((previousNodes) => {
       const updated = [...previousNodes, node];
       nodesRef.current = updated;
       scheduleSave();
       return updated;
     });
-  }, [scheduleSave]);
+  }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onAddEdge = useCallback((edge: Edge) => {
     if (patchActiveRunSnapshot((snapshot) => ({
@@ -1053,10 +1079,22 @@ export function App() {
   }, [patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeleteNode = useCallback((id: string) => {
-    const node = nodesRef.current.find((node) => node.id === id);
+    const run = runsRef.current.find((candidate) => candidate.id === activeRunId);
+    const runSnapshot = runSnapshotCanEdit(run?.status) ? run?.canvasSnapshot : undefined;
+    const sourceNodes = runSnapshot?.nodes ?? nodesRef.current;
+    const node = sourceNodes.find((node) => node.id === id);
     if (!node) return;
     if ((node as WorkflowNode & { locked?: boolean }).locked) return;
     if (!window.confirm(t('node.deleteConfirm', { title: nodeDisplayTitle(node) }))) return;
+    if (runSnapshot && patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.filter((candidate) => candidate.id !== id),
+      edges: snapshot.edges.filter((edge) => edge.from !== id && edge.to !== id),
+    }), t('app.snapshotEditedNode'))) {
+      setSelection(null);
+      return;
+    }
+
     const updatedNodes = nodesRef.current.filter((node) => node.id !== id);
     const updatedEdges = edgesRef.current.filter((edge) => edge.from !== id && edge.to !== id);
     nodesRef.current = updatedNodes;
@@ -1065,15 +1103,27 @@ export function App() {
     setEdges(updatedEdges);
     setSelection(null);
     scheduleSave();
-  }, [scheduleSave, t]);
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
 
   const onDeleteNodes = useCallback((ids: string[]) => {
+    const run = runsRef.current.find((candidate) => candidate.id === activeRunId);
+    const runSnapshot = runSnapshotCanEdit(run?.status) ? run?.canvasSnapshot : undefined;
     const selectedIdSet = new Set(ids);
-    const deletableNodes = nodesRef.current.filter((node) =>
+    const sourceNodes = runSnapshot?.nodes ?? nodesRef.current;
+    const deletableNodes = sourceNodes.filter((node) =>
       selectedIdSet.has(node.id) && !(node as WorkflowNode & { locked?: boolean }).locked);
     if (deletableNodes.length === 0) return;
     if (!window.confirm(t('node.deleteManyConfirm', { count: deletableNodes.length }))) return;
     const deleteIdSet = new Set(deletableNodes.map((node) => node.id));
+    if (runSnapshot && patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      nodes: snapshot.nodes.filter((node) => !deleteIdSet.has(node.id)),
+      edges: snapshot.edges.filter((edge) => !deleteIdSet.has(edge.from) && !deleteIdSet.has(edge.to)),
+    }), t('app.snapshotEditedNode'))) {
+      setSelection(null);
+      return;
+    }
+
     const updatedNodes = nodesRef.current.filter((node) => !deleteIdSet.has(node.id));
     const updatedEdges = edgesRef.current.filter((edge) => !deleteIdSet.has(edge.from) && !deleteIdSet.has(edge.to));
     nodesRef.current = updatedNodes;
@@ -1082,7 +1132,7 @@ export function App() {
     setEdges(updatedEdges);
     setSelection(null);
     scheduleSave();
-  }, [scheduleSave, t]);
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
 
   // ── session management ────────────────────────────────────────────────────
 
@@ -1324,12 +1374,16 @@ export function App() {
   }, [activeWorkflow, loadedWorkflowId, scheduleSave, view]);
 
   const onDeleteSelection = useCallback(() => {
-    if (view !== 'edit' || loadedWorkflowId !== activeWorkflow || !selection) return;
+    if (!selection) return;
+    const run = runsRef.current.find((candidate) => candidate.id === activeRunId);
+    const canDeleteLiveSelection = view === 'edit' && loadedWorkflowId === activeWorkflow;
+    const canDeleteRunSelection = view === 'run' && runSnapshotCanEdit(run?.status);
+    if (!canDeleteLiveSelection && !canDeleteRunSelection) return;
     if (selection.kind === 'node') onDeleteNode(selection.id);
     if (selection.kind === 'nodes') onDeleteNodes(selection.ids);
     if (selection.kind === 'edge') onDeleteEdge(selection.id);
     if (selection.kind === 'variable') onDeleteVariable(selection.name);
-  }, [activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, onDeleteVariable, selection, view]);
+  }, [activeRunId, activeWorkflow, loadedWorkflowId, onDeleteEdge, onDeleteNode, onDeleteNodes, onDeleteVariable, selection, view]);
 
   const onAddSessionRequest = useCallback(() => {
     setBarExpanded(true);
@@ -2220,9 +2274,30 @@ export function App() {
   const selectedToNode   = selectedEdge ? displayNodes.find((node) => node.id === selectedEdge.to)   : undefined;
   const selectedTransferSourceNode = selectedEdge ? resolveTransferSource(selectedEdge, displayNodes, displayEdges) : undefined;
   const selectedNodeIds = selection?.kind === 'node' ? [selection.id] : selection?.kind === 'nodes' ? selection.ids : [];
+  const runSnapshotEditable = runSnapshotCanEdit(activeRun?.status);
+  const runtimeNodeClasses = runReachability?.nodes;
+  const selectedRuntimeEditClass: RuntimeEditClass | undefined = runSnapshotEditable
+    ? selection?.kind === 'node'
+      ? runtimeNodeClasses?.[selection.id]
+      : selection?.kind === 'edge'
+        ? runtimeNodeClasses?.[selectedEdge?.to ?? '']
+        : selection?.kind === 'variable'
+          ? 'future'
+          : undefined
+    : undefined;
+  const selectedRuntimeCanEdit = runSnapshotEditable
+    && (
+      selection?.kind === 'node'
+        ? runtimeClassCanEdit(selectedRuntimeEditClass)
+        : selection?.kind === 'edge'
+          ? runtimeEdgeCanEdit(selectedEdge ?? undefined, runtimeNodeClasses)
+          : selection?.kind === 'variable'
+            ? true
+            : false
+    );
   const canCopyNode = view === 'edit' && loadedWorkflowId === activeWorkflow && selectedNodeIds.some((id) => nodes.some((node) => node.id === id));
   const canPasteNode = view === 'edit' && loadedWorkflowId === activeWorkflow && Boolean(nodeCopyBuffer);
-  const canDeleteSelection = view === 'edit'
+  const canDeleteLiveSelection = view === 'edit'
     && loadedWorkflowId === activeWorkflow
     && (
       selection?.kind === 'edge'
@@ -2234,17 +2309,23 @@ export function App() {
             return node && !(node as WorkflowNode & { locked?: boolean }).locked;
           })
     );
-  const runSnapshotEditable = runSnapshotCanEdit(activeRun?.status);
-  const runPanelReadonly = view === 'run' && !runSnapshotEditable;
-  const selectedRuntimeEditClass: RuntimeEditClass | undefined = runSnapshotEditable
-    ? selection?.kind === 'node'
-      ? runReachability?.nodes[selection.id]
-      : selection?.kind === 'edge'
-        ? runReachability?.nodes[selectedEdge?.to ?? '']
+  const canDeleteRunSelection = view === 'run'
+    && runSnapshotEditable
+    && (
+      selection?.kind === 'edge'
+        ? runtimeEdgeCanEdit(selectedEdge ?? undefined, runtimeNodeClasses)
         : selection?.kind === 'variable'
-          ? 'future'
-          : undefined
-    : undefined;
+          ? displayWorkflowVersion === 2 && displayVariables.some((variable) => variable.name === selection.name)
+        : selectedNodeIds.some((id) => {
+            const node = displayNodes.find((candidate) => candidate.id === id);
+            return node
+              && !(node as WorkflowNode & { locked?: boolean }).locked
+              && runtimeClassCanDelete(runtimeNodeClasses?.[id]);
+          })
+    );
+  const canDeleteSelection = canDeleteLiveSelection || canDeleteRunSelection;
+  const runPanelReadonly = view === 'run' && (!runSnapshotEditable || !selectedRuntimeCanEdit);
+  const variablesPaletteReadonly = view === 'run' ? !runSnapshotEditable : false;
   const selectedEditImpactLabel = runSnapshotEditable
     ? t(runtimeEditImpactKey(selectedRuntimeEditClass))
     : undefined;
@@ -2337,6 +2418,10 @@ export function App() {
             if (pausedNode?.nodeId === nodeId) void onContinuePausedNode();
           }}
           viewMode={view}
+          runtimeEdit={{
+            enabled: view === 'run' && runSnapshotEditable && Boolean(runtimeNodeClasses),
+            nodeClasses: runtimeNodeClasses ?? {},
+          }}
           zoom={zoom} setZoom={setZoom}
           pan={pan} setPan={setPan}
         />
@@ -2344,7 +2429,7 @@ export function App() {
           <VariablesPalette
             variables={displayVariables}
             selectedName={selection?.kind === 'variable' ? selection.name : undefined}
-            readonly={runPanelReadonly}
+            readonly={variablesPaletteReadonly}
             collapsed={variablesPaletteCollapsed}
             onCollapsedChange={setVariablesPaletteCollapsed}
             onAddVariable={onAddVariable}
@@ -2450,6 +2535,7 @@ export function App() {
           workflowVersion={displayWorkflowVersion}
           viewMode={view}
           readonly={runPanelReadonly}
+          identityReadonly={view === 'run'}
           editImpactLabel={selectedEditImpactLabel}
           timelineEvents={logEvents}
           onClose={onClearSelection}
