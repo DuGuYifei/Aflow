@@ -367,9 +367,9 @@ Tool rules:
 - Use specflow_validate_workflow before recommending a workflow run.
 - Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, then lets the user choose Dynamic run or Normal run.
 - In Normal run, specflow_run_workflow monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
-- In Dynamic run, specflow_run_workflow returns the first checkpoint only after the user chooses Dynamic mode. Later checkpoint results come from specflow_run_and_pause.
+- In Dynamic run, specflow_run_workflow returns the first checkpoint only after the user chooses Dynamic mode. Later checkpoint results come from specflow_run_to_next_checkpoint.
 - Dynamic checkpoint guidance is scoped to Dynamic checkpoint tool results. Normal run summaries do not ask you to patch or continue a dynamic loop.
-- Do not use specflow_run_and_pause, specflow_patch_run_graph, or specflow_get_run_checkpoint unless a Dynamic checkpoint result has made that run context available.
+- Do not use specflow_run_to_next_checkpoint, specflow_patch_run_graph, or specflow_get_run_checkpoint unless a Dynamic checkpoint result has made that run context available.
 - Dynamic graph patches affect only the current run snapshot. The saved workflow YAML/canvas is unchanged. Server validation and migration feedback is authoritative.
 - Use specflow_resume_session when the user wants to resume or inspect a recorded agent session from a run. It offers ACP Resume, ACP Inspect, Native CLI in Aflow terminal, Show native resume command, or Skip when the TUI is available.
 - Do not ask for a separate native command after specflow_run_workflow just to repeat run-end choices; the run tool already offers the full session resume picker when the TUI is available.

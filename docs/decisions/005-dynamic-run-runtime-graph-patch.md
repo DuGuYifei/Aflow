@@ -54,26 +54,26 @@ Dynamic checkpoint context
   -> guidance to either continue or patch
 
 if no clear issue:
-  specflow_run_and_pause(runId)
+  specflow_run_to_next_checkpoint(runId)
 
 if clear future-workflow issue:
   specflow_patch_run_graph(runId, operations, summary)
-  specflow_run_and_pause(runId)
+  specflow_run_to_next_checkpoint(runId)
 ```
 
-`specflow_run_and_pause` is only for an existing Dynamic run. It always arms pause-after-next-activation internally before playing. Aflow does not expose `pauseAfterNextActivation` as a model-facing choice.
+`specflow_run_to_next_checkpoint` is only for an existing Dynamic run. If the run is paused/interrupted, it plays once and arms pause-after-next-activation internally. If the run is already running, it waits for the next checkpoint without playing again. Aflow does not expose `pauseAfterNextActivation` as a model-facing choice.
 
-`specflow_get_run_checkpoint` only refreshes checkpoint context when the current Dynamic checkpoint may be stale or incomplete. It is not required after every `specflow_run_and_pause`, because the continuation tool returns checkpoint context itself.
+`specflow_get_run_checkpoint` only refreshes checkpoint context when the current Dynamic checkpoint may be stale or incomplete. It is not required after every `specflow_run_to_next_checkpoint`, because the continuation tool returns checkpoint context itself. When the run is still running, it returns `checkpointReady: false` and does not provide patch decision material.
 
 ## Prompt Boundaries
 
 Aflow appends its domain prompt to Pi instead of replacing Pi's base prompt. Pi remains responsible for the core harness prompt, visible tool snippets, tool guidelines, skills, and project context.
 
-Dynamic decision rules are scoped to Dynamic checkpoint tool results. Normal run summaries do not instruct the agent to patch or call `specflow_run_and_pause`.
+Dynamic decision rules are scoped to Dynamic checkpoint tool results. Normal run summaries do not instruct the agent to patch or call `specflow_run_to_next_checkpoint`.
 
 Static Dynamic tool snippets stay short:
 
-- `specflow_run_and_pause`: continue an existing Dynamic run to its next checkpoint.
+- `specflow_run_to_next_checkpoint`: advance an existing Dynamic run to its next checkpoint.
 - `specflow_patch_run_graph`: patch the current Dynamic run snapshot with structured operations.
 - `specflow_get_run_checkpoint`: refresh an existing paused/interrupted Dynamic checkpoint.
 

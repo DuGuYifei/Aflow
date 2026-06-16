@@ -50,9 +50,85 @@ const RunIdParams = Type.Object({
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
 
+const AgentFlowNodeSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal("step"),
+    id: Type.String(),
+    alias: Type.String(),
+    title: Type.String(),
+    prompt: Type.String(),
+    sessionId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    pauseAfterRun: Type.Optional(Type.Boolean()),
+  }),
+  Type.Object({
+    kind: Type.Literal("gate"),
+    id: Type.String(),
+    alias: Type.String(),
+    title: Type.String(),
+    decisionCriteria: Type.String(),
+    branches: Type.Array(Type.Object({
+      id: Type.String(),
+      label: Type.String(),
+      description: Type.Optional(Type.String()),
+      maxTraversals: Type.Optional(Type.Number()),
+    })),
+  }),
+  Type.Object({
+    kind: Type.Literal("end"),
+    id: Type.String(),
+    alias: Type.String(),
+    title: Type.String(),
+    sessionId: Type.Optional(Type.Null()),
+  }),
+]);
+
+const EdgeSchema = Type.Object({
+  id: Type.String(),
+  from: Type.String(),
+  to: Type.String(),
+  branch: Type.Optional(Type.String()),
+  transmit: Type.Optional(Type.Boolean()),
+  outputTag: Type.Optional(Type.String()),
+  handoffPrompt: Type.Optional(Type.String()),
+});
+
+const RunGraphOperationSchema = Type.Union([
+  Type.Object({ op: Type.Literal("update_node"), nodeId: Type.String(), patch: Type.Record(Type.String(), Type.Any()) }),
+  Type.Object({ op: Type.Literal("update_edge"), edgeId: Type.String(), patch: Type.Record(Type.String(), Type.Any()) }),
+  Type.Object({ op: Type.Literal("add_node"), node: AgentFlowNodeSchema, position: Type.Optional(Type.Object({ x: Type.Optional(Type.Number()), y: Type.Optional(Type.Number()), w: Type.Optional(Type.Number()) })) }),
+  Type.Object({ op: Type.Literal("remove_node"), nodeId: Type.String() }),
+  Type.Object({ op: Type.Literal("add_edge"), edge: EdgeSchema }),
+  Type.Object({ op: Type.Literal("remove_edge"), edgeId: Type.String() }),
+  Type.Object({ op: Type.Literal("replace_edge_endpoint"), edgeId: Type.String(), from: Type.Optional(Type.String()), to: Type.Optional(Type.String()) }),
+  Type.Object({
+    op: Type.Literal("insert_node_between"),
+    sourceNodeId: Type.String(),
+    targetNodeId: Type.String(),
+    node: AgentFlowNodeSchema,
+    position: Type.Optional(Type.Object({ x: Type.Optional(Type.Number()), y: Type.Optional(Type.Number()), w: Type.Optional(Type.Number()) })),
+    incomingEdge: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    outgoingEdge: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  }),
+]);
+
+const RUN_GRAPH_INSERT_EXAMPLE = JSON.stringify({
+  op: "insert_node_between",
+  sourceNodeId: "incremennt",
+  targetNodeId: "check",
+  node: {
+    kind: "step",
+    id: "add-10086",
+    alias: "02",
+    title: "Add 10086",
+    prompt: "Add 10086 to the current number.",
+    sessionId: "calculator",
+  },
+  position: { x: 520, y: 160, w: 220 },
+}, null, 2);
+
 const PatchRunGraphParams = Type.Object({
   runId: Type.String({ description: "Paused or interrupted Specflow run id." }),
-  operations: Type.Array(Type.Any({ description: "Structured runtime graph operations for this run snapshot." })),
+  operations: Type.Array(RunGraphOperationSchema, { description: "Structured runtime graph operations for this run snapshot." }),
   summary: Type.String({ description: "Brief reason for this run graph edit." }),
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
@@ -237,17 +313,18 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_get_run_checkpoint",
     label: "Get Run Checkpoint",
-    description: "Inspect a paused/interrupted Specflow run checkpoint for dynamic review. Returns completedNodeText and editable snapshot guidance.",
+    description: "Inspect a paused/interrupted Specflow run checkpoint for dynamic review. Returns checkpointReady:false when the run is still running.",
     promptSnippet: "Refresh an existing Dynamic run checkpoint only when the current checkpoint context may be stale or incomplete.",
     promptGuidelines: [
       "Use only after a Dynamic checkpoint result explicitly indicates the run is in Dynamic mode.",
       "Base normal dynamic decisions on completedNodeText, which is the assistant-text-only node output passed to downstream workflow logic.",
+      "If checkpointReady is false, do not patch and do not play; wait with specflow_run_to_next_checkpoint.",
       "Do not assume tool call details are included in completedNodeText.",
     ],
     parameters: RunIdParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
-      const checkpoint = await buildDynamicCheckpointResult(connection.client, params.runId);
+      const checkpoint = await buildDynamicCheckpointResultOrExplainNotReady(connection.client, params.runId);
       return textResult(checkpoint.text, {
         ...checkpoint.details,
         serverUrl: connection.url,
@@ -263,13 +340,16 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use only after a Dynamic checkpoint result identifies a clear need to change reachable future workflow.",
       "Submit structured graph operations, not a full YAML or full canvas snapshot.",
+      "To insert a repair node between existing nodes, prefer insert_node_between with sourceNodeId, targetNodeId, node, and optional position.",
+      "Node ids and kinds are stable runtime anchors. Do not change them; create new future nodes instead.",
+      `Example insert operation: ${RUN_GRAPH_INSERT_EXAMPLE}`,
       "The server response is authoritative editability and migration feedback.",
       "Remember non-gate fan-out is queued fan-out: all outgoing targets run unless a gate selects a branch.",
     ],
     parameters: PatchRunGraphParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
-      const run = await connection.client.getRun(params.runId);
+      const run = await getRunOrThrowHelpfulError(connection.client, params.runId, connection.url);
       const patched = await connection.client.patchRunGraph(params.runId, {
         operations: params.operations as RunGraphOperation[],
         summary: params.summary,
@@ -291,6 +371,11 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         "- The patch affected only this run snapshot; the saved agentflow is unchanged.",
         "- Server validation/migration feedback is authoritative. Do not retry rejected operations unchanged.",
         "- Non-gate fan-out is queued fan-out; all outgoing targets run unless a gate controls selection.",
+        "",
+        "Common operation example:",
+        "```json",
+        RUN_GRAPH_INSERT_EXAMPLE,
+        "```",
       ].join("\n"), {
         runId: params.runId,
         status: run.status,
@@ -306,23 +391,26 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "specflow_run_and_pause",
-    label: "Run And Pause",
-    description: "Continue the same Dynamic run to its next checkpoint. Always pauses after the next activation internally.",
-    promptSnippet: "Continue an existing Dynamic run to its next checkpoint only after a Dynamic checkpoint result instructs you to continue.",
+    name: "specflow_run_to_next_checkpoint",
+    label: "Run To Next Checkpoint",
+    description: "Advance an existing Dynamic run to the next checkpoint or terminal status. If the run is already running, waits instead of playing again.",
+    promptSnippet: "Advance an existing Dynamic run to its next checkpoint only after a Dynamic checkpoint result instructs you to continue.",
     promptGuidelines: [
       "Use only after a Dynamic checkpoint result explicitly indicates the run is in Dynamic mode.",
-      "This tool always pauses after the next activation internally.",
+      "If the run is paused or interrupted, this tool plays once and arms pauseAfterNextActivation.",
+      "If the run is already running, this tool does not play again; it only waits for the next checkpoint.",
       "This continues the same run id; it does not create a continuation run.",
     ],
     parameters: RunIdParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
-      const runBeforePlay = await connection.client.getRun(params.runId);
+      const runBeforePlay = await getRunOrThrowHelpfulError(connection.client, params.runId, connection.url);
       const nodeDisplay = await buildRunNodeDisplay(connection.client, runBeforePlay);
-      await connection.client.playRun(params.runId, {
-        pauseAfterNextActivation: true,
-      });
+      if (runBeforePlay.status === "paused" || runBeforePlay.status === "interrupted") {
+        await connection.client.playRun(params.runId, {
+          pauseAfterNextActivation: true,
+        });
+      }
       const checkpoint = await monitorDynamicRun(connection.client, params.runId, {
         signal,
         onUpdate,
@@ -395,6 +483,7 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
 
 type DynamicCheckpointDetails = {
   dynamicReview: true;
+  checkpointReady?: boolean;
   runId: string;
   workflowId: string;
   status: string;
@@ -447,7 +536,7 @@ async function monitorDynamicRun(
   let lastRendered = "";
   for (;;) {
     if (context.signal?.aborted) throw new Error("Workflow run monitoring cancelled.");
-    let run = await client.getRun(runId);
+    let run = await getRunOrThrowHelpfulError(client, runId);
     const rendered = formatRunSummary(run, context.nodeDisplay);
     if (rendered !== lastRendered) {
       lastRendered = rendered;
@@ -471,17 +560,50 @@ async function monitorDynamicRun(
       run = await client.getRun(runId);
     }
 
-    if (run.status !== "running") return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
+    if (!isInFlightStatus(run.status)) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
     await sleep(750, context.signal);
   }
+}
+
+async function buildDynamicCheckpointResultOrExplainNotReady(
+  client: SpecflowClient,
+  runId: string,
+  nodeDisplay?: Map<string, NodeDisplayInfo>,
+): Promise<{ run: RunRecordDetail; text: string; details: DynamicCheckpointDetails }> {
+  const run = await getRunOrThrowHelpfulError(client, runId);
+  if (isInFlightStatus(run.status)) {
+    return {
+      run,
+      details: {
+        dynamicReview: true,
+        checkpointReady: false,
+        runId: run.id,
+        workflowId: run.workflowId,
+        status: run.status,
+        nodeStates: run.nodeStates,
+        pausedNodeId: run.pausedNodeId,
+        errorMsg: run.errorMsg,
+      },
+      text: [
+        `Dynamic run checkpoint not ready: ${run.id}`,
+        `Workflow: ${run.workflowId}`,
+        `Status: ${run.status}`,
+        "",
+        "The run is still executing. This is not a decision checkpoint.",
+        "Do not patch the run graph and do not play again. Use specflow_run_to_next_checkpoint to wait for the next paused/interrupted/terminal state.",
+      ].join("\n"),
+    };
+  }
+  return buildDynamicCheckpointResult(client, runId, nodeDisplay, run);
 }
 
 async function buildDynamicCheckpointResult(
   client: SpecflowClient,
   runId: string,
   nodeDisplay?: Map<string, NodeDisplayInfo>,
+  prefetchedRun?: RunRecordDetail,
 ): Promise<{ run: RunRecordDetail; text: string; details: DynamicCheckpointDetails }> {
-  const run = await client.getRun(runId);
+  const run = prefetchedRun ?? await getRunOrThrowHelpfulError(client, runId);
   const nodes = nodeDisplay ?? await buildRunNodeDisplay(client, run);
   const reachability = await client.getRunReachability(runId).catch(() => undefined);
   const completed = completedNodeOutput(run, nodes);
@@ -490,6 +612,7 @@ async function buildDynamicCheckpointResult(
   const graph = run.agentflowSnapshot ? runtimeGraphSummary(run.agentflowSnapshot, nodes, reachability) : undefined;
   const details: DynamicCheckpointDetails = {
     dynamicReview: true,
+    checkpointReady: run.status === "paused" || run.status === "interrupted",
     runId: run.id,
     workflowId: run.workflowId,
     status: run.status,
@@ -601,7 +724,7 @@ function formatDynamicCheckpointText(details: DynamicCheckpointDetails): string 
     formatRuntimeGraph(details.graph),
     "",
     "Dynamic review guidance:",
-    "- Treat this as a lightweight alignment check. In most checkpoints, continue unchanged with specflow_run_and_pause.",
+    "- Treat this as a lightweight alignment check. In most checkpoints, continue unchanged with specflow_run_to_next_checkpoint.",
     "- Patch only when completedNodeText gives clear evidence that the remaining run will drift from the user's goal, miss required information, choose the wrong branch, use stale assumptions, or hit avoidable downstream failure.",
     "- Patch only this run snapshot with specflow_patch_run_graph structured operations; the saved agentflow is unchanged.",
     "- Allowed edit classes are current, future, and history_future. history_only and inactive edits are rejected unless the server can migrate a future topology operation.",
@@ -640,6 +763,35 @@ function formatJsonBlock(value: unknown): string {
 
 function isTerminalStatus(status: string): boolean {
   return status === "success" || status === "error" || status === "stopped" || status === "cancelled";
+}
+
+function isInFlightStatus(status: string): boolean {
+  return status === "running" || status === "pending";
+}
+
+async function getRunOrThrowHelpfulError(
+  client: SpecflowClient,
+  runId: string,
+  serverUrl = client.baseUrl,
+): Promise<RunRecordDetail> {
+  try {
+    return await client.getRun(runId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== "Not found" && message !== "Run not found") throw error;
+    const recentRuns = await client.listRuns().catch(() => []);
+    const recent = recentRuns
+      .slice(0, 5)
+      .map((run) => `- ${run.id} (${run.workflowId}, ${run.status})`)
+      .join("\n");
+    throw new Error([
+      "Run not found on this Specflow server.",
+      `runId: ${runId}`,
+      `serverUrl: ${serverUrl}`,
+      "Possible causes: the run id was copied incorrectly, Aflow connected to a different Specflow server, or the server workspace is different.",
+      recent ? `Recent runs:\n${recent}` : "Recent runs: (none visible)",
+    ].join("\n"));
+  }
 }
 
 async function monitorRun(
