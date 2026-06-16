@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-16T04:17:25.703Z",
+  "generatedAt": "2026-06-16T04:22:17.222Z",
   "sections": [
     {
       "id": "tutorial",
@@ -38,7 +38,7 @@
           "title": "Aflow Agent Tutorial",
           "description": "Learn how to use Aflow Agent to create, adapt, validate, run, and continue Specflow workflows.",
           "order": 4,
-          "updatedAt": "2026-06-15 00:00:00 CEST",
+          "updatedAt": "2026-06-16 00:00:00 CEST",
           "path": "docs/tutorial/en/aflow-agent.md"
         },
         {
@@ -101,7 +101,7 @@
           "title": "Aflow Agent 使用教程",
           "description": "学习如何用 Aflow Agent 创建、改写、校验、运行和继续 Specflow workflows。",
           "order": 4,
-          "updatedAt": "2026-06-15 00:00:00 CEST",
+          "updatedAt": "2026-06-16 00:00:00 CEST",
           "path": "docs/tutorial/zh/aflow-agent.md"
         },
         {
