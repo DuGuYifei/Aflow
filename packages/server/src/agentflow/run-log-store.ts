@@ -74,6 +74,27 @@ export async function appendRunLogEvent(root: string, event: RunLogEvent): Promi
   await appendAcpEventLogEntry(runLogsDir(root), event.runId, event);
 }
 
+export interface RunLogWriter {
+  append(event: RunLogEvent): Promise<void>;
+  flush(): Promise<void>;
+}
+
+export function createRunLogWriter(root: string): RunLogWriter {
+  let write = Promise.resolve();
+  return {
+    append(event) {
+      const next = write
+        .catch(() => undefined)
+        .then(() => appendRunLogEvent(root, event));
+      write = next;
+      return next;
+    },
+    async flush() {
+      await write.catch(() => undefined);
+    },
+  };
+}
+
 export async function listRunLogEvents(root: string, runId: string): Promise<RunLogEvent[]> {
   return listAcpEventLogEntries<RunLogEvent>(runLogsDir(root), runId);
 }

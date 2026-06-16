@@ -152,6 +152,60 @@ describe("WorkflowExecutor", () => {
     expect(run.agentInvocations.find((invocation) => invocation.nodeId === "gate")?.parentSessionId).toBeUndefined();
   });
 
+  test("attributes unsupported gate fork live events to the parent session", async () => {
+    const prompts: Array<{ nodeId?: string; specflowSessionId?: string }> = [];
+    const updates: Array<{ nodeId?: string; specflowSessionId?: string }> = [];
+    const nodeStatuses: NodeStatusEvent[] = [];
+    const executor = new WorkflowExecutor({
+      onAgentPrompt: (event) => prompts.push({ nodeId: event.nodeId, specflowSessionId: event.specflowSessionId }),
+      onAgentSessionUpdate: (event) => updates.push({ nodeId: event.nodeId, specflowSessionId: event.specflowSessionId }),
+      onNodeStatus: (event) => nodeStatuses.push(event),
+      agentRunner: async (request): Promise<AgentCommandResult> => {
+        if (request.forkFromWorkflowSessionId) {
+          request.onWorkflowSessionResolved?.({
+            sessionId: "acp-parent",
+            workflowSessionId: request.forkFromWorkflowSessionId,
+            sessionForked: false,
+          });
+          request.onSessionUpdate?.({
+            sessionId: "acp-parent",
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "gate text" } },
+          });
+          return {
+            agentServerId: request.agentServerId,
+            workflowSessionId: request.forkFromWorkflowSessionId,
+            sessionId: "acp-parent",
+            sessionForked: false,
+            exitCode: 0,
+            output: JSON.stringify({ branchId: "pass", reason: "parent session" }),
+          };
+        }
+        return {
+          agentServerId: request.agentServerId,
+          workflowSessionId: request.workflowSessionId,
+          sessionId: "acp-main",
+          exitCode: 0,
+          output: request.prompt.startsWith("source") ? "needs review" : "done",
+        };
+      },
+    });
+
+    const run = await executor.run(createWorkflow({
+      nodes: [agentNode("source", "source"), gateNode("gate", ["pass"]), agentNode("pass", "pass")],
+      edges: [
+        gateInput("source-gate", "source", "gate"),
+        trigger("gate-pass", "gate", "pass", "pass"),
+      ],
+    }));
+
+    expect(run.status).toBe("done");
+    expect(prompts.find((event) => event.nodeId === "gate")?.specflowSessionId).toBe(sessionId);
+    expect(updates.find((event) => event.nodeId === "gate")?.specflowSessionId).toBe(sessionId);
+    expect(nodeStatuses.find((event) => event.nodeId === "gate" && event.status === "done")?.specflowSessionId).toBe(sessionId);
+    expect(run.agentInvocations.find((invocation) => invocation.nodeId === "gate")?.sessionId).toBe(sessionId);
+    expect(run.agentInvocations.find((invocation) => invocation.nodeId === "gate")?.parentSessionId).toBeUndefined();
+  });
+
   test("repairs an invalid gate JSON response once in the same fork session", async () => {
     const requests: AgentCommandRequest[] = [];
     const executor = new WorkflowExecutor({
@@ -778,6 +832,11 @@ describe("WorkflowExecutor", () => {
         promptEvents.push(event.prompt);
       },
       agentRunner: async (request) => {
+        request.onWorkflowSessionResolved?.({
+          sessionId: "acp-session",
+          workflowSessionId: request.workflowSessionId,
+          sessionForked: false,
+        });
         order.push("runner");
         runnerStarts.push(request.prompt);
         return {

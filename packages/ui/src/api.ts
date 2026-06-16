@@ -378,6 +378,8 @@ export type ApiRunLogEvent =
       type: 'node_status';
       runId: string;
       nodeId: string;
+      at?: string;
+      specflowSessionId?: string;
       gateDecision?: { branchId: string; reason?: string };
       gateBranches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
       [key: string]: unknown;
@@ -1063,6 +1065,8 @@ export function apiRunLogsToTimelineEvents(events: ApiRunLogEvent[]): TimelineEv
         return [{
           type: 'gate-decision',
           nodeId: event.nodeId,
+          ...(event.at ? { at: event.at } : {}),
+          specflowSessionId: event.specflowSessionId,
           branchId: event.gateDecision.branchId,
           reason: event.gateDecision.reason,
           branches: event.gateBranches,
@@ -1135,6 +1139,8 @@ export function apiRunLogToTimelineEvents(event: ApiRunLogEvent): TimelineEvent[
     return [{
       type: 'gate-decision',
       nodeId: event.nodeId,
+      ...(event.at ? { at: event.at } : {}),
+      specflowSessionId: event.specflowSessionId,
       branchId: event.gateDecision.branchId,
       reason: event.gateDecision.reason,
       branches: event.gateBranches,

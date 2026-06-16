@@ -178,6 +178,7 @@ describe("run event API", () => {
       type: "node_status",
       runId: "run-gate",
       nodeId: "approval-gate",
+      specflowSessionId: "main",
       status: "done",
       at: "2026-05-25T00:00:00.000Z",
       gateDecision: { branchId: "unresolved", reason: "revision budget exhausted" },
@@ -193,6 +194,7 @@ describe("run event API", () => {
 
     expect(eventText).toContain("event: node-status");
     expect(eventText).toContain("\"branchId\":\"unresolved\"");
+    expect(eventText).toContain("\"specflowSessionId\":\"main\"");
     expect(eventText).toContain("\"available\":false");
   });
 

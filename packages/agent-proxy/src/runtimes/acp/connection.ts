@@ -293,6 +293,12 @@ export class AcpAgentConnection {
     if (this.#closed) throw new Error("ACP session is already closed.");
     const resolvedSession = await this.#resolveSession(request);
     const sessionId = resolvedSession.sessionId;
+    request.onWorkflowSessionResolved?.({
+      sessionId,
+      workflowSessionId: resolvedSession.workflowSessionId,
+      parentWorkflowSessionId: resolvedSession.parentWorkflowSessionId,
+      sessionForked: resolvedSession.sessionForked,
+    });
     const turn: AcpSessionTurn = { request, output: "" };
     this.#currentTurn = turn;
     const abort = () => {

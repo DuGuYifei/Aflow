@@ -1416,6 +1416,8 @@ export function App() {
         const event = data as {
           nodeId: string;
           status: string;
+          at?: string;
+          specflowSessionId?: string;
           gateDecision?: { branchId: string; reason?: string };
           gateBranches?: Array<{ branchId: string; label: string; traversalsUsed: number; maxTraversals: number; available: boolean }>;
           replay?: boolean;
@@ -1425,12 +1427,23 @@ export function App() {
           const decision = event.gateDecision;
           setLogEvents((previous) => {
             const last = previous[previous.length - 1];
-            if (last && last.type === 'gate-decision' && last.nodeId === event.nodeId && last.branchId === decision.branchId) {
+            if (
+              last
+              && last.type === 'gate-decision'
+              && last.nodeId === event.nodeId
+              && last.branchId === decision.branchId
+              && last.at === event.at
+              && last.specflowSessionId === event.specflowSessionId
+              && last.reason === decision.reason
+              && JSON.stringify(last.branches ?? null) === JSON.stringify(event.gateBranches ?? null)
+            ) {
               return previous;
             }
             return [...previous.slice(-LOG_LIVE_CAP), {
               type: 'gate-decision',
               nodeId: event.nodeId,
+              at: event.at,
+              specflowSessionId: event.specflowSessionId,
               branchId: decision.branchId,
               reason: decision.reason,
               branches: event.gateBranches,

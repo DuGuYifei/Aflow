@@ -63,4 +63,29 @@ describe("apiRunLogsToTimelineEvents", () => {
       },
     }]);
   });
+
+  test("keeps gate decisions attributed to their workflow session", () => {
+    const events: ApiRunLogEvent[] = [{
+      type: "node_status",
+      runId: "run1",
+      nodeId: "gate",
+      specflowSessionId: "main",
+      status: "done",
+      gateDecision: { branchId: "pass", reason: "approved" },
+      gateBranches: [
+        { branchId: "pass", label: "pass", traversalsUsed: 1, maxTraversals: 1, available: false },
+      ],
+    }];
+
+    expect(apiRunLogsToTimelineEvents(events)).toEqual([{
+      type: "gate-decision",
+      nodeId: "gate",
+      specflowSessionId: "main",
+      branchId: "pass",
+      reason: "approved",
+      branches: [
+        { branchId: "pass", label: "pass", traversalsUsed: 1, maxTraversals: 1, available: false },
+      ],
+    }]);
+  });
 });

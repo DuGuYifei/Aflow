@@ -53,7 +53,7 @@ export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeB
                 <div className="timeline-gate-branches">
                   {item.branches.map((branch) => (
                     <span key={branch.branchId} className={`timeline-gate-branch${branch.available ? '' : ' exhausted'}${branch.branchId === item.branchId ? ' chosen' : ''}`}>
-                      {branch.label} {branch.traversalsUsed}/{branch.maxTraversals}{branch.available ? '' : ` ${t('timeline.exhausted')}`}
+                      {branch.label} {formatBranchTraversal(branch)}{branch.available ? '' : ` ${t('timeline.exhausted')}`}
                     </span>
                   ))}
                 </div>
@@ -75,3 +75,8 @@ export function SessionTimeline({ events, emptyMessage = 'No output yet.', nodeB
 }
 
 export { buildTimelineItems } from '../acp-timeline';
+
+function formatBranchTraversal(branch: { traversalsUsed: number; maxTraversals: number }): string {
+  const limit = branch.maxTraversals >= Number.MAX_SAFE_INTEGER ? '∞' : String(branch.maxTraversals);
+  return `${branch.traversalsUsed}/${limit}`;
+}

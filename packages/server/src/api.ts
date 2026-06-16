@@ -28,7 +28,7 @@ import {
   recordAgentSessionRestoreAttempt,
   upsertAgentSessionsFromRun,
 } from "./agentflow/agent-session-store";
-import { appendRunLogEvent, deleteRunLog, listRunLogEvents, listRunLogEventsRange, listRunTimelineRestoreEvents } from "./agentflow/run-log-store";
+import { appendRunLogEvent, createRunLogWriter, deleteRunLog, listRunLogEvents, listRunLogEventsRange, listRunTimelineRestoreEvents } from "./agentflow/run-log-store";
 import { prepareCanvasRun } from "./agentflow/run-inputs";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canvas-doc";
 import { computeRunReachability } from "./agentflow/run-reachability";
@@ -827,6 +827,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
                 nodeId: event.nodeId,
                 status: event.status === "done" ? "success" : event.status,
                 runId,
+                at: event.at,
+                ...(event.specflowSessionId ? { specflowSessionId: event.specflowSessionId } : {}),
                 ...(event.gateDecision ? { gateDecision: event.gateDecision, gateBranches: event.gateBranches } : {}),
                 replay: true,
               });
@@ -993,7 +995,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       resumeFrom.source.resumedByRunId = runId;
       await saveRun(resumeFrom.source, root);
     }
-    await appendRunLogEvent(root, {
+    const runLogWriter = createRunLogWriter(root);
+    await runLogWriter.append({
       type: "run_status",
       runId,
       workflowId,
@@ -1005,10 +1008,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     let currentNodeId: string | undefined;
     const invocationNodeMap = new Map<string, string>();
     const invocationSessionMap = new Map<string, string>();
-    let logWrite = Promise.resolve();
     const appendLog = (event: Parameters<typeof appendRunLogEvent>[1]) => {
-      logWrite = logWrite
-        .then(() => appendRunLogEvent(root, event))
+      void runLogWriter
+        .append(event)
         .catch((error) => {
           console.error("Failed to append run log", error);
         });
@@ -1016,7 +1018,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
     const timeline = new AcpTimelinePipeline({
       source: "agentflow",
       scopeId: runId,
-      append: (event) => appendRunLogEvent(root, { ...event, runId } as AcpTimelineEvent & { runId: string }),
+      append: (event) => runLogWriter.append({ ...event, runId } as AcpTimelineEvent & { runId: string }),
       emit: (event) => eventBus.emit(`${runId}:timeline`, event),
       base: { runId },
     });
@@ -1088,6 +1090,8 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         nodeId: nodeStatus.nodeId,
         status: uiStatus,
         runId,
+        at: nodeStatus.at,
+        ...(nodeStatus.specflowSessionId ? { specflowSessionId: nodeStatus.specflowSessionId } : {}),
         ...(nodeStatus.gateDecision ? { gateDecision: nodeStatus.gateDecision, gateBranches: nodeStatus.gateBranches } : {}),
       });
       flushTerminalEvents();
@@ -1334,7 +1338,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       .then(async (workflowRun) => {
         timeline.snapshot({ status: "success" });
         await timeline.flush();
-        await logWrite;
+        await runLogWriter.flush();
         record.agentInvocations = mergeRunInvocations(record.agentInvocations, workflowRun.agentInvocations);
         await saveRun(record, root);
         await upsertAgentSessionsFromRun(record, root);
@@ -1347,7 +1351,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         try {
           timeline.snapshot({ status: record.status === "stopped" ? "cancelled" : "failed" });
           await timeline.flush();
-          await logWrite;
+          await runLogWriter.flush();
           await upsertAgentSessionsFromRun(record, root);
         } catch (error) {
           console.error("Failed to rebuild agent sessions after run failure", error);
@@ -2305,7 +2309,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           return Response.json({ error: "Run not found" }, { status: 404 });
         }
       }
-      const runRecord = await loadRun(id, root).catch(() => undefined);
+      const runRecord = await liveRunRecords.loadAuthoritative(id, root).catch(() => undefined);
       if (!runRecord) return Response.json({ error: "Run not found" }, { status: 404 });
       if (runRecord.control?.intent) {
         if (runRecord.control.intent.kind === "pause_after_activation" || runRecord.control.intent.kind === "pause_at_safe_point") {
@@ -2371,7 +2375,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       if (!runControllers.has(id)) {
         return Response.json({ error: "Run process is not active" }, { status: 409 });
       }
-      const runRecord = await loadRun(id, root).catch(() => undefined);
+      const runRecord = await liveRunRecords.loadAuthoritative(id, root).catch(() => undefined);
       if (!runRecord) return Response.json({ error: "Run not found" }, { status: 404 });
       if (runRecord.control?.intent) {
         if (runRecord.control.intent.kind === "interrupting") {

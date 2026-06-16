@@ -400,17 +400,30 @@ describe("App run integration", () => {
     source.emit("node-status", {
       nodeId: "node-1",
       status: "success",
+      at: "2026-05-25T00:00:01.000Z",
       gateDecision: { branchId: "revise", reason: "Blueprint still needs complete localized copy." },
       gateBranches: [
-        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: 1, available: true },
+        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: Number.MAX_SAFE_INTEGER, available: true },
         { branchId: "revise", label: "revise", traversalsUsed: 2, maxTraversals: 2, available: false },
+      ],
+    });
+    source.emit("node-status", {
+      nodeId: "node-1",
+      status: "success",
+      at: "2026-05-25T00:00:02.000Z",
+      gateDecision: { branchId: "revise", reason: "Blueprint still needs complete localized copy." },
+      gateBranches: [
+        { branchId: "approve", label: "approve", traversalsUsed: 0, maxTraversals: Number.MAX_SAFE_INTEGER, available: true },
+        { branchId: "revise", label: "revise", traversalsUsed: 3, maxTraversals: 3, available: false },
       ],
     });
 
     await waitForText("Blueprint still needs complete localized copy.");
+    await waitForText("approve 0/∞");
     await waitForText("revise 2/2 exhausted");
+    await waitForText("revise 3/3 exhausted");
     const gates = document.querySelectorAll(".term-stream .timeline-gate");
-    if (gates.length !== 1) throw new Error(`Expected one gate decision entry, got ${gates.length}`);
+    if (gates.length !== 2) throw new Error(`Expected two gate decision entries, got ${gates.length}`);
   });
 
   test("loads the first existing workflow when the renamed example is absent", async () => {

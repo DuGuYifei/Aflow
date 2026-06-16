@@ -150,6 +150,8 @@ export type LegacyTimelineEvent =
   | {
     type: 'gate-decision';
     nodeId?: string;
+    at?: string;
+    specflowSessionId?: string;
     branchId: string;
     reason?: string;
     branches?: Array<{

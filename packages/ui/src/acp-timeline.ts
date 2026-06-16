@@ -45,18 +45,66 @@ export type TimelineItem =
     };
 
 export function buildTimelineItems(events: TimelineEvent[]): TimelineItem[] {
-  const gateItems = events.flatMap((event): TimelineItem[] =>
-    !isAcpTimelineEvent(event) && event.type === 'gate-decision'
-      ? [{
+  const chunks = events.flatMap((event, index): TimelineChunk[] => {
+    const atMs = eventTimeMs(event);
+    if (!isAcpTimelineEvent(event) && event.type === 'gate-decision') {
+      return [{
+        kind: 'gate',
+        order: index,
+        atMs,
+        item: {
           kind: 'gate',
           branchId: event.branchId,
           reason: event.reason,
           branches: event.branches,
           nodeId: event.nodeId,
-        }]
-      : []);
-  const timelineEvents = events.flatMap((event, index) => toAcpTimelineEvents(event, index));
-  return [...blocksToItems(reduceAcpTimelineEvents(timelineEvents)), ...gateItems];
+        },
+      }];
+    }
+    return toAcpTimelineEvents(event, index).map((timelineEvent, offset) => ({
+      kind: 'timeline',
+      order: index + offset / 1000,
+      atMs,
+      event: timelineEvent,
+    }));
+  }).sort(compareTimelineChunks);
+
+  const items: TimelineItem[] = [];
+  let timelineEvents: AcpTimelineEvent[] = [];
+  const flushTimeline = () => {
+    if (timelineEvents.length === 0) return;
+    items.push(...blocksToItems(reduceAcpTimelineEvents(timelineEvents)));
+    timelineEvents = [];
+  };
+
+  for (const chunk of chunks) {
+    if (chunk.kind === 'gate') {
+      flushTimeline();
+      items.push(chunk.item);
+    } else {
+      timelineEvents.push(chunk.event);
+    }
+  }
+  flushTimeline();
+  return items;
+}
+
+type TimelineChunk =
+  | { kind: 'timeline'; order: number; atMs?: number; event: AcpTimelineEvent }
+  | { kind: 'gate'; order: number; atMs?: number; item: TimelineItem };
+
+function compareTimelineChunks(left: TimelineChunk, right: TimelineChunk): number {
+  if (left.atMs !== undefined && right.atMs !== undefined && left.atMs !== right.atMs) {
+    return left.atMs - right.atMs;
+  }
+  return left.order - right.order;
+}
+
+function eventTimeMs(event: TimelineEvent): number | undefined {
+  const at = isAcpTimelineEvent(event) ? event.at : (event as { at?: unknown }).at;
+  if (typeof at !== 'string') return undefined;
+  const ms = Date.parse(at);
+  return Number.isFinite(ms) ? ms : undefined;
 }
 
 function blocksToItems(blocks: AcpTimelineBlock[]): TimelineItem[] {

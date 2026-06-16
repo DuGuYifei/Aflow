@@ -34,6 +34,7 @@ export interface PendingCompletionCheckpoint {
   traversal: number;
   executionKey: string;
   nodeRunId?: string;
+  specflowSessionId?: string;
   output: string;
   origin?: TransferOriginCheckpoint;
   chosenBranchId?: string;

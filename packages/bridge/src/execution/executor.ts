@@ -46,6 +46,7 @@ export interface NodeStatusEvent {
   nodeId: string;
   status: NodeStatus;
   at: string;
+  specflowSessionId?: string;
   output?: string;
   gateDecision?: GateDecision;
   gateBranches?: GateBranchStatus[];
@@ -193,6 +194,7 @@ interface TransferOrigin {
 interface NodeExecutionResult {
   output: string;
   origin: TransferOrigin;
+  specflowSessionId?: string;
   chosenBranchId?: string;
   nodeRunId?: string;
   gateDecision?: GateDecision;
@@ -439,6 +441,7 @@ export class WorkflowExecutor {
             nodeId: input.node.id,
             status: "done",
             at: completedAt,
+            specflowSessionId: input.nodeResult.specflowSessionId,
             output: input.nodeResult.output,
             ...(input.nodeResult.gateDecision ? { gateDecision: input.nodeResult.gateDecision } : {}),
             ...(input.nodeResult.gateBranches ? { gateBranches: input.nodeResult.gateBranches } : {}),
@@ -497,6 +500,7 @@ export class WorkflowExecutor {
       const pendingCompletionToResult = (pendingCompletion: PendingCompletionCheckpoint): NodeExecutionResult => ({
         output: pendingCompletion.output,
         origin: pendingCompletion.origin ?? { agentId: "checkpoint", sessionId: pendingCompletion.nodeId, output: pendingCompletion.output },
+        specflowSessionId: pendingCompletion.specflowSessionId,
         chosenBranchId: pendingCompletion.chosenBranchId,
         nodeRunId: pendingCompletion.nodeRunId,
         gateDecision: pendingCompletion.gateDecision,
@@ -512,6 +516,7 @@ export class WorkflowExecutor {
         traversal: input.queued.traversal,
         executionKey: input.key,
         ...(input.nodeResult.nodeRunId ? { nodeRunId: input.nodeResult.nodeRunId } : {}),
+        ...(input.nodeResult.specflowSessionId ? { specflowSessionId: input.nodeResult.specflowSessionId } : {}),
         output: input.nodeResult.output,
         origin: { ...input.nodeResult.origin },
         ...(input.nodeResult.chosenBranchId ? { chosenBranchId: input.nodeResult.chosenBranchId } : {}),
@@ -725,6 +730,7 @@ export class WorkflowExecutor {
               nodeId: node.id,
               status: "paused",
               at: pausedAt,
+              specflowSessionId: nodeResult.specflowSessionId,
               output: nodeResult.output,
               ...(nodeResult.gateDecision ? { gateDecision: nodeResult.gateDecision } : {}),
               ...(nodeResult.gateBranches ? { gateBranches: nodeResult.gateBranches } : {}),
@@ -884,7 +890,14 @@ export class WorkflowExecutor {
       input: input.input,
     };
     input.run.nodeRuns.push(nodeRun);
-    this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "running", at: nodeRun.startedAt! });
+    const initialSpecflowSessionId = input.node.kind === "agent" ? input.node.sessionId : input.origin?.sessionId;
+    this.#onNodeStatus?.({
+      runId: input.run.id,
+      nodeId: input.node.id,
+      status: "running",
+      at: nodeRun.startedAt!,
+      specflowSessionId: initialSpecflowSessionId,
+    });
 
     try {
       if (input.node.kind === "agent") {
@@ -893,6 +906,7 @@ export class WorkflowExecutor {
         return {
           output,
           origin: { agentId: input.node.agentId, sessionId: input.node.sessionId, output },
+          specflowSessionId: input.node.sessionId,
           nodeRunId: nodeRun.id,
         };
       }
@@ -942,6 +956,7 @@ export class WorkflowExecutor {
       return {
         output,
         origin: input.origin,
+        specflowSessionId: invocation.sessionId,
         chosenBranchId: decision.branchId,
         nodeRunId: nodeRun.id,
         gateDecision: decision,
@@ -952,13 +967,25 @@ export class WorkflowExecutor {
         nodeRun.status = "interrupted";
         nodeRun.error = error.message;
         nodeRun.completedAt = new Date().toISOString();
-        this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "interrupted", at: nodeRun.completedAt });
+        this.#onNodeStatus?.({
+          runId: input.run.id,
+          nodeId: input.node.id,
+          status: "interrupted",
+          at: nodeRun.completedAt,
+          specflowSessionId: nodeRun.sessionId ?? initialSpecflowSessionId,
+        });
         throw error;
       }
       nodeRun.status = "failed";
       nodeRun.error = error instanceof Error ? error.message : String(error);
       nodeRun.completedAt = new Date().toISOString();
-      this.#onNodeStatus?.({ runId: input.run.id, nodeId: input.node.id, status: "failed", at: nodeRun.completedAt });
+      this.#onNodeStatus?.({
+        runId: input.run.id,
+        nodeId: input.node.id,
+        status: "failed",
+        at: nodeRun.completedAt,
+        specflowSessionId: nodeRun.sessionId ?? initialSpecflowSessionId,
+      });
       throw error;
     }
   }
@@ -1188,21 +1215,38 @@ export class WorkflowExecutor {
       // downstream UI / logs can show the resolved skill body.
       input.invocation.prompt = promptToSend;
     }
-    this.#onAgentPrompt?.({
-      runId: input.run.id,
-      nodeRunId: input.nodeRun?.id,
-      nodeId: input.invocation.nodeId,
-      edgeId: input.invocation.edgeId,
-      purpose: input.invocation.purpose,
-      sourceNodeId: input.invocation.sourceNodeId,
-      targetNodeId: input.invocation.targetNodeId,
-      agentInvocationId: input.invocation.id,
-      agentId: input.agentId,
-      agentServerId,
-      specflowSessionId: input.invocation.sessionId,
-      prompt: promptToSend,
-      at: new Date().toISOString(),
-    });
+    let promptEmitted = false;
+    const emitAgentPrompt = () => {
+      if (promptEmitted) return;
+      promptEmitted = true;
+      this.#onAgentPrompt?.({
+        runId: input.run.id,
+        nodeRunId: input.nodeRun?.id,
+        nodeId: input.invocation.nodeId,
+        edgeId: input.invocation.edgeId,
+        purpose: input.invocation.purpose,
+        sourceNodeId: input.invocation.sourceNodeId,
+        targetNodeId: input.invocation.targetNodeId,
+        agentInvocationId: input.invocation.id,
+        agentId: input.agentId,
+        agentServerId,
+        specflowSessionId: input.invocation.sessionId,
+        prompt: promptToSend,
+        at: new Date().toISOString(),
+      });
+    };
+    const applyResolvedWorkflowSession: NonNullable<AgentCommandRequest["onWorkflowSessionResolved"]> = (event) => {
+      input.invocation.acpSessionId = event.sessionId;
+      input.invocation.sessionId = event.workflowSessionId
+        ?? (input.forkFromSessionId && event.sessionForked !== true
+          ? input.forkFromSessionId
+          : input.invocation.sessionId);
+      input.invocation.parentSessionId = event.sessionForked === true
+        ? event.parentWorkflowSessionId ?? input.forkFromSessionId
+        : undefined;
+      input.invocation.acpSessionForked = event.sessionForked;
+      emitAgentPrompt();
+    };
     let result: AgentCommandResult;
     const invocationControl = this.#runControls?.registerInvocation({
       runId: input.run.id,
@@ -1231,6 +1275,7 @@ export class WorkflowExecutor {
           agentInvocationId: input.invocation.id,
           event,
         }),
+        onWorkflowSessionResolved: applyResolvedWorkflowSession,
         onLifecycleEvent: (event) => this.#onAgentLifecycle?.({
           ...event,
           runId: input.run.id,
@@ -1302,10 +1347,11 @@ export class WorkflowExecutor {
     input.invocation.parentSessionId = result.sessionForked === true
       ? result.parentWorkflowSessionId ?? input.forkFromSessionId
       : undefined;
-    input.invocation.acpSessionForked = result.sessionForked;
+    input.invocation.acpSessionForked = result.sessionForked ?? input.invocation.acpSessionForked;
     input.invocation.acpSupportsLoadSession = Boolean(result.initializeResponse?.agentCapabilities?.loadSession);
     input.invocation.acpSupportsResumeSession = Boolean(result.initializeResponse?.agentCapabilities?.sessionCapabilities?.resume);
     input.invocation.acpSupportsForkSession = Boolean(result.initializeResponse?.agentCapabilities?.sessionCapabilities?.fork);
+    emitAgentPrompt();
     if (result.exitCode !== 0) {
       input.invocation.status = "failed";
       input.invocation.error = result.output;
