@@ -25,6 +25,7 @@
 - [ ] `ask_user_question` based on client capability。（可能只有 Claude Code 支持）
 - [ ] SKILL 模式。
 - [ ] 更新 pi。
+- [ ] 版本更新提示，specflow和aflow界面都要有，目前aflow的提示不显示。
 
 ### UI, Product, And Distribution
 
