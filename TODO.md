@@ -13,13 +13,13 @@
 ### Runtime, Logs, And Observability
 
 - [ ] 日志大小上限、文件数量上限。
-- [ ] 运行中节点被选中时，下方 session 日志自动切换到该节点所属 session。
+- [x] ~~运行中节点被选中时，下方 session 日志自动切换到该节点所属 session。~~ 放弃因为有时候不希望下面动，只是点击查看右侧面板。解耦挺好的。
 - [ ] server 模式启动 OTEL。
 
 ### Agent And Platform Integrations
 
-- [ ] MCP 系统接入。
-- [ ] 优化 workflow 的 agent/server 中台链路，包括 workflow 快照和日志快照传递。
+- [x] MCP 系统接入。
+- [x] 优化 workflow 的 agent/server 中台链路，包括 workflow 快照和日志快照传递。
 - [ ] token 计数。和  `usage_update` token 记录与展示。
 - [ ] `sessionUpdate: "plan"` - [ACP agent plan](https://agentclientprotocol.com/protocol/v1/agent-plan)。
 - [ ] `ask_user_question` based on client capability。（可能只有 Claude Code 支持）
