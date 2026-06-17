@@ -2,7 +2,12 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { resolve } from "node:path";
 import { DEFAULT_HOST, SERVER_PORT } from "@specflow/shared";
-import { prepareSpecflowWorkspace, startSpecflowServer, type RunningSpecflowServer } from "@specflow/server";
+import {
+  prepareSpecflowWorkspace,
+  startSpecflowServer,
+  type RunningSpecflowServer,
+  type SpecflowLoggerOption,
+} from "@specflow/server";
 import { SpecflowClient, type SpecflowHealth } from "./specflow-client";
 
 export interface ConnectSpecflowServerOptions {
@@ -10,6 +15,7 @@ export interface ConnectSpecflowServerOptions {
   serverUrl?: string;
   host?: string;
   port?: number;
+  logger?: SpecflowLoggerOption;
 }
 
 export interface SpecflowServerConnection {
@@ -54,7 +60,12 @@ export async function connectOrStartSpecflowServer(
     }
   }
 
-  const server = await startSpecflowServer({ cwd: options.cwd, host, port });
+  const server = await startSpecflowServer({
+    cwd: options.cwd,
+    host,
+    port,
+    logger: options.logger ?? false,
+  });
   const client = new SpecflowClient(server.url);
   const health = await probeHealth(server.url);
   if (health) ensureWorkspaceMatch(health, options.cwd, server.url);

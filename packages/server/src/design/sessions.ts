@@ -13,6 +13,7 @@ import {
 import { type AcpTimelineEvent } from "@specflow/shared";
 import { uuidv7 } from "@specflow/shared";
 import { AcpTimelinePipeline } from "../acp-timeline-pipeline";
+import type { SpecflowLoggerOption } from "../logger";
 import { SkillStore, resolveSlashCommands } from "../skills";
 import { designConversationsDir } from "../workspace-paths";
 import { buildDesignExecutionPrompt, loadDesignProjectArtifact } from "./artifacts";
@@ -37,6 +38,7 @@ interface SendDesignMessageOptions {
   runner?: DesignAgentRunner;
   signal?: AbortSignal;
   onLog?: (entry: AcpTimelineEvent) => void;
+  logger?: SpecflowLoggerOption;
 }
 
 const designAgentPools = new Map<string, AgentProxySessionPool>();
@@ -188,6 +190,7 @@ function createDesignTimelinePipeline(
       designSessionId: session.id,
       agentServerId: session.agentServerId,
     },
+    logger: options.logger,
   });
 }
 

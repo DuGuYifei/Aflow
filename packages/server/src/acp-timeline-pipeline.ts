@@ -5,6 +5,7 @@ import {
   type AcpTimelineStatus,
 } from "@specflow/shared";
 import { uuidv7 } from "@specflow/shared";
+import { resolveSpecflowLogger, type SpecflowLogger, type SpecflowLoggerOption } from "./logger";
 
 export interface AcpTimelinePipelineOptions {
   source: AcpTimelineSource;
@@ -16,6 +17,7 @@ export interface AcpTimelinePipelineOptions {
     AcpTimelineEvent,
     "runId" | "designSessionId" | "agentServerId" | "specflowSessionId" | "sessionId" | "phase"
   >>;
+  logger?: SpecflowLoggerOption;
 }
 
 export class AcpTimelinePipeline {
@@ -24,6 +26,7 @@ export class AcpTimelinePipeline {
   readonly #append: (event: AcpTimelineEvent) => Promise<void>;
   readonly #emit: ((event: AcpTimelineEvent) => void) | undefined;
   readonly #base: AcpTimelinePipelineOptions["base"];
+  readonly #logger: SpecflowLogger;
   readonly #events: AcpTimelineEvent[];
   #write = Promise.resolve();
 
@@ -33,6 +36,7 @@ export class AcpTimelinePipeline {
     this.#append = options.append;
     this.#emit = options.emit;
     this.#base = options.base;
+    this.#logger = resolveSpecflowLogger(options.logger);
     this.#events = [...(options.initialEvents ?? [])];
   }
 
@@ -61,7 +65,7 @@ export class AcpTimelinePipeline {
         if (event.kind !== "timeline_snapshot") this.#emit?.(event);
       })
       .catch((error) => {
-        console.error("Failed to append ACP timeline event", error);
+        this.#logger.error("Failed to append ACP timeline event", error);
       });
     return event;
   }

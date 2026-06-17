@@ -1,5 +1,6 @@
 /// <reference path="./glob.d.ts" />
 export * from "./http";
+export * from "./logger";
 export * from "./agentflow/canvas-doc";
 export { splitCanvasDoc } from "./agentflow/canvas-store";
 export * from "./agentflow/agentflow-source";

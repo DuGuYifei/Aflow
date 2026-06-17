@@ -4,6 +4,7 @@ import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
 import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent, WorkflowCheckpointEvent, WorkflowExecutionCheckpoint } from "@specflow/bridge";
 import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
 import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
+import { resolveSpecflowLogger, type SpecflowLoggerOption } from "./logger";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
 import { TerminalSessionStore, type TerminalSessionTask } from "./terminal-session-store";
@@ -581,7 +582,12 @@ function upsertRunInvocationPrompt(record: RunRecord, input: {
 
 // ── API handler factory ───────────────────────────────────────────────────────
 
-export function createApiHandler(bridge: SpecflowBridge, root: string) {
+export interface ApiHandlerOptions {
+  logger?: SpecflowLoggerOption;
+}
+
+export function createApiHandler(bridge: SpecflowBridge, root: string, options: ApiHandlerOptions = {}) {
+  const logger = resolveSpecflowLogger(options.logger);
   const eventBus = new EventBus();
   const authTerminals = new AuthTerminalSessionStore({
     checkAuth: (agentServerId) => bridge.inspectAgentAuthentication(root, agentServerId),
@@ -603,14 +609,14 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
         try {
           await upsertAgentSessionsFromRun(await loadRun(id, root), root);
         } catch (error) {
-          console.error(`Failed to rebuild agent sessions for interrupted run ${id}`, error);
+          logger.error(`Failed to rebuild agent sessions for interrupted run ${id}`, error);
         }
       }
       if (ids.length > 0) {
-        console.log(`[specflow] reconciled ${ids.length} interrupted run(s):`, ids.join(", "));
+        logger.log(`[specflow] reconciled ${ids.length} interrupted run(s):`, ids.join(", "));
       }
     })
-    .catch((error) => console.error("Failed to reconcile interrupted runs", error));
+    .catch((error) => logger.error("Failed to reconcile interrupted runs", error));
 
   async function closeActiveConversation(active: ActiveConversation, reason = "Restored conversation closed."): Promise<void> {
     active.promptController?.abort();
@@ -1012,7 +1018,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       void runLogWriter
         .append(event)
         .catch((error) => {
-          console.error("Failed to append run log", error);
+          logger.error("Failed to append run log", error);
         });
     };
     const timeline = new AcpTimelinePipeline({
@@ -1021,6 +1027,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       append: (event) => runLogWriter.append({ ...event, runId } as AcpTimelineEvent & { runId: string }),
       emit: (event) => eventBus.emit(`${runId}:timeline`, event),
       base: { runId },
+      logger,
     });
     const offInteractionLog = bridge.interactions.subscribe(runId, (interaction) => {
       appendLog({ type: "interaction", ...interactionAuditRecord(interaction) });
@@ -1354,7 +1361,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
           await runLogWriter.flush();
           await upsertAgentSessionsFromRun(record, root);
         } catch (error) {
-          console.error("Failed to rebuild agent sessions after run failure", error);
+          logger.error("Failed to rebuild agent sessions after run failure", error);
         }
       })
       .finally(() => {
@@ -1499,7 +1506,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
       ? bridge.interactions.subscribe(session.latestRunId, (interaction) => {
           if (interaction.agentInvocationId !== interactionInvocationId) return;
           void appendRunLogEvent(root, { type: "interaction", ...interactionAuditRecord(interaction) })
-            .catch((error) => console.error("Failed to append restored conversation interaction log", error));
+            .catch((error) => logger.error("Failed to append restored conversation interaction log", error));
           publishRestoreEvent({
             type: "interaction-requested",
             restoreId,
@@ -1541,7 +1548,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string) {
               update: event.update,
               at: occurredAt,
             }))
-            .catch((error) => console.error("Failed to append restored conversation session update log", error));
+            .catch((error) => logger.error("Failed to append restored conversation session update log", error));
         }
         publishRestoreEvent({
           type: "session-update",

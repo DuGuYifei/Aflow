@@ -5,6 +5,7 @@ import { serveStaticUi } from "./static-ui";
 import { SkillStore, resolveSlashCommands } from "./skills";
 import { createApiHandler } from "./api";
 import { createDesignApiHandler } from "./design/api";
+import { resolveSpecflowLogger, type SpecflowLoggerOption } from "./logger";
 import { stopDesignRuntimeManagers } from "./design/runtime-manager";
 import { prepareSpecflowWorkspace } from "./workspace";
 
@@ -12,6 +13,7 @@ export interface SpecflowServerOptions {
   cwd?: string;
   host?: string;
   port?: number;
+  logger?: SpecflowLoggerOption;
 }
 
 export interface RunningSpecflowServer {
@@ -23,6 +25,7 @@ export async function startSpecflowServer(
   options: SpecflowServerOptions = {},
 ): Promise<RunningSpecflowServer> {
   const workingDirectory = options.cwd ?? process.cwd();
+  const logger = resolveSpecflowLogger(options.logger);
   await prepareSpecflowWorkspace(workingDirectory, { createIfMissing: true });
 
   const host = options.host ?? DEFAULT_HOST;
@@ -47,8 +50,8 @@ export async function startSpecflowServer(
       return resolved.prompt;
     },
   });
-  const handleApi = createApiHandler(bridge, workingDirectory);
-  const handleDesignApi = createDesignApiHandler(workingDirectory);
+  const handleApi = createApiHandler(bridge, workingDirectory, { logger });
+  const handleDesignApi = createDesignApiHandler(workingDirectory, { logger });
 
   const server = startHttpServer({
     bridge,
@@ -61,7 +64,7 @@ export async function startSpecflowServer(
   });
 
   const url = `http://${host}:${server.port}/`;
-  console.log(`${APP_NAME} UI: ${url}`);
+  logger.log(`${APP_NAME} UI: ${url}`);
 
   return {
     url,

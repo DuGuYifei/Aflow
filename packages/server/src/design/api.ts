@@ -11,6 +11,7 @@ import { loadDesignProjectArtifact, safeProjectRelativePath } from "./artifacts"
 import { createDesignProject, designProjectPath, listDesignProjects, loadDesignProject, sanitizeDesignProjectName } from "./projects";
 import { sanitizeProjectKind } from "./project-config";
 import { designRuntimeManagerForRoot } from "./runtime-manager";
+import type { SpecflowLoggerOption } from "../logger";
 import {
   branchDesignVersionFromCommit,
   loadDesignVersionState,
@@ -25,7 +26,14 @@ import type {
   DesignSendMessageRequest,
 } from "./types";
 
-export function createDesignApiHandler(root: string): (request: Request) => Promise<Response | null> {
+export interface DesignApiHandlerOptions {
+  logger?: SpecflowLoggerOption;
+}
+
+export function createDesignApiHandler(
+  root: string,
+  options: DesignApiHandlerOptions = {},
+): (request: Request) => Promise<Response | null> {
   const runtimeManager = designRuntimeManagerForRoot(root);
   return async (request: Request): Promise<Response | null> => {
     const url = new URL(request.url);
@@ -74,9 +82,12 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
           configOptions: body.configOptions,
         };
         if (url.searchParams.get("stream") === "1" || request.headers.get("accept")?.includes("text/event-stream")) {
-          return streamDesignMessage(root, messageRequest, request.signal);
+          return streamDesignMessage(root, messageRequest, request.signal, options);
         }
-        return Response.json(await sendDesignMessage(root, messageRequest, { signal: request.signal }));
+        return Response.json(await sendDesignMessage(root, messageRequest, {
+          signal: request.signal,
+          logger: options.logger,
+        }));
       }
 
       if (request.method === "POST" && pathname === "/api/design/sessions/initialize") {
@@ -92,10 +103,17 @@ export function createDesignApiHandler(root: string): (request: Request) => Prom
         if (url.searchParams.get("stream") === "1" || request.headers.get("accept")?.includes("text/event-stream")) {
           return streamDesignOperation(
             request.signal,
-            (signal, onLog) => initializeDesignSession(root, initRequest, { signal, onLog }),
+            (signal, onLog) => initializeDesignSession(root, initRequest, {
+              signal,
+              onLog,
+              logger: options.logger,
+            }),
           );
         }
-        return Response.json(await initializeDesignSession(root, initRequest, { signal: request.signal }));
+        return Response.json(await initializeDesignSession(root, initRequest, {
+          signal: request.signal,
+          logger: options.logger,
+        }));
       }
 
       const imageUploadMatch = pathname.match(/^\/api\/design\/projects\/([^/]+)\/tmp\/images$/);
@@ -227,10 +245,16 @@ function parseDesignAttachments(value: unknown): DesignMessageAttachment[] | und
   return attachments.length ? attachments : undefined;
 }
 
-function streamDesignMessage(root: string, body: DesignSendMessageRequest, signal: AbortSignal): Response {
+function streamDesignMessage(
+  root: string,
+  body: DesignSendMessageRequest,
+  signal: AbortSignal,
+  options: DesignApiHandlerOptions,
+): Response {
   return streamDesignOperation(signal, (runSignal, onLog) => sendDesignMessage(root, body, {
     signal: runSignal,
     onLog,
+    logger: options.logger,
   }));
 }
 
