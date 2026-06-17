@@ -26,8 +26,8 @@ interface SessionsBarProps {
   loadingEarlierLogs?: boolean;
   historicLogTotal?: number;
   historicLogLoadedFromIndex?: number;
-  onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
-  onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => void;
+  onAddSession: (name: string, agentServerId: Session['agentServerId'], mcpServers?: string) => void;
+  onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId' | 'mcpServers'>>) => void;
   onDeleteSession: (id: string) => void;
   onClearLogs: () => void;
   variables: Variable[];
@@ -791,8 +791,8 @@ interface SettingsTabProps {
   stepNodes: WorkflowNode[];
   onAssignSession: (nodeId: string, sessionId: string) => void;
   addSessionPing: number;
-  onAddSession: (name: string, agentServerId: Session['agentServerId']) => void;
-  onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => void;
+  onAddSession: (name: string, agentServerId: Session['agentServerId'], mcpServers?: string) => void;
+  onEditSession: (id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId' | 'mcpServers'>>) => void;
   onDeleteSession: (id: string) => void;
   agentServers: AgentServerEntry[];
   readonly?: boolean;
@@ -887,12 +887,35 @@ function ReadOnlyText({ value }: { value?: string }) {
   return <div className="readonly-value-cell"><span className={value ? undefined : 'placeholder'}>{value || '—'}</span></div>;
 }
 
+type SessionConfigModalState =
+  | { mode: 'create'; name: string; agentServerId: Session['agentServerId']; mcpServers: string }
+  | { mode: 'edit'; sessionId: string; name: string; agentServerId: Session['agentServerId']; mcpServers: string };
+
+const MCP_SERVERS_PLACEHOLDER = `[
+  {
+    "name": "local-files",
+    "command": "uvx",
+    "args": ["mcp-server-filesystem", "/path/to/workspace"],
+    "env": []
+  },
+  {
+    "type": "http",
+    "name": "remote-docs",
+    "url": "https://example.com/mcp",
+    "headers": []
+  },
+  {
+    "type": "sse",
+    "name": "remote-events",
+    "url": "https://example.com/sse",
+    "headers": []
+  }
+]`;
+
 function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onAddSession, onEditSession, onDeleteSession, agentServers, readonly, t }: SettingsTabProps) {
   const [draftName, setDraftName] = useState('');
   const [draftAgent, setDraftAgent] = useState<Session['agentServerId']>('unconfigured');
-  const [editingId, setEditingId] = useState('');
-  const [editingName, setEditingName] = useState('');
-  const [editingAgent, setEditingAgent] = useState<Session['agentServerId']>('unconfigured');
+  const [modal, setModal] = useState<SessionConfigModalState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -916,22 +939,25 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
     setDraftName('');
   };
 
-  const startEdit = (session: Session) => {
-    setEditingId(session.id);
-    setEditingName(session.name);
-    setEditingAgent(session.agentServerId ?? session.agent ?? draftAgent);
+  const openCreateModal = () => {
+    if (readonly) return;
+    setModal({
+      mode: 'create',
+      name: (inputRef.current?.value ?? draftName).trim(),
+      agentServerId: draftAgent,
+      mcpServers: '',
+    });
   };
 
-  const cancelEdit = () => {
-    setEditingId('');
-    setEditingName('');
-  };
-
-  const saveEdit = () => {
-    const name = editingName.trim();
-    if (!editingId || !isSymbolKey(name) || sessions.some((session) => session.id === name && session.id !== editingId) || readonly) return;
-    onEditSession(editingId, { name, agentServerId: editingAgent });
-    cancelEdit();
+  const openEditModal = (session: Session) => {
+    if (readonly) return;
+    setModal({
+      mode: 'edit',
+      sessionId: session.id,
+      name: session.name,
+      agentServerId: session.agentServerId ?? session.agent ?? draftAgent,
+      mcpServers: session.mcpServers ?? '',
+    });
   };
 
   return (
@@ -955,6 +981,9 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
             <option key={server.id} value={server.id}>{server.id}</option>
           ))}
         </select>
+        <button className="btn sm ghost mcp-config-btn" disabled={readonly} onClick={openCreateModal} title={t('settings.configureMcp')}>
+          <Icon name="settings" size={10} />{t('settings.mcp')}
+        </button>
         <button className="btn sm primary" disabled={readonly} onClick={handleAdd}><Icon name="plus" size={11} />{t('settings.add')}</button>
         {draftName && (!isSymbolKey(draftName.trim()) || sessions.some((session) => session.id === draftName.trim())) && (
           <span className="field-error">{t('settings.invalidSessionName')}</span>
@@ -966,47 +995,18 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
       <div className="session-list-row">
         <span className="label">{t('sessions.title')}</span>
         {sessions.map((session) => {
-          if (editingId === session.id) {
-            return (
-              <span key={session.id} className="session-chip editing">
-                <span className="ses-dot" style={{ background: sessionAccent(session) }} />
-                <input
-                  className="input sm"
-                  value={editingName}
-                  disabled={readonly}
-                  onChange={(event) => setEditingName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') saveEdit();
-                    if (event.key === 'Escape') cancelEdit();
-                  }}
-                  style={{ width: 130, height: 20 }}
-                />
-                <select
-                  className="input sm"
-                  value={editingAgent}
-                  disabled={readonly}
-                  onChange={(event) => setEditingAgent(event.target.value)}
-                  style={{ width: 140, height: 20 }}
-                >
-                  {agentServers.map((server) => (
-                    <option key={server.id} value={server.id}>{server.id}</option>
-                  ))}
-                </select>
-                <button className="ses-x save" title={t('settings.saveSession', { name: session.name })} disabled={readonly || !isSymbolKey(editingName.trim()) || sessions.some((session) => session.id === editingName.trim() && session.id !== editingId)} onClick={saveEdit}>
-                  <Icon name="check" size={10} />
-                </button>
-                <button className="ses-x" title={t('settings.cancelEdit')} onClick={cancelEdit}>
-                  <Icon name="x" size={10} />
-                </button>
-              </span>
-            );
-          }
+          const mcpSummary = summarizeMcpServers(session.mcpServers);
           return (
             <span key={session.id} className="session-chip">
               <span className="ses-dot" style={{ background: sessionAccent(session) }} />
               {session.name}
               <span className="agent">{session.agentServerId ?? session.agent}</span>
-              <button className="ses-x" title={t('settings.editSession', { name: session.name })} disabled={readonly} onClick={() => startEdit(session)}>
+              {mcpSummary.state !== 'none' && (
+                <span className={`mcp-badge${mcpSummary.state === 'invalid' ? ' invalid' : ''}`}>
+                  {mcpSummary.state === 'invalid' ? t('settings.mcpInvalidBadge') : t('settings.mcpCount', { count: mcpSummary.count })}
+                </span>
+              )}
+              <button className="ses-x edit" title={t('settings.editSession', { name: session.name })} disabled={readonly} onClick={() => openEditModal(session)}>
                 <Icon name="edit" size={10} />
               </button>
               <button className="ses-x" title={t('settings.deleteSession', { name: session.name })} disabled={readonly || sessions.length <= 1} onClick={() => onDeleteSession(session.id)}>
@@ -1042,8 +1042,227 @@ function SettingsTab({ sessions, stepNodes, onAssignSession, addSessionPing, onA
           </div>
         ))}
       </div>
+      {modal && (
+        <SessionConfigModal
+          modal={modal}
+          sessions={sessions}
+          agentServers={agentServers}
+          t={t}
+          onCancel={() => setModal(null)}
+          onSave={(next) => {
+            if (next.mode === 'create') {
+              onAddSession(next.name, next.agentServerId, next.mcpServers);
+              setDraftName('');
+              setDraftAgent(next.agentServerId);
+            } else {
+              onEditSession(next.sessionId, {
+                name: next.name,
+                agentServerId: next.agentServerId,
+                mcpServers: next.mcpServers || undefined,
+              });
+            }
+            setModal(null);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+function SessionConfigModal({
+  modal,
+  sessions,
+  agentServers,
+  t,
+  onCancel,
+  onSave,
+}: {
+  modal: SessionConfigModalState;
+  sessions: Session[];
+  agentServers: AgentServerEntry[];
+  t: SettingsTabProps['t'];
+  onCancel: () => void;
+  onSave: (next: SessionConfigModalState) => void;
+}) {
+  const [name, setName] = useState(modal.name);
+  const [agentServerId, setAgentServerId] = useState(modal.agentServerId);
+  const [mcpServers, setMcpServers] = useState(modal.mcpServers);
+  const trimmedName = name.trim();
+  const duplicate = sessions.some((session) => session.id === trimmedName && (modal.mode !== 'edit' || session.id !== modal.sessionId));
+  const nameError = trimmedName && (!isSymbolKey(trimmedName) || duplicate) ? t('settings.invalidSessionName') : undefined;
+  const mcpValidation = validateMcpServersJson(mcpServers, t);
+  const canSave = Boolean(trimmedName) && !nameError && !mcpValidation.error;
+
+  const save = () => {
+    if (!canSave) return;
+    onSave({
+      ...modal,
+      name: trimmedName,
+      agentServerId,
+      mcpServers: mcpValidation.normalized,
+    });
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Escape') onCancel();
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      save();
+    }
+  };
+
+  return (
+    <div className="run-modal-overlay" onMouseDown={onCancel}>
+      <div className="run-modal session-config-modal" onMouseDown={(event) => event.stopPropagation()} onKeyDown={handleKeyDown}>
+        <div className="run-modal-head">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="label"><Icon name="settings" size={11} /> {t('settings.sessionDialogLabel')}</div>
+            <h2>{modal.mode === 'create' ? t('settings.createSessionTitle') : t('settings.editSessionTitle', { name: modal.name })}</h2>
+          </div>
+          <button className="close" onClick={onCancel} title={t('common.close')}>
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+
+        <div className="run-modal-body session-config-body">
+          <div className="session-form-row">
+            <label>{t('settings.sessionNameField')}</label>
+            <input
+              className="input"
+              value={name}
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+            />
+            {nameError && <div className="field-error">{nameError}</div>}
+          </div>
+
+          <div className="session-form-row">
+            <label>{t('settings.agentServer')}</label>
+            <select className="input" value={agentServerId} onChange={(event) => setAgentServerId(event.target.value)}>
+              {agentServers.map((server) => (
+                <option key={server.id} value={server.id}>{server.id}</option>
+              ))}
+              {agentServers.length === 0 && <option value={agentServerId}>{agentServerId}</option>}
+            </select>
+          </div>
+
+          <div className="session-form-row">
+            <div className="session-mcp-head">
+              <label>{t('settings.mcpServers')}</label>
+              {!mcpValidation.error && (
+                <span className="session-mcp-status">
+                  {mcpValidation.count > 0 ? t('settings.mcpValidCount', { count: mcpValidation.count }) : t('settings.mcpNone')}
+                </span>
+              )}
+            </div>
+            <textarea
+              className="textarea session-mcp-textarea"
+              rows={14}
+              value={mcpServers}
+              placeholder={MCP_SERVERS_PLACEHOLDER}
+              spellCheck={false}
+              onChange={(event) => setMcpServers(event.target.value)}
+            />
+            {mcpValidation.error && <div className="field-error">{mcpValidation.error}</div>}
+            <div className="code-hint">{t('settings.mcpServersHint')}</div>
+          </div>
+        </div>
+
+        <div className="run-modal-actions">
+          <button className="btn sm" onClick={onCancel}>{t('common.cancel')}</button>
+          <button className="btn sm primary" disabled={!canSave} onClick={save}>
+            <Icon name={modal.mode === 'create' ? 'plus' : 'check'} size={12} />
+            {modal.mode === 'create' ? t('settings.add') : t('common.save')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function summarizeMcpServers(rawValue?: string): { state: 'none' | 'valid' | 'invalid'; count: number } {
+  const trimmed = rawValue?.trim();
+  if (!trimmed) return { state: 'none', count: 0 };
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? { state: 'valid', count: parsed.length } : { state: 'invalid', count: 0 };
+  } catch {
+    return { state: 'invalid', count: 0 };
+  }
+}
+
+function validateMcpServersJson(rawValue: string, t: SettingsTabProps['t']): { normalized: string; count: number; error?: string } {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return { normalized: '', count: 0 };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { normalized: trimmed, count: 0, error: t('settings.mcpJsonError', { error: detail }) };
+  }
+  if (!Array.isArray(parsed)) {
+    return { normalized: trimmed, count: 0, error: t('settings.mcpArrayError') };
+  }
+  for (let index = 0; index < parsed.length; index += 1) {
+    const server = parsed[index];
+    const prefix = t('settings.mcpItemPrefix', { index: index + 1 });
+    if (!isRecord(server)) return { normalized: trimmed, count: parsed.length, error: `${prefix}: ${t('settings.mcpObjectError')}` };
+    const type = typeof server.type === 'string' ? server.type : 'stdio';
+    if (type === 'stdio') {
+      if ('type' in server) return { normalized: trimmed, count: parsed.length, error: `${prefix}: ${t('settings.mcpStdioTypeError')}` };
+      const error = validateMcpStdioServer(server, t);
+      if (error) return { normalized: trimmed, count: parsed.length, error: `${prefix}: ${error}` };
+      continue;
+    }
+    if (type === 'http' || type === 'sse') {
+      const error = validateMcpRemoteServer(server, t);
+      if (error) return { normalized: trimmed, count: parsed.length, error: `${prefix}: ${error}` };
+      continue;
+    }
+    if (type === 'acp') {
+      return { normalized: trimmed, count: parsed.length, error: `${prefix}: ${t('settings.mcpAcpUnsupported')}` };
+    }
+    return { normalized: trimmed, count: parsed.length, error: `${prefix}: ${t('settings.mcpUnknownType', { type })}` };
+  }
+  return { normalized: trimmed, count: parsed.length };
+}
+
+function validateMcpStdioServer(server: Record<string, unknown>, t: SettingsTabProps['t']): string | undefined {
+  if (!nonEmptyString(server.name)) return t('settings.mcpMissingName');
+  if (!nonEmptyString(server.command)) return t('settings.mcpMissingCommand');
+  if (!stringArray(server.args)) return t('settings.mcpArgsArray');
+  if (!envArray(server.env)) return t('settings.mcpEnvArray');
+  return undefined;
+}
+
+function validateMcpRemoteServer(server: Record<string, unknown>, t: SettingsTabProps['t']): string | undefined {
+  if (!nonEmptyString(server.name)) return t('settings.mcpMissingName');
+  if (!nonEmptyString(server.url)) return t('settings.mcpMissingUrl');
+  if (!headerArray(server.headers)) return t('settings.mcpHeadersArray');
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function envArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((entry) =>
+    isRecord(entry) && typeof entry.name === 'string' && typeof entry.value === 'string');
+}
+
+function headerArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((entry) =>
+    isRecord(entry) && typeof entry.name === 'string' && typeof entry.value === 'string');
 }
 
 function isNearLogBottom(element: HTMLElement): boolean {

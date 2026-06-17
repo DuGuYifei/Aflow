@@ -37,7 +37,6 @@ interface NodePanelProps {
   onEditNode: (id: string, patch: Record<string, unknown>) => void;
   onRenameNode: (oldId: string, newId: string) => void;
   onChangeSession: (id: string, sid: string) => void;
-  onEditSession?: (id: string, patch: Partial<Session>) => void;
   onAddSessionRequest: () => void;
   onAddEdge: (edge: Edge) => void;
   onDeleteEdge: (id: string) => void;
@@ -194,13 +193,6 @@ function StepOverview(props: NodePanelProps & {
         </select>
         {!readonly && <button className="btn sm ghost" onClick={props.onAddSessionRequest}><Icon name="plus" size={11} />{t('node.add')}</button>}
       </div>
-      {session && props.onEditSession && (
-        <McpServersEditor
-          session={session}
-          readonly={readonly}
-          onChange={(value) => props.onEditSession!(session.id, { mcpServers: value || undefined })}
-        />
-      )}
       <div className="section-title">{t('node.prompt')}</div>
       {!readonly && promptTokens.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
@@ -856,62 +848,6 @@ function ConfigOptionControl(props: {
       </select>
       {option.description && <div className="code-hint">{option.description}</div>}
     </div>
-  );
-}
-
-// ── MCP servers JSON editor on the session ──────────────────────────────────
-
-function McpServersEditor(props: {
-  session: Session;
-  readonly: boolean;
-  onChange: (value: string) => void;
-}) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState(props.session.mcpServers ?? '');
-  const [error, setError] = useState<string | undefined>(undefined);
-  // Reset local draft if the session changes (different node opened with a different session).
-  useEffect(() => {
-    setDraft(props.session.mcpServers ?? '');
-    setError(undefined);
-  }, [props.session.id, props.session.mcpServers]);
-  const commit = () => {
-    const trimmed = draft.trim();
-    if (!trimmed) {
-      setError(undefined);
-      props.onChange('');
-      return;
-    }
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (!Array.isArray(parsed)) {
-        setError('mcpServers must be a JSON array.');
-        return;
-      }
-      setError(undefined);
-      props.onChange(trimmed);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    }
-  };
-  return (
-    <>
-      <div className="section-title">{t('node.mcpServers')}</div>
-      <textarea
-        className="textarea"
-        rows={6}
-        value={draft}
-        disabled={props.readonly}
-        placeholder='[{"name": "fs", "command": "uvx", "args": ["mcp-server-filesystem", "/tmp"], "env": []}]'
-        spellCheck={false}
-        style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-      />
-      {error && <div className="code-hint" style={{ color: 'var(--accent-red, #d33)' }}>{t('node.jsonError', { error })}</div>}
-      <div className="code-hint">
-        {t('node.mcpServersHint')}
-      </div>
-    </>
   );
 }
 

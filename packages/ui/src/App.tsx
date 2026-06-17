@@ -1136,11 +1136,20 @@ export function App() {
 
   // ── session management ────────────────────────────────────────────────────
 
-  const onAddSession = useCallback((name: string, agentServerId: Session['agentServerId']) => {
+  const onAddSession = useCallback((name: string, agentServerId: Session['agentServerId'], mcpServers?: string) => {
     setSessions((previousSessions) => {
       const id = name.trim();
       if (!isSymbolKey(id) || previousSessions.some((session) => session.id === id)) return previousSessions;
-      const updated = [...previousSessions, { id, name: id, agentServerId }];
+      const normalizedMcpServers = mcpServers?.trim();
+      const updated = [
+        ...previousSessions,
+        {
+          id,
+          name: id,
+          agentServerId,
+          ...(normalizedMcpServers ? { mcpServers: normalizedMcpServers } : {}),
+        },
+      ];
       sessionsRef.current = updated;
       setActiveSessionId(id);
       scheduleSave();
@@ -1166,31 +1175,22 @@ export function App() {
     scheduleSave();
   }, [scheduleSave]);
 
-  const onUpdateSessionMcpServers = useCallback((id: string, mcpServers: string | undefined) => {
-    if (patchActiveRunSnapshot((snapshot) => ({
-      ...snapshot,
-      sessions: snapshot.sessions.map((session) =>
-        session.id === id ? { ...session, mcpServers: mcpServers || undefined } : session,
-      ),
-    }), t('app.snapshotEditedSession'))) return;
-
-    setSessions((previousSessions) => {
-      const updated = previousSessions.map((session) =>
-        session.id === id ? { ...session, mcpServers: mcpServers || undefined } : session,
-      );
-      sessionsRef.current = updated;
-      scheduleSave();
-      return updated;
-    });
-  }, [patchActiveRunSnapshot, scheduleSave, t]);
-
-  const onEditSession = useCallback((id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId'>>) => {
+  const onEditSession = useCallback((id: string, patch: Partial<Pick<Session, 'name' | 'agentServerId' | 'mcpServers'>>) => {
     const nextId = patch.name?.trim() ?? id;
     if (!isSymbolKey(nextId) || sessionsRef.current.some((session) => session.id === nextId && session.id !== id)) {
       return;
     }
+    const normalizedMcpServers = patch.mcpServers?.trim();
     const updated = sessionsRef.current.map((session) =>
-      session.id === id ? { ...session, ...patch, id: nextId, name: nextId } : session,
+      session.id === id
+        ? {
+          ...session,
+          ...patch,
+          id: nextId,
+          name: nextId,
+          ...('mcpServers' in patch ? { mcpServers: normalizedMcpServers || undefined } : {}),
+        }
+        : session,
     );
     const updatedNodes = nodesRef.current.map((node) =>
       node.kind === 'step' && node.sessionId === id ? { ...node, sessionId: nextId } as WorkflowNode : node,
@@ -2542,9 +2542,6 @@ export function App() {
           onEditNode={onEditNode}
           onRenameNode={onRenameNode}
           onChangeSession={onChangeSession}
-          onEditSession={(id, patch) => {
-            if ('mcpServers' in patch) onUpdateSessionMcpServers(id, patch.mcpServers ?? undefined);
-          }}
           onAddSessionRequest={onAddSessionRequest}
           onAddEdge={onAddEdge}
           onDeleteEdge={onDeleteEdge}

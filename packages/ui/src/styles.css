@@ -1517,10 +1517,10 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   margin-top: 4px;
 }
 .agent-auth-overlay {
-  z-index: 40;
+  z-index: 1200;
 }
 .agent-auth-terminal-overlay {
-  z-index: 45;
+  z-index: 1210;
 }
 .agent-auth-modal {
   width: min(560px, calc(100vw - 24px));
@@ -1876,6 +1876,10 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   padding: 0 8px;
   font-size: 12px;
 }
+.mcp-config-btn {
+  height: 26px;
+  padding: 0 8px;
+}
 
 /* assignment list */
 .assn-list {
@@ -1988,7 +1992,6 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   height: 26px;
   position: relative;
 }
-.session-chip.editing { height: 28px; padding-right: 6px; }
 .session-chip .ses-dot { width: 8px; height: 8px; border-radius: 2px; }
 .field-error {
   color: var(--err);
@@ -2004,6 +2007,22 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   padding: 0 4px;
   height: 14px; line-height: 14px;
 }
+.session-chip .mcp-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--ink-2);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 4px;
+  height: 14px;
+  line-height: 14px;
+}
+.session-chip .mcp-badge.invalid {
+  color: var(--err);
+  background: var(--err-soft);
+  border-color: color-mix(in oklch, var(--err) 24%, var(--line));
+}
 .session-chip .ses-x {
   background: transparent; border: none;
   color: var(--ink-4);
@@ -2013,6 +2032,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   display: inline-flex; align-items: center;
   margin-left: 2px;
 }
+.session-chip .ses-x.edit:hover { color: var(--ink); background: var(--line-2); }
 .session-chip .ses-x:hover { color: var(--err); background: var(--err-soft); }
 .session-chip .ses-x.save:hover { color: var(--ok); background: var(--ok-soft); }
 .session-chip .ses-x:disabled {
@@ -2681,7 +2701,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .run-modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 1200;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -2799,6 +2819,42 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
   border-top: 1px solid var(--line);
   background: var(--bg-elev);
 }
+.session-config-modal {
+  width: min(640px, calc(100vw - 32px));
+}
+.session-config-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.session-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.session-form-row label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+.session-mcp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-mcp-status {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.session-mcp-textarea {
+  min-height: 250px;
+  resize: vertical;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .interaction-modal {
   width: min(520px, calc(100vw - 32px));
 }
@@ -2841,7 +2897,7 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 .conversation-overlay {
   position: fixed;
   inset: 0;
-  z-index: 82;
+  z-index: 1200;
   background: color-mix(in oklch, var(--bg) 42%, transparent);
   display: grid;
   place-items: center;
