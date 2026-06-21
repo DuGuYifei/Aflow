@@ -13,13 +13,12 @@ export interface RunAflowAgentOptions {
 export async function runAflowAgent(args: string[], options: RunAflowAgentOptions = {}): Promise<void> {
   printAflowStartupBanner();
   const updateCheck = options.checkForUpdates === false ? undefined : startAflowUpdateCheck(args);
+  if (updateCheck?.cachedUpdate) process.stdout.write(`${formatAflowUpdateNotice(updateCheck.cachedUpdate)}\n`);
   const extensionFactories = [
     createAflowPiExtension(),
     ...(options.extensionFactories ?? []),
   ];
   const specflow = await connectOrStartSpecflowServer({ cwd: process.cwd() });
-  const update = updateCheck?.readIfSettled();
-  if (update) process.stdout.write(`${formatAflowUpdateNotice(update)}\n`);
   try {
     await piMain(withAflowSystemPrompt(args), { extensionFactories });
   } finally {
