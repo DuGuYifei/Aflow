@@ -1,5 +1,10 @@
 import type { AgentServerEntry } from "@specflow/agent-proxy";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc, RunGraphOperation } from "@specflow/server";
+import {
+  RESTORE_SSE_EVENTS,
+  RUN_SSE_EVENTS,
+  type RunSseEventType,
+} from "@specflow/shared";
 
 export interface SpecflowHealth {
   app: string;
@@ -218,7 +223,7 @@ export interface RunInteraction {
 
 export type RestoreStreamEvent =
   | {
-      type: "restore-status";
+      type: typeof RESTORE_SSE_EVENTS.restoreStatus;
       restoreId: string;
       agentSessionId: string;
       runId: string;
@@ -229,7 +234,7 @@ export type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: "session-update";
+      type: typeof RESTORE_SSE_EVENTS.sessionUpdate;
       restoreId: string;
       agentSessionId: string;
       sessionId: string;
@@ -237,7 +242,7 @@ export type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: "terminal";
+      type: typeof RESTORE_SSE_EVENTS.terminal;
       restoreId: string;
       agentSessionId: string;
       stream: string;
@@ -245,7 +250,7 @@ export type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: "interaction-requested";
+      type: typeof RESTORE_SSE_EVENTS.interactionRequested;
       restoreId: string;
       interaction: RunInteraction;
       at: string;
@@ -254,6 +259,12 @@ export type RestoreStreamEvent =
       type: "error";
       error: string;
     };
+
+export type RunStreamEvent =
+  | { type: typeof RUN_SSE_EVENTS.hello; runId: string }
+  | ({ type: typeof RUN_SSE_EVENTS.interactionRequested; interaction: RunInteraction })
+  | ({ type: Exclude<RunSseEventType, typeof RUN_SSE_EVENTS.hello | typeof RUN_SSE_EVENTS.interactionRequested> } & Record<string, unknown>)
+  | { type: "error"; error: string };
 
 export class SpecflowClient {
   constructor(readonly baseUrl: string) {}
@@ -451,32 +462,21 @@ export class SpecflowClient {
     onEvent: (event: RestoreStreamEvent) => void,
     options: { signal?: AbortSignal } = {},
   ): Promise<void> {
-    const response = await fetch(new URL(`/api/agent-session-restores/${encodeURIComponent(restoreId)}/events`, this.baseUrl), {
-      signal: options.signal,
-    });
-    if (!response.ok) {
-      throw new Error(await responseError(response));
-    }
-    if (!response.body) return;
+    await streamSseEvents(
+      new URL(`/api/agent-session-restores/${encodeURIComponent(restoreId)}/events`, this.baseUrl),
+      onEvent,
+      options,
+    );
+  }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      for (;;) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        buffer = drainSseBuffer(buffer, onEvent);
-      }
-      buffer += decoder.decode();
-      drainSseBuffer(buffer, onEvent);
-    } catch (error) {
-      if (options.signal?.aborted || isAbortError(error)) return;
-      throw error;
-    } finally {
-      reader.releaseLock();
-    }
+  async streamRunEvents(
+    runId: string,
+    onEvent: (event: RunStreamEvent) => void,
+    options: { signal?: AbortSignal; replay?: boolean } = {},
+  ): Promise<void> {
+    const url = new URL(`/api/runs/${encodeURIComponent(runId)}/events`, this.baseUrl);
+    if (options.replay === false) url.searchParams.set("replay", "false");
+    await streamSseEvents(url, onEvent, options);
   }
 
   private async normalizeStartedRun(started: RunRecordSummary | { runId: string }, workflowId?: string): Promise<RunRecordSummary> {
@@ -516,18 +516,55 @@ export class SpecflowClient {
   }
 }
 
-function drainSseBuffer(buffer: string, onEvent: (event: RestoreStreamEvent) => void): string {
+async function streamSseEvents<T>(
+  url: URL,
+  onEvent: (event: T) => void,
+  options: { signal?: AbortSignal } = {},
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: options.signal });
+  } catch (error) {
+    if (options.signal?.aborted || isAbortError(error)) return;
+    throw error;
+  }
+  if (!response.ok) {
+    throw new Error(await responseError(response));
+  }
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      buffer = drainSseBuffer(buffer, onEvent);
+    }
+    buffer += decoder.decode();
+    drainSseBuffer(buffer, onEvent);
+  } catch (error) {
+    if (options.signal?.aborted || isAbortError(error)) return;
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function drainSseBuffer<T>(buffer: string, onEvent: (event: T) => void): string {
   for (;;) {
     const separator = buffer.indexOf("\n\n");
     if (separator < 0) return buffer;
     const rawEvent = buffer.slice(0, separator);
     buffer = buffer.slice(separator + 2);
-    const parsed = parseSseEvent(rawEvent);
-    if (parsed) onEvent(parsed);
+    const parsed = parseSseEvent<T>(rawEvent);
+    if (parsed !== undefined) onEvent(parsed);
   }
 }
 
-function parseSseEvent(rawEvent: string): RestoreStreamEvent | undefined {
+function parseSseEvent<T>(rawEvent: string): T | undefined {
   const lines = rawEvent.split(/\r?\n/);
   const eventName = lines
     .find((line) => line.startsWith("event:"))
@@ -544,11 +581,11 @@ function parseSseEvent(rawEvent: string): RestoreStreamEvent | undefined {
       const error = parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string"
         ? parsed.error
         : data;
-      return { type: "error", error };
+      return { type: "error", error } as T;
     }
-    return parsed as RestoreStreamEvent;
+    return parsed as T;
   } catch {
-    return eventName === "error" ? { type: "error", error: data } : undefined;
+    return eventName === "error" ? { type: "error", error: data } as T : undefined;
   }
 }
 

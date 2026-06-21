@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable, RunSnapshot, RunReachability, RuntimeEditClass, RunGraphOperation } from './types';
+import { RESTORE_SSE_EVENTS, RUN_SSE_EVENTS, type RestoreSseEventType, type RunSseEventType } from '@specflow/shared';
 import { edgeKey, isSymbolKey } from './appearance';
 import {
   fetchCanvases, fetchCanvas, saveAgentFlow, saveCanvasLayoutDoc, agentFlowFromCanvas, canvasLayoutFromCanvas, uploadCanvasAssets, runCanvas,
@@ -13,14 +14,12 @@ import {
   patchRunGraph, fetchRunReachability,
   saveRunBestPractice,
   AgentAuthenticationRequiredError,
-  type SseEventType,
   type AgentAuthenticationStatus,
   type RunInteraction,
   type AgentSessionRecord,
   type AgentServerCapabilities,
   type AgentServerEntry,
   type RestoreMode,
-  type RestoreSseEventType,
   type RestoreStreamEvent,
   type PausedNodeSession,
   type ApiRunLogEvent,
@@ -1464,9 +1463,9 @@ export function App() {
     };
     runUnsubscribeRef.current = cleanup;
 
-    unsub = subscribeToRun(runId, (type: SseEventType, data: unknown) => {
+    unsub = subscribeToRun(runId, (type: RunSseEventType, data: unknown) => {
       if (cancelled) return;
-      if (type === 'node-status') {
+      if (type === RUN_SSE_EVENTS.nodeStatus) {
         const event = data as {
           nodeId: string;
           status: string;
@@ -1514,14 +1513,14 @@ export function App() {
         } else if (event.status === 'success') {
           setPausedNode((paused) => paused?.nodeId === event.nodeId ? null : paused);
         }
-      } else if (type === 'terminal') {
+      } else if (type === RUN_SSE_EVENTS.terminal) {
         // New runs receive terminal output through ACP timeline events.
-      } else if (type === 'timeline') {
+      } else if (type === RUN_SSE_EVENTS.timeline) {
         setLogEvents((previous) => [...previous.slice(-LOG_LIVE_CAP), data as TimelineEvent]);
-      } else if (type === 'session-update') {
+      } else if (type === RUN_SSE_EVENTS.sessionUpdate) {
         // ACP timeline is the live log source for new runs. Keep this legacy
         // branch silent to avoid double-rendering session updates.
-      } else if (type === 'agent-prompt' || type === 'agent-lifecycle') {
+      } else if (type === RUN_SSE_EVENTS.agentPrompt || type === RUN_SSE_EVENTS.agentLifecycle) {
         const event = data as ApiRunLogEvent;
         if (event.type === 'agent_lifecycle') {
           const lifecycle = event.lifecycle && typeof event.lifecycle === 'object' ? event.lifecycle as { type?: string } : {};
@@ -1529,9 +1528,9 @@ export function App() {
             refreshAgentSessions();
           }
         }
-      } else if (type === 'interaction-requested') {
+      } else if (type === RUN_SSE_EVENTS.interactionRequested) {
         onRunInteractionEvent(data as RunInteraction);
-      } else if (type === 'run-status') {
+      } else if (type === RUN_SSE_EVENTS.runStatus) {
         const event = data as { status: string; error?: string; replay?: boolean; control?: Run['control'] };
         const uiStatus = runStatusFromEvent(event.status);
         setRuns((previous) => previous.map((run) =>
@@ -1950,14 +1949,14 @@ export function App() {
       }
       setConversation((current) => current?.session.id === session.id ? { ...current, restoreId: started.restoreId } : current);
       restoreUnsubscribeRef.current = subscribeToRestore(started.restoreId, (type: RestoreSseEventType, event: RestoreStreamEvent) => {
-        if (type === 'terminal' && event.type === 'terminal') {
+        if (type === RESTORE_SSE_EVENTS.terminal && event.type === RESTORE_SSE_EVENTS.terminal) {
           setConversation((current) => current?.session.id === session.id
             ? { ...current, events: [...current.events, { type: 'terminal', chunk: event.chunk, stream: event.stream }] }
             : current);
           return;
         }
 
-        if (type === 'session-update' && event.type === 'session-update') {
+        if (type === RESTORE_SSE_EVENTS.sessionUpdate && event.type === RESTORE_SSE_EVENTS.sessionUpdate) {
           setConversation((current) => current?.session.id === session.id
             ? applyConversationSessionUpdate({
                 ...current,
@@ -1967,12 +1966,12 @@ export function App() {
           return;
         }
 
-        if (type === 'interaction-requested' && event.type === 'interaction-requested') {
+        if (type === RESTORE_SSE_EVENTS.interactionRequested && event.type === RESTORE_SSE_EVENTS.interactionRequested) {
           onRunInteractionEvent(event.interaction);
           return;
         }
 
-        if (type === 'restore-status' && event.type === 'restore-status') {
+        if (type === RESTORE_SSE_EVENTS.restoreStatus && event.type === RESTORE_SSE_EVENTS.restoreStatus) {
           if (mode === 'continue' && event.status === 'success' && event.selectedPrimitive === 'resume') {
             void loadRecordedContext().catch(console.error);
           }

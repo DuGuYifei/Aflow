@@ -8,6 +8,7 @@ import {
   type RunInputVariable,
   type RunGraphOperation,
 } from "@specflow/server";
+import { RUN_SSE_EVENTS } from "@specflow/shared";
 import { Type } from "typebox";
 import { openPausedNodeAcpView, type AflowCustomUi } from "../acp/acp-session-view";
 import {
@@ -21,7 +22,7 @@ import {
 } from "../acp/session-summary";
 import { handoffToNativeTerminalFromTui } from "../native/terminal-handoff";
 import { connectOrStartSpecflowServer } from "../server/connect-or-start";
-import type { AgentSessionRecord, PausedNodeSession, RunLogEvent, RunReachability, RunRecordDetail, RuntimeEditClass, SpecflowClient } from "../server/specflow-client";
+import type { AgentSessionRecord, PausedNodeSession, RunInteraction, RunLogEvent, RunReachability, RunRecordDetail, RuntimeEditClass, SpecflowClient } from "../server/specflow-client";
 import { getServerCanvasOrExplainLocal, loadWorkflowDoc } from "../workflows/workflow-resolver";
 import {
   offerRunSessionResume,
@@ -32,6 +33,14 @@ type NativeHandoffUi = Parameters<typeof handoffToNativeTerminalFromTui>[1];
 type WorkflowUi = AflowCustomUi & NativeHandoffUi & {
   input(title: string, placeholder?: string): Promise<string | undefined>;
 };
+
+interface WaitingForInteractionResult {
+  waitingForInteraction: true;
+  run: RunRecordDetail;
+  interaction: RunInteraction;
+  text: string;
+  details: Record<string, unknown>;
+}
 
 const WorkflowTargetParams = Type.Object({
   target: Type.String({ description: "Workflow id or path to a workflow YAML file." }),
@@ -235,6 +244,12 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
           ui: ctx.ui,
           nodeDisplay,
         });
+        if (isWaitingForInteractionResult(checkpoint)) {
+          return textResult(checkpoint.text, {
+            ...checkpoint.details,
+            serverUrl: connection.url,
+          });
+        }
         if (isTerminalStatus(checkpoint.run.status)) {
           const bestPractice = await offerDynamicSnapshotSave({
             client: connection.client,
@@ -271,6 +286,12 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         nodeDisplay,
         mode: "normal",
       });
+      if (isWaitingForInteractionResult(finalRun)) {
+        return textResult(finalRun.text, {
+          ...finalRun.details,
+          serverUrl: connection.url,
+        });
+      }
       const sessionResume = await offerRunSessionResume({
         client: connection.client,
         run: finalRun,
@@ -427,6 +448,12 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         ui: ctx.ui,
         nodeDisplay,
       });
+      if (isWaitingForInteractionResult(checkpoint)) {
+        return textResult(checkpoint.text, {
+          ...checkpoint.details,
+          serverUrl: connection.url,
+        });
+      }
       if (isTerminalStatus(checkpoint.run.status)) {
         const bestPractice = await offerDynamicSnapshotSave({
           client: connection.client,
@@ -600,36 +627,43 @@ async function monitorDynamicRun(
     ui: WorkflowUi;
     nodeDisplay: Map<string, NodeDisplayInfo>;
   },
-): Promise<{ run: RunRecordDetail; text: string; details: DynamicCheckpointDetails }> {
+): Promise<{ run: RunRecordDetail; text: string; details: DynamicCheckpointDetails } | WaitingForInteractionResult> {
+  const interactions = startRunInteractionMonitor(client, runId, context.signal);
   let lastRendered = "";
-  for (;;) {
-    if (context.signal?.aborted) throw new Error("Workflow run monitoring cancelled.");
-    let run = await getRunOrThrowHelpfulError(client, runId);
-    const rendered = formatRunSummary(run, context.nodeDisplay);
-    if (rendered !== lastRendered) {
-      lastRendered = rendered;
-      context.onUpdate?.(textResult(rendered, {
-        runId,
-        workflowId: run.workflowId,
-        status: run.status,
-        nodeStates: run.nodeStates,
-        pausedNodeId: run.pausedNodeId,
-        dynamicReview: true,
-      }));
-    }
+  try {
+    for (;;) {
+      if (context.signal?.aborted) throw new Error("Workflow run monitoring cancelled.");
+      let run = await getRunOrThrowHelpfulError(client, runId);
+      const waiting = await handlePendingRunInteractions(client, run, interactions, context);
+      if (waiting) return waiting;
+      const rendered = formatRunSummary(run, context.nodeDisplay);
+      if (rendered !== lastRendered) {
+        lastRendered = rendered;
+        context.onUpdate?.(textResult(rendered, {
+          runId,
+          workflowId: run.workflowId,
+          status: run.status,
+          nodeStates: run.nodeStates,
+          pausedNodeId: run.pausedNodeId,
+          dynamicReview: true,
+        }));
+      }
 
-    const paused = await client.listPausedNodes(runId);
-    if (paused.length > 0 && shouldOpenAuthoredPausedInteraction(run)) {
-      const continued = await handlePausedNodes(client, run, paused, {
-        ...context,
-        mode: "dynamic",
-      });
-      if (!continued) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
-      run = await client.getRun(runId);
-    }
+      const paused = await client.listPausedNodes(runId);
+      if (paused.length > 0 && shouldOpenAuthoredPausedInteraction(run)) {
+        const continued = await handlePausedNodes(client, run, paused, {
+          ...context,
+          mode: "dynamic",
+        });
+        if (!continued) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
+        run = await client.getRun(runId);
+      }
 
-    if (!isInFlightStatus(run.status)) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
-    await sleep(750, context.signal);
+      if (!isInFlightStatus(run.status)) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
+      await sleep(750, context.signal);
+    }
+  } finally {
+    interactions.close();
   }
 }
 
@@ -873,31 +907,38 @@ async function monitorRun(
     nodeDisplay: Map<string, NodeDisplayInfo>;
     mode: "normal" | "dynamic";
   },
-): Promise<RunRecordDetail> {
+): Promise<RunRecordDetail | WaitingForInteractionResult> {
+  const interactions = startRunInteractionMonitor(client, runId, context.signal);
   let lastRendered = "";
-  for (;;) {
-    if (context.signal?.aborted) throw new Error("Workflow run monitoring cancelled.");
-    const run = await client.getRun(runId);
-    const rendered = formatRunSummary(run, context.nodeDisplay);
-    if (rendered !== lastRendered) {
-      lastRendered = rendered;
-      context.onUpdate?.(textResult(rendered, {
-        runId,
-        workflowId: run.workflowId,
-        status: run.status,
-        nodeStates: run.nodeStates,
-        pausedNodeId: run.pausedNodeId,
-      }));
-    }
+  try {
+    for (;;) {
+      if (context.signal?.aborted) throw new Error("Workflow run monitoring cancelled.");
+      const run = await client.getRun(runId);
+      const waiting = await handlePendingRunInteractions(client, run, interactions, context);
+      if (waiting) return waiting;
+      const rendered = formatRunSummary(run, context.nodeDisplay);
+      if (rendered !== lastRendered) {
+        lastRendered = rendered;
+        context.onUpdate?.(textResult(rendered, {
+          runId,
+          workflowId: run.workflowId,
+          status: run.status,
+          nodeStates: run.nodeStates,
+          pausedNodeId: run.pausedNodeId,
+        }));
+      }
 
-    const paused = await client.listPausedNodes(runId);
-    if (paused.length > 0) {
-      const continued = await handlePausedNodes(client, run, paused, context);
-      if (!continued) return run;
-    }
+      const paused = await client.listPausedNodes(runId);
+      if (paused.length > 0) {
+        const continued = await handlePausedNodes(client, run, paused, context);
+        if (!continued) return run;
+      }
 
-    if (run.status !== "running") return run;
-    await sleep(750, context.signal);
+      if (run.status !== "running") return run;
+      await sleep(750, context.signal);
+    }
+  } finally {
+    interactions.close();
   }
 }
 
@@ -964,6 +1005,130 @@ function formatPausedNodes(pausedNodes: PausedNodeSession[], nodeDisplay: Map<st
   ].join("\n");
 }
 
+interface RunInteractionMonitor {
+  next(): RunInteraction | undefined;
+  close(): void;
+}
+
+function startRunInteractionMonitor(
+  client: SpecflowClient,
+  runId: string,
+  signal: AbortSignal | undefined,
+): RunInteractionMonitor {
+  const controller = new AbortController();
+  const pending: RunInteraction[] = [];
+  const seen = new Set<string>();
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  void client.streamRunEvents(runId, (event) => {
+    if (event.type !== RUN_SSE_EVENTS.interactionRequested) return;
+    if (event.interaction.status !== "pending") return;
+    if (seen.has(event.interaction.id)) return;
+    seen.add(event.interaction.id);
+    pending.push(event.interaction);
+  }, { signal: controller.signal, replay: false }).catch(() => undefined);
+  return {
+    next: () => pending.shift(),
+    close: () => {
+      signal?.removeEventListener("abort", abort);
+      controller.abort();
+    },
+  };
+}
+
+async function handlePendingRunInteractions(
+  client: SpecflowClient,
+  run: RunRecordDetail,
+  monitor: RunInteractionMonitor,
+  context: {
+    hasUI: boolean;
+    ui: WorkflowUi;
+  },
+): Promise<WaitingForInteractionResult | undefined> {
+  for (;;) {
+    const interaction = monitor.next();
+    if (!interaction) return undefined;
+    if (!context.hasUI) return waitingForInteractionResult(run, interaction);
+    const resolution = await askRunInteractionResolution(context.ui, interaction);
+    if (!resolution) return waitingForInteractionResult(run, interaction);
+    await client.respondRunInteraction(interaction.runId, interaction.id, resolution);
+    context.ui.notify(`Resolved ${interaction.kind} interaction.`, "info");
+  }
+}
+
+async function askRunInteractionResolution(
+  ui: WorkflowUi,
+  interaction: RunInteraction,
+): Promise<unknown | undefined> {
+  if (interaction.kind === "permission") {
+    const options = interaction.options ?? [];
+    const labels = options.map((option, index) => `${index + 1}. ${option.name ?? option.optionId}`);
+    const cancelLabel = "Cancel interaction";
+    const selected = await ui.select([
+      "ACP permission requested",
+      "",
+      `Tool call: ${summarizeUnknown(interaction.toolCall)}`,
+    ].join("\n"), [...labels, cancelLabel]);
+    if (!selected) return undefined;
+    if (selected === cancelLabel) return { outcome: "cancelled" };
+    const option = options[labels.indexOf(selected)];
+    return option ? { outcome: "selected", optionId: option.optionId } : undefined;
+  }
+
+  const acceptLabel = "Accept empty content";
+  const declineLabel = "Decline";
+  const cancelLabel = "Cancel interaction";
+  const selected = await ui.select([
+    "ACP elicitation requested",
+    "",
+    `Request: ${summarizeUnknown(interaction.request)}`,
+  ].join("\n"), [acceptLabel, declineLabel, cancelLabel]);
+  if (selected === acceptLabel) return { action: "accept", content: {} };
+  if (selected === declineLabel) return { action: "decline" };
+  if (selected === cancelLabel) return { action: "cancel" };
+  return undefined;
+}
+
+function waitingForInteractionResult(run: RunRecordDetail, interaction: RunInteraction): WaitingForInteractionResult {
+  const text = [
+    `Workflow run is waiting for an ACP ${interaction.kind} interaction.`,
+    `Run: ${run.id}`,
+    `Workflow: ${run.workflowId}`,
+    `Interaction: ${interaction.id}`,
+    interaction.nodeId ? `Node: ${interaction.nodeId}` : undefined,
+    `Agent server: ${interaction.agentServerId}`,
+    "",
+    "Open the Specflow UI or respond through the API:",
+    `POST /api/runs/${encodeURIComponent(interaction.runId)}/interactions/${encodeURIComponent(interaction.id)}/respond`,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+  return {
+    waitingForInteraction: true,
+    run,
+    interaction,
+    text,
+    details: {
+      waitingForInteraction: true,
+      runId: run.id,
+      workflowId: run.workflowId,
+      status: run.status,
+      interactionId: interaction.id,
+      interactionKind: interaction.kind,
+      nodeId: interaction.nodeId,
+      agentServerId: interaction.agentServerId,
+    },
+  };
+}
+
+function isWaitingForInteractionResult(value: unknown): value is WaitingForInteractionResult {
+  return Boolean(value && typeof value === "object" && (value as WaitingForInteractionResult).waitingForInteraction === true);
+}
+
+function summarizeUnknown(value: unknown): string {
+  if (value === undefined || value === null) return "(none)";
+  const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value);
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
+}
+
 function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -1012,3 +1177,9 @@ function textResult(text: string, details: Record<string, unknown>) {
     details,
   };
 }
+
+export const __testing = {
+  askRunInteractionResolution,
+  waitingForInteractionResult,
+  isWaitingForInteractionResult,
+};

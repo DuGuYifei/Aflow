@@ -26,4 +26,11 @@ describe("withAflowSystemPrompt", () => {
       else process.env["AFLOW_DISABLE_SYSTEM_PROMPT"] = original;
     }
   });
+
+  test("documents the agent capability cache for workflow authoring", () => {
+    expect(AFLOW_SYSTEM_PROMPT).toContain("capabilities.json");
+    expect(AFLOW_SYSTEM_PROMPT).toContain("SPECFLOW_AGENT_CACHE_DIR");
+    expect(AFLOW_SYSTEM_PROMPT).toContain("availableCommands");
+    expect(AFLOW_SYSTEM_PROMPT).toContain("configOptions");
+  });
 });

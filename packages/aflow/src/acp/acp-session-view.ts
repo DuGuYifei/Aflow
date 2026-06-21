@@ -6,6 +6,7 @@ import type {
   RunInteraction,
   SpecflowClient,
 } from "../server/specflow-client";
+import { RESTORE_SSE_EVENTS } from "@specflow/shared";
 import type { ConversationSnippet, NodeDisplayInfo } from "./session-summary";
 import { latestInvocation } from "./session-summary";
 
@@ -130,7 +131,7 @@ export async function openAcpSessionView(options: OpenAcpSessionViewOptions): Pr
       if (event.type === "error") {
         status = "error";
         append("system", event.error);
-      } else if (event.type === "restore-status") {
+      } else if (event.type === RESTORE_SSE_EVENTS.restoreStatus) {
         if (event.status === "success") {
           selectedPrimitive = event.selectedPrimitive ? ` via ${event.selectedPrimitive}` : "";
           status = event.requestedMode === "continue" ? "ready" : "inspected";
@@ -141,12 +142,12 @@ export async function openAcpSessionView(options: OpenAcpSessionViewOptions): Pr
         } else {
           status = "restoring";
         }
-      } else if (event.type === "terminal") {
+      } else if (event.type === RESTORE_SSE_EVENTS.terminal) {
         append("system", event.chunk);
-      } else if (event.type === "session-update") {
+      } else if (event.type === RESTORE_SSE_EVENTS.sessionUpdate) {
         const text = agentMessageChunkText(event.update);
         if (text) append("assistant", text);
-      } else if (event.type === "interaction-requested") {
+      } else if (event.type === RESTORE_SSE_EVENTS.interactionRequested) {
         if (!pendingInteractions.some((candidate) => candidate.id === event.interaction.id)) {
           pendingInteractions.push(event.interaction);
           append("system", `${event.interaction.kind} interaction requested.`);

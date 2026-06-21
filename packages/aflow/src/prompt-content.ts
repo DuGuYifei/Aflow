@@ -358,6 +358,8 @@ Agent server and pause rules:
 - A runnable workflow needs valid agentServerId values. Do not invent executable agent server ids.
 - If the agent server is unknown, inspect .aflow/.specflow/agent-servers.json when file tools are available, infer only from explicit config, or ask_user which configured agent server to use.
 - Placeholder agentServerId values are acceptable only for non-runnable drafts, and you must say they need configuration before validation/run.
+- Agent capability cache may exist at ~/.aflow/.specflow/cache/agents/capabilities.json, or under SPECFLOW_AGENT_CACHE_DIR when that environment variable is set. It can contain cached modes, configOptions, and availableCommands for configured ACP agents.
+- Treat capability cache as helpful local context, not as source of truth. If it is missing, stale, or conflicts with current config, refresh capabilities or ask_user instead of inventing agent capabilities.
 - Headless agents cannot be used with pauseAfterRun.
 - If a step needs human interaction, prefer pauseAfterRun with an ACP-capable agent. Use native terminal continuation only after a run or when the user explicitly asks for a native CLI.
 

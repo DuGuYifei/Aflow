@@ -1,5 +1,13 @@
 import type { Session, WorkflowNode, Edge, Workflow, Run, RunState, Variable, LogLine, TimelineEvent, RunReachability, RunControlIntent, WorkflowDiagnostic, RunGraphOperation } from './types';
-import { isAcpTimelineEvent, type AcpTimelineEvent } from '@specflow/shared';
+import {
+  isAcpTimelineEvent,
+  RESTORE_SSE_EVENTS,
+  RESTORE_SSE_EVENT_TYPES,
+  RUN_SSE_EVENT_TYPES,
+  type AcpTimelineEvent,
+  type RestoreSseEventType,
+  type RunSseEventType,
+} from '@specflow/shared';
 
 export interface CanvasDoc {
   id: string;
@@ -266,11 +274,9 @@ export interface RestoreStartResponse {
   requestedMode: RestoreMode;
 }
 
-export type RestoreSseEventType = 'restore-status' | 'session-update' | 'terminal' | 'interaction-requested';
-
 export type RestoreStreamEvent =
   | {
-      type: 'restore-status';
+      type: typeof RESTORE_SSE_EVENTS.restoreStatus;
       restoreId: string;
       agentSessionId: string;
       runId: string;
@@ -282,7 +288,7 @@ export type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: 'session-update';
+      type: typeof RESTORE_SSE_EVENTS.sessionUpdate;
       restoreId: string;
       agentSessionId: string;
       sessionId: string;
@@ -290,7 +296,7 @@ export type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: 'terminal';
+      type: typeof RESTORE_SSE_EVENTS.terminal;
       restoreId: string;
       agentSessionId: string;
       stream: LogLine['stream'];
@@ -298,7 +304,7 @@ export type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: 'interaction-requested';
+      type: typeof RESTORE_SSE_EVENTS.interactionRequested;
       restoreId: string;
       interaction: RunInteraction;
       at: string;
@@ -955,31 +961,23 @@ export async function respondToRunInteraction(
   if (!response.ok) throw new Error(`Failed to respond to interaction: ${response.status}`);
 }
 
-export type SseEventType = 'hello' | 'node-status' | 'terminal' | 'session-update' | 'agent-prompt' | 'agent-lifecycle' | 'timeline' | 'run-status' | 'interaction-requested';
-
 export function subscribeToRun(
   runId: string,
-  onEvent: (type: SseEventType, data: unknown) => void,
+  onEvent: (type: RunSseEventType, data: unknown) => void,
   options: { replay?: boolean } = {},
 ): () => void {
   const query = options.replay === false ? "?replay=false" : "";
   const source = new EventSource(`/api/runs/${runId}/events${query}`);
 
-  const handle = (type: SseEventType) => (messageEvent: MessageEvent) => {
+  const handle = (type: RunSseEventType) => (messageEvent: MessageEvent) => {
     try {
       onEvent(type, JSON.parse(messageEvent.data));
     } catch { /* ignore bad json */ }
   };
 
-  source.addEventListener('hello',       handle('hello'));
-  source.addEventListener('node-status', handle('node-status'));
-  source.addEventListener('terminal',    handle('terminal'));
-  source.addEventListener('session-update', handle('session-update'));
-  source.addEventListener('agent-prompt', handle('agent-prompt'));
-  source.addEventListener('agent-lifecycle', handle('agent-lifecycle'));
-  source.addEventListener('timeline', handle('timeline'));
-  source.addEventListener('run-status',  handle('run-status'));
-  source.addEventListener('interaction-requested', handle('interaction-requested'));
+  for (const type of RUN_SSE_EVENT_TYPES) {
+    source.addEventListener(type, handle(type));
+  }
 
   return () => source.close();
 }
@@ -996,10 +994,9 @@ export function subscribeToRestore(
     } catch { /* ignore bad json */ }
   };
 
-  source.addEventListener('restore-status', handle('restore-status'));
-  source.addEventListener('session-update', handle('session-update'));
-  source.addEventListener('terminal', handle('terminal'));
-  source.addEventListener('interaction-requested', handle('interaction-requested'));
+  for (const type of RESTORE_SSE_EVENT_TYPES) {
+    source.addEventListener(type, handle(type));
+  }
 
   return () => source.close();
 }

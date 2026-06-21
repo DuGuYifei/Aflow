@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { RUN_SSE_EVENTS } from "@specflow/shared";
 import { SpecflowClient } from "./specflow-client";
 
 const originalFetch = globalThis.fetch;
@@ -76,11 +77,79 @@ describe("SpecflowClient", () => {
       ["POST", "/api/runs/run-1/best-practice", { name: "Saved" }],
     ]);
   });
+
+  test("streams run interaction events", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = input instanceof URL ? input.href : String(input);
+      expect(url).toBe("http://specflow.test/api/runs/run-1/events?replay=false");
+      return new Response(sseStream([
+        {
+          event: RUN_SSE_EVENTS.hello,
+          data: { type: RUN_SSE_EVENTS.hello, runId: "run-1" },
+        },
+        {
+          event: RUN_SSE_EVENTS.interactionRequested,
+          data: {
+            type: RUN_SSE_EVENTS.interactionRequested,
+            interaction: {
+              id: "interaction-1",
+              kind: "permission",
+              status: "pending",
+              runId: "run-1",
+              agentInvocationId: "invoke-1",
+              agentId: "agent-1",
+              agentServerId: "codex-acp",
+              createdAt: "2026-06-21T00:00:00.000Z",
+              toolCall: { title: "Edit file" },
+              options: [{ optionId: "allow", name: "Allow" }],
+            },
+          },
+        },
+      ]), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+
+    const client = new SpecflowClient("http://specflow.test");
+    const events: string[] = [];
+    await client.streamRunEvents("run-1", (event) => {
+      events.push(event.type);
+      if (event.type === RUN_SSE_EVENTS.interactionRequested) {
+        expect(event.interaction.id).toBe("interaction-1");
+      }
+    }, { replay: false });
+
+    expect(events).toEqual([RUN_SSE_EVENTS.hello, RUN_SSE_EVENTS.interactionRequested]);
+  });
+
+  test("ignores aborts while streaming run events", async () => {
+    const controller = new AbortController();
+    globalThis.fetch = (async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      init?.signal?.addEventListener("abort", () => undefined, { once: true });
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    }) as unknown as typeof fetch;
+
+    const client = new SpecflowClient("http://specflow.test");
+    await expect(client.streamRunEvents("run-1", () => undefined, { signal: controller.signal })).resolves.toBeUndefined();
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+function sseStream(events: Array<{ event: string; data: unknown }>): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      for (const event of events) {
+        controller.enqueue(encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`));
+      }
+      controller.close();
+    },
   });
 }

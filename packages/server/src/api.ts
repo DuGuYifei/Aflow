@@ -2,7 +2,7 @@ import { AgentServerStore, probeAcpAgentCapabilities, type AgentServerCapabiliti
 import { WorkflowExecutor } from "@specflow/bridge";
 import type { SpecflowBridge, WorkflowResumeState } from "@specflow/bridge";
 import type { AgentAuthenticationStatus, AgentConversation, AgentRestoreMode, AgentRestorePrimitive, AgentServerEntry, AgentServerSettings, NodeStatusEvent, RegistryIndex, RunInteraction, RunInteractionContext, RunStatusEvent, WorkflowCheckpointEvent, WorkflowExecutionCheckpoint } from "@specflow/bridge";
-import { SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
+import { RESTORE_SSE_EVENTS, RUN_SSE_EVENTS, SPECFLOW_AGENTFLOW_PATH, uuidv7, type AcpTimelineEvent } from "@specflow/shared";
 import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { resolveSpecflowLogger, type SpecflowLoggerOption } from "./logger";
 import { SkillStore } from "./skills";
@@ -78,7 +78,7 @@ const REDACTED_ENV_VALUE = "[redacted]";
 
 type RestoreStreamEvent =
   | {
-      type: "restore-status";
+      type: typeof RESTORE_SSE_EVENTS.restoreStatus;
       restoreId: string;
       agentSessionId: string;
       runId: string;
@@ -90,7 +90,7 @@ type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: "session-update";
+      type: typeof RESTORE_SSE_EVENTS.sessionUpdate;
       restoreId: string;
       agentSessionId: string;
       sessionId: string;
@@ -98,7 +98,7 @@ type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: "terminal";
+      type: typeof RESTORE_SSE_EVENTS.terminal;
       restoreId: string;
       agentSessionId: string;
       stream: string;
@@ -106,7 +106,7 @@ type RestoreStreamEvent =
       at: string;
     }
   | {
-      type: "interaction-requested";
+      type: typeof RESTORE_SSE_EVENTS.interactionRequested;
       restoreId: string;
       interaction: RunInteraction;
       at: string;
@@ -127,7 +127,7 @@ interface ActiveConversation {
 }
 
 function closesRestoreStream(event: RestoreStreamEvent): boolean {
-  return event.type === "restore-status"
+  return event.type === RESTORE_SSE_EVENTS.restoreStatus
     && (event.status === "failure" || (event.status === "success" && event.requestedMode === "inspect"));
 }
 
@@ -796,7 +796,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
           try { controller.close(); } catch { /* already closed */ }
         };
 
-        enqueue("hello", { runId });
+        enqueue(RUN_SSE_EVENTS.hello, { runId });
 
         let priorRunStatus: string | undefined;
         try {
@@ -812,9 +812,9 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
         if (options.replay) {
           for (const event of await listRunLogEvents(root, runId)) {
             if (event.type === "acp_timeline") {
-              if (event.kind !== "timeline_snapshot") enqueue("timeline", { ...event, replay: true });
+              if (event.kind !== "timeline_snapshot") enqueue(RUN_SSE_EVENTS.timeline, { ...event, replay: true });
             } else if (event.type === "terminal") {
-              enqueue("terminal", {
+              enqueue(RUN_SSE_EVENTS.terminal, {
                 chunk: event.chunk,
                 stream: event.stream,
                 nodeId: event.nodeId,
@@ -823,13 +823,13 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
                 replay: true,
               });
             } else if (event.type === "session_update") {
-              enqueue("session-update", { ...event, replay: true });
+              enqueue(RUN_SSE_EVENTS.sessionUpdate, { ...event, replay: true });
             } else if (event.type === "agent_prompt") {
-              enqueue("agent-prompt", { ...event, replay: true });
+              enqueue(RUN_SSE_EVENTS.agentPrompt, { ...event, replay: true });
             } else if (event.type === "agent_lifecycle") {
-              enqueue("agent-lifecycle", { ...event, replay: true });
+              enqueue(RUN_SSE_EVENTS.agentLifecycle, { ...event, replay: true });
             } else if (event.type === "node_status") {
-              enqueue("node-status", {
+              enqueue(RUN_SSE_EVENTS.nodeStatus, {
                 nodeId: event.nodeId,
                 status: event.status === "done" ? "success" : event.status,
                 runId,
@@ -842,25 +842,25 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
           }
         }
 
-        const unsubscribeNode = eventBus.on(`${runId}:node`, (event) => enqueue("node-status", event));
+        const unsubscribeNode = eventBus.on(`${runId}:node`, (event) => enqueue(RUN_SSE_EVENTS.nodeStatus, event));
         const unsubscribeInteraction = bridge.interactions.subscribe(runId, (interaction) => {
-          enqueue("interaction-requested", interaction);
+          enqueue(RUN_SSE_EVENTS.interactionRequested, interaction);
         });
         const unsubscribeRun = eventBus.on(`${runId}:run`, (event) => {
-          enqueue("run-status", event);
+          enqueue(RUN_SSE_EVENTS.runStatus, event);
           const runStatusEvent = event as { status: string };
           if (isTerminalRunRecordStatus(runStatusEvent.status)) {
             setTimeout(close, 200);
           }
         });
-        const unsubscribeTerminal = eventBus.on(`${runId}:term`, (event) => enqueue("terminal", event));
-        const unsubscribeSessionUpdate = eventBus.on(`${runId}:session-update`, (event) => enqueue("session-update", event));
-        const unsubscribeAgentPrompt = eventBus.on(`${runId}:agent-prompt`, (event) => enqueue("agent-prompt", event));
-        const unsubscribeAgentLifecycle = eventBus.on(`${runId}:agent-lifecycle`, (event) => enqueue("agent-lifecycle", event));
-        const unsubscribeTimeline = eventBus.on(`${runId}:timeline`, (event) => enqueue("timeline", event));
+        const unsubscribeTerminal = eventBus.on(`${runId}:term`, (event) => enqueue(RUN_SSE_EVENTS.terminal, event));
+        const unsubscribeSessionUpdate = eventBus.on(`${runId}:session-update`, (event) => enqueue(RUN_SSE_EVENTS.sessionUpdate, event));
+        const unsubscribeAgentPrompt = eventBus.on(`${runId}:agent-prompt`, (event) => enqueue(RUN_SSE_EVENTS.agentPrompt, event));
+        const unsubscribeAgentLifecycle = eventBus.on(`${runId}:agent-lifecycle`, (event) => enqueue(RUN_SSE_EVENTS.agentLifecycle, event));
+        const unsubscribeTimeline = eventBus.on(`${runId}:timeline`, (event) => enqueue(RUN_SSE_EVENTS.timeline, event));
 
         for (const interaction of bridge.interactions.list({ runId, status: "pending" })) {
-          enqueue("interaction-requested", interaction);
+          enqueue(RUN_SSE_EVENTS.interactionRequested, interaction);
         }
 
         if (priorRunStatus) {
@@ -870,7 +870,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
           } catch {
             // Keep the replay status even if the run disappears.
           }
-          enqueue("run-status", { runId, status: priorRunStatus, control: priorControl, replay: true });
+          enqueue(RUN_SSE_EVENTS.runStatus, { runId, status: priorRunStatus, control: priorControl, replay: true });
           if (isTerminalRunRecordStatus(priorRunStatus)) setTimeout(close, 50);
         }
 
@@ -1476,7 +1476,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
     });
 
     publishRestoreEvent({
-      type: "restore-status",
+      type: RESTORE_SSE_EVENTS.restoreStatus,
       restoreId,
       agentSessionId: session.id,
       runId: session.latestRunId,
@@ -1508,7 +1508,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
           void appendRunLogEvent(root, { type: "interaction", ...interactionAuditRecord(interaction) })
             .catch((error) => logger.error("Failed to append restored conversation interaction log", error));
           publishRestoreEvent({
-            type: "interaction-requested",
+            type: RESTORE_SSE_EVENTS.interactionRequested,
             restoreId,
             interaction,
             at: new Date().toISOString(),
@@ -1523,7 +1523,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
       signal: restoreController.signal,
       onTerminalEvent: (event) => {
         publishRestoreEvent({
-          type: "terminal",
+          type: RESTORE_SSE_EVENTS.terminal,
           restoreId,
           agentSessionId: session.id,
           stream: event.stream,
@@ -1551,7 +1551,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
             .catch((error) => logger.error("Failed to append restored conversation session update log", error));
         }
         publishRestoreEvent({
-          type: "session-update",
+          type: RESTORE_SSE_EVENTS.sessionUpdate,
           restoreId,
           agentSessionId: session.id,
           sessionId: event.sessionId,
@@ -1603,7 +1603,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
         await conversation?.close();
       }
       publishRestoreEvent({
-        type: "restore-status",
+        type: RESTORE_SSE_EVENTS.restoreStatus,
         restoreId,
         agentSessionId: session.id,
         runId: session.latestRunId,
@@ -1639,7 +1639,7 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
         at: completedAt,
       });
       publishRestoreEvent({
-        type: "restore-status",
+        type: RESTORE_SSE_EVENTS.restoreStatus,
         restoreId,
         agentSessionId: session.id,
         runId: session.latestRunId,
