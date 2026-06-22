@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   checkForAflowUpdate,
+  dismissAflowUpdate,
   formatAflowUpdateNotice,
   readAflowUpdateCache,
   readCachedAflowUpdate,
@@ -97,6 +98,24 @@ describe("Aflow startup update check", () => {
     expect(readCachedAflowUpdate({ cachePath, currentVersion: "0.0.4-snapshot" })).toBeUndefined();
   });
 
+  test("dismisses a cached update for the current latest version", async () => {
+    const cachePath = await tempCachePath();
+    await writeFile(cachePath, JSON.stringify({
+      latestVersion: "0.0.5",
+      lastCheckedAt: "2026-06-21T17:08:58.454Z",
+      dismissedVersion: null,
+    }), "utf8");
+
+    dismissAflowUpdate({ currentVersion: "0.0.4", latestVersion: "0.0.5" }, { cachePath });
+
+    expect(JSON.parse(await readFile(cachePath, "utf8"))).toEqual({
+      latestVersion: "0.0.5",
+      lastCheckedAt: "2026-06-21T17:08:58.454Z",
+      dismissedVersion: "0.0.5",
+    });
+    expect(readCachedAflowUpdate({ cachePath, currentVersion: "0.0.4" })).toBeUndefined();
+  });
+
   test("ignores missing and malformed cache files", async () => {
     const cachePath = await tempCachePath();
     expect(readAflowUpdateCache({ cachePath })).toBeUndefined();
@@ -117,6 +136,50 @@ describe("Aflow startup update check", () => {
     expect(JSON.parse(await readFile(cachePath, "utf8"))).toEqual({
       latestVersion: "0.0.5",
       lastCheckedAt: "2026-06-21T17:08:58.454Z",
+      dismissedVersion: null,
+    });
+  });
+
+  test("preserves a dismissal when refreshing the same latest version", async () => {
+    const cachePath = await tempCachePath();
+    await writeFile(cachePath, JSON.stringify({
+      latestVersion: "0.0.5",
+      lastCheckedAt: "2026-06-21T17:08:58.454Z",
+      dismissedVersion: "0.0.5",
+    }), "utf8");
+
+    await refreshAflowUpdateCache({
+      cachePath,
+      currentVersion: "0.0.4",
+      fetchImpl: releasesFetch([{ tag_name: "v0.0.5", prerelease: false, draft: false }]),
+      now: () => new Date("2026-06-21T18:00:00.000Z"),
+    });
+
+    expect(JSON.parse(await readFile(cachePath, "utf8"))).toEqual({
+      latestVersion: "0.0.5",
+      lastCheckedAt: "2026-06-21T18:00:00.000Z",
+      dismissedVersion: "0.0.5",
+    });
+  });
+
+  test("clears a dismissal when refreshing to a newer latest version", async () => {
+    const cachePath = await tempCachePath();
+    await writeFile(cachePath, JSON.stringify({
+      latestVersion: "0.0.5",
+      lastCheckedAt: "2026-06-21T17:08:58.454Z",
+      dismissedVersion: "0.0.5",
+    }), "utf8");
+
+    await refreshAflowUpdateCache({
+      cachePath,
+      currentVersion: "0.0.4",
+      fetchImpl: releasesFetch([{ tag_name: "v0.0.6", prerelease: false, draft: false }]),
+      now: () => new Date("2026-06-21T18:00:00.000Z"),
+    });
+
+    expect(JSON.parse(await readFile(cachePath, "utf8"))).toEqual({
+      latestVersion: "0.0.6",
+      lastCheckedAt: "2026-06-21T18:00:00.000Z",
       dismissedVersion: null,
     });
   });

@@ -110,6 +110,18 @@ export function writeAflowUpdateCache(
   writeFileSync(path, `${JSON.stringify(cache, null, 2)}\n`);
 }
 
+export function dismissAflowUpdate(
+  update: AflowUpdateInfo,
+  options: Pick<AflowUpdateCacheOptions, "cachePath"> = {},
+): void {
+  const existing = readAflowUpdateCache(options);
+  writeAflowUpdateCache({
+    latestVersion: update.latestVersion,
+    lastCheckedAt: existing?.lastCheckedAt ?? new Date().toISOString(),
+    dismissedVersion: update.latestVersion,
+  }, options);
+}
+
 export function updateInfoFromCache(
   cache: AflowUpdateCache | undefined,
   options: Pick<AflowUpdateCacheOptions, "currentVersion"> = {},
@@ -134,10 +146,15 @@ export async function refreshAflowUpdateCache(options: AflowUpdateRefreshOptions
   try {
     const latestVersion = await fetchLatestStableAflowVersion(options);
     if (!latestVersion) return;
+    const latest = parseStableVersion(latestVersion);
+    if (!latest) return;
+    const existing = readAflowUpdateCache(options);
     writeAflowUpdateCache({
       latestVersion,
       lastCheckedAt: (options.now ?? (() => new Date()))().toISOString(),
-      dismissedVersion: null,
+      dismissedVersion: existing?.dismissedVersion && sameStableVersion(existing.dismissedVersion, latest)
+        ? existing.dismissedVersion
+        : null,
     }, options);
   } catch {
     // Update checks should never affect startup.
