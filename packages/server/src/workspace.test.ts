@@ -5,6 +5,15 @@ import { describe, expect, test } from "bun:test";
 import { prepareSpecflowWorkspace } from "./workspace";
 
 describe("workspace preparation", () => {
+  test("gitignores local agent server overrides", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-workspace-"));
+
+    await prepareSpecflowWorkspace(root, { createIfMissing: true });
+
+    await expect(readFile(join(root, ".aflow/.specflow/.gitignore"), "utf8"))
+      .resolves.toContain("agent-servers.local.json");
+  });
+
   test("does not create PRD workspace folders by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-workspace-"));
 

@@ -384,6 +384,7 @@ edges:
     await initWorkspace(root);
 
     const gitignore = await readFile(join(root, ".aflow/.specflow", ".gitignore"), "utf8");
+    expect(gitignore).toContain("agent-servers.local.json");
     expect(gitignore).toContain("agentflow/runs/");
     expect(gitignore).toContain("agentflow/canvas/");
     expect(gitignore).toContain("agentflow/agentflows-local/");

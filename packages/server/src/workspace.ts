@@ -23,6 +23,7 @@ import {
 } from "./workspace-paths";
 
 const GITIGNORE_ENTRIES = [
+  "agent-servers.local.json",
   "agentflow/runs/",
   "agentflow/run-logs/",
   "agentflow/canvas/",
