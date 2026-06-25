@@ -2,6 +2,16 @@ name: Release Codex plugin
 
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Development version component to bump after publishing
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
@@ -198,6 +208,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_VERSION: ${{ steps.prepare.outputs.publish_version }}
+          BUMP_PART: ${{ inputs.bump }}
         run: |
           set -euo pipefail
 
@@ -209,15 +220,31 @@ jobs:
 
           const manifestPath = process.env.MANIFEST_FILE;
           const publishVersion = process.env.PUBLISH_VERSION;
+          const bumpPart = process.env.BUMP_PART || "patch";
           const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(publishVersion);
 
           if (!match) {
             throw new Error(`Cannot auto-bump non-stable Codex plugin version: ${publishVersion}`);
           }
 
-          const major = Number(match[1]);
-          const minor = Number(match[2]);
-          const nextDevVersion = `${major}.${minor + 1}.0+codex.${process.env.TIMESTAMP}`;
+          let major = Number(match[1]);
+          let minor = Number(match[2]);
+          let patch = Number(match[3]);
+
+          if (bumpPart === "major") {
+            major += 1;
+            minor = 0;
+            patch = 0;
+          } else if (bumpPart === "minor") {
+            minor += 1;
+            patch = 0;
+          } else if (bumpPart === "patch") {
+            patch += 1;
+          } else {
+            throw new Error(`Invalid Codex plugin bump component: ${bumpPart}`);
+          }
+
+          const nextDevVersion = `${major}.${minor}.${patch}+codex.${process.env.TIMESTAMP}`;
 
           const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
           manifest.version = nextDevVersion;
