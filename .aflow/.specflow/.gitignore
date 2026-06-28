@@ -10,3 +10,4 @@ design/settings.json
 prd/drafts/
 cache/
 agent-servers.local.json
+server.json

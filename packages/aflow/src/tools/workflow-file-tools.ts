@@ -110,7 +110,7 @@ export function registerWorkflowFileTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Call this before modifying an existing workflow for a new problem.",
       "After this tool returns, edit the copied local workflow instead of the source.",
-      "When rewriting a copied draft, prefer version: 2 unless the user explicitly asks to preserve legacy v1 format.",
+      "When rewriting a copied draft, write version: 2 workflow YAML. Legacy v1 workflow YAML is no longer supported.",
     ],
     parameters: WorkflowForkParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

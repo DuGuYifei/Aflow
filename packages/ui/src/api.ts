@@ -220,20 +220,6 @@ export type AuthTerminalEvent =
       at: string;
     };
 
-export type TerminalSessionStatus = AuthTerminalStatus;
-
-export type TerminalSessionEvent =
-  | { type: 'output'; sessionId: string; data: string; at: string }
-  | {
-      type: 'status';
-      sessionId: string;
-      status: TerminalSessionStatus;
-      exitCode?: number;
-      signal?: string | null;
-      error?: string;
-      at: string;
-    };
-
 export class AgentAuthenticationRequiredError extends Error {
   readonly statuses: AgentAuthenticationStatus[];
 
@@ -417,7 +403,6 @@ export interface CanvasSummary {
   name: string;
   runs: number;
   version?: 1 | 2;
-  deprecated?: boolean;
   local?: boolean;
   diagnostics?: WorkflowDiagnostic[];
 }
@@ -716,58 +701,6 @@ export async function checkAuthTerminal(sessionId: string): Promise<AgentAuthent
   if (!response.ok) throw new Error(await apiError(response, 'Failed to check terminal auth'));
   const body = await response.json() as { authStatus: AgentAuthenticationStatus };
   return body.authStatus;
-}
-
-export async function startAflowMigration(workflowId: string): Promise<{ terminalSessionId: string; label?: string }> {
-  const response = await fetch('/api/aflow/migrations', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ workflowId }),
-  });
-  if (!response.ok) throw new Error(await apiError(response, 'Failed to start Aflow migration'));
-  return response.json();
-}
-
-export function subscribeToAflowMigrationTerminal(
-  sessionId: string,
-  onEvent: (event: TerminalSessionEvent) => void,
-  onError?: (error: Event) => void,
-): () => void {
-  const source = new EventSource(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/events`);
-  const handle = (messageEvent: MessageEvent) => {
-    try {
-      const event = JSON.parse(messageEvent.data) as TerminalSessionEvent;
-      onEvent(event);
-      if (event.type === 'status' && event.status !== 'running') source.close();
-    } catch { /* ignore bad json */ }
-  };
-  source.addEventListener('output', handle);
-  source.addEventListener('status', handle);
-  if (onError) source.addEventListener('error', onError);
-  return () => source.close();
-}
-
-export async function sendAflowMigrationTerminalInput(sessionId: string, data: string): Promise<void> {
-  const response = await fetch(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/input`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ data }),
-  });
-  if (!response.ok) throw new Error(await apiError(response, 'Failed to send terminal input'));
-}
-
-export async function resizeAflowMigrationTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
-  const response = await fetch(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/resize`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ cols, rows }),
-  });
-  if (!response.ok) throw new Error(await apiError(response, 'Failed to resize terminal'));
-}
-
-export async function cancelAflowMigrationTerminal(sessionId: string): Promise<void> {
-  const response = await fetch(`/api/aflow/migrations/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
-  if (!response.ok) throw new Error(await apiError(response, 'Failed to cancel terminal'));
 }
 
 export async function fetchAgentSession(id: string): Promise<AgentSessionRecord> {
@@ -1218,7 +1151,6 @@ export function summaryToWorkflow(summary: CanvasSummary): Workflow {
     meta: `${summary.runs} runs`,
     runs: summary.runs,
     version: summary.version,
-    deprecated: summary.deprecated,
     diagnostics: summary.diagnostics,
     ...(summary.local ? { local: true } : {}),
   };

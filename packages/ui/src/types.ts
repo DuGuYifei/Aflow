@@ -48,7 +48,6 @@ export interface Workflow {
   meta: string;
   runs: number;
   version?: 1 | 2;
-  deprecated?: boolean;
   local?: boolean;
   diagnostics?: WorkflowDiagnostic[];
   active?: boolean;

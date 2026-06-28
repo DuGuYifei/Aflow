@@ -43,7 +43,7 @@ specflow validate .aflow/.specflow/agentflow/agentflows/example.yaml
 specflow run .aflow/.specflow/agentflow/agentflows/example.yaml -Dtask="Review this change"
 ```
 
-See [Aflow Agent Tutorial](docs/public/tutorial/en/aflow-agent.md), [Designer Tutorial](docs/public/tutorial/en/designer.md), and [Specflow Commands](docs/public/tutorial/en/specflow-command.md).
+See [Aflow Agent Tutorial](docs/public/tutorial/en/aflow-agent.md), [Designer Tutorial](docs/public/tutorial/en/designer.md), [Specflow Commands](docs/public/tutorial/en/specflow-command.md), and [Codex Plugin](docs/public/tutorial/en/codex-plugin.md).
 
 ## Workspace Files
 

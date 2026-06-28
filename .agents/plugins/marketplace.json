@@ -1,0 +1,20 @@
+{
+  "name": "aflow",
+  "interface": {
+    "displayName": "Aflow"
+  },
+  "plugins": [
+    {
+      "name": "specflow-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/specflow-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

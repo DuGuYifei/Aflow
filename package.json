@@ -22,7 +22,7 @@
     "build:aflow": "AFLOW_VERSION=$(bun packages/cli/src/version.ts package-version package.json) bun build --compile --target=bun --sourcemap=none --env=SPECFLOW_* --env=AFLOW_* packages/aflow/src/cli.ts --outfile aflow",
     "build:bin": "bun run build:specflow && bun run build:aflow",
     "build": "bun run build:ui && bun run build:bin",
-    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/agent-proxy typecheck && bun run --cwd packages/workflow typecheck && bun run --cwd packages/bridge typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/ui typecheck && bun run --cwd packages/cli typecheck && bun run --cwd packages/aflow typecheck"
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/agent-proxy typecheck && bun run --cwd packages/native-resume typecheck && bun run --cwd packages/workflow typecheck && bun run --cwd packages/bridge typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/client typecheck && bun run --cwd packages/mcp typecheck && bun run --cwd packages/ui typecheck && bun run --cwd packages/cli typecheck && bun run --cwd packages/aflow typecheck"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

@@ -255,6 +255,8 @@ export interface AgentServerCapabilitiesCache {
   probedAt: string;
   /** `installedVersion` at probe time; used to detect upgrades. */
   installedVersion?: string;
+  /** Fingerprint of the agent server settings at probe time; used to detect env/cwd/config changes. */
+  settingsFingerprint?: string;
   /** From `InitializeResponse.agentCapabilities`. */
   agentCapabilities: AgentCapabilities;
   /** From `NewSessionResponse.modes`. May be null when not advertised. */

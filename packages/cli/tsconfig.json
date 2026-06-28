@@ -2,6 +2,12 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@specflow/client": ["../client/src/index.ts"],
+      "@specflow/mcp": ["../mcp/src/index.ts"],
+      "@specflow/server": ["../server/src/index.ts"],
+      "@specflow/shared": ["../shared/src/index.ts"]
+    },
     "strict": true,
     "target": "ES2022",
     "types": ["bun"]

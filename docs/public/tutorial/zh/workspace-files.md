@@ -41,7 +41,7 @@ Specflow 的 workspace 文件保存在 `.aflow/.specflow/` 下。
 ```
 
 这些文件是 workflow-as-code，适合提交到版本控制中。
-新 workflow YAML 应使用 `version: 2`；旧的 `version: 1` 文件仍会为了兼容而读取。
+Workflow YAML 必须使用 `version: 2`。
 
 ```text
 .aflow/.specflow/agentflow/agentflows-local/*.yaml

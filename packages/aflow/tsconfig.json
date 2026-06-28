@@ -5,6 +5,7 @@
     "paths": {
       "@specflow/agent-proxy": ["../agent-proxy/src/index.ts"],
       "@specflow/bridge": ["../bridge/src/index.ts"],
+      "@specflow/native-resume": ["../native-resume/src/index.ts"],
       "@specflow/server": ["../server/src/index.ts"],
       "@specflow/shared": ["../shared/src/index.ts"],
       "@specflow/workflow": ["../workflow/src/index.ts"]

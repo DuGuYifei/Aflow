@@ -7,7 +7,6 @@ import { AcpTimelinePipeline } from "./acp-timeline-pipeline";
 import { resolveSpecflowLogger, type SpecflowLoggerOption } from "./logger";
 import { SkillStore } from "./skills";
 import { AuthTerminalSessionStore } from "./auth-terminal-sessions";
-import { TerminalSessionStore, type TerminalSessionTask } from "./terminal-session-store";
 import { canvasToWorkflow } from "./agentflow/canvas-to-workflow";
 import {
   listCanvases,
@@ -24,6 +23,7 @@ import {
 } from "./agentflow/canvas-store";
 import { formatDuration, listRuns, loadRun, reconcileInterruptedRuns, saveRun, deleteRun, type RunControlIntent, type RunRecord, type RunState } from "./agentflow/run-store";
 import {
+  buildAgentSessionsForRun,
   listAgentSessions,
   loadAgentSession,
   recordAgentSessionRestoreAttempt,
@@ -35,19 +35,18 @@ import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc } from "./agentflow/canva
 import { computeRunReachability } from "./agentflow/run-reachability";
 import { applyRunGraphPatch, type RunGraphOperation } from "./agentflow/run-graph-patch";
 import { LiveRunRecordStore } from "./agentflow/live-run-record-store";
+import { nativeResumeSummaryForSession } from "./agentflow/native-resume";
 import { assertServerRunnableAgentFlow, collectAgentFlowDiagnostics } from "./agentflow/agentflow-validation";
-import { assertSymbolKey, keyFromLabel } from "./agentflow/agentflow-source";
+import { assertSymbolKey, keyFromLabel, parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow/agentflow-source";
 import {
   loadLocalAgentServerConfig,
   removeLocalAgentServer,
   upsertLocalAgentServer,
 } from "./agent-server-config";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import type { AgentInvocationPurpose } from "@specflow/workflow";
-import { agentflowAssetsDir } from "./workspace-paths";
+import { agentflowAssetsDir, agentflowsDir, localAgentflowsDir } from "./workspace-paths";
 
 // ── simple in-process event bus ───────────────────────────────────────────────
 
@@ -213,6 +212,118 @@ async function listAgentServerEntries(bridge: SpecflowBridge, root: string): Pro
       },
     };
   });
+}
+
+interface WorkflowSourceReadResult {
+  workflowId: string;
+  yaml: string;
+  path: string;
+  local: boolean;
+  source: "local-file" | "shared-file" | "path-file";
+}
+
+async function readWorkflowSource(root: string, target: string): Promise<WorkflowSourceReadResult> {
+  const trimmed = target.trim();
+  if (looksLikeWorkflowPath(trimmed)) {
+    const path = resolveWorkspaceYamlPath(root, trimmed);
+    const yaml = await readWorkflowFile(path);
+    const workflowId = basename(path).replace(/\.ya?ml$/i, "");
+    parseAgentFlowSource(yaml, workflowId);
+    return {
+      workflowId,
+      yaml,
+      path,
+      local: path.startsWith(resolvePath(localAgentflowsDir(root))),
+      source: "path-file",
+    };
+  }
+
+  assertSymbolKey(trimmed, "workflow key");
+  const candidates: Array<{ path: string; local: boolean; source: WorkflowSourceReadResult["source"] }> = [
+    { path: workflowSourcePath(root, trimmed, true), local: true, source: "local-file" },
+    { path: workflowSourcePath(root, trimmed, false), local: false, source: "shared-file" },
+  ];
+  for (const candidate of candidates) {
+    try {
+      const yaml = await readWorkflowFile(candidate.path);
+      parseAgentFlowSource(yaml, trimmed);
+      return {
+        workflowId: trimmed,
+        yaml,
+        path: candidate.path,
+        local: candidate.local,
+        source: candidate.source,
+      };
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ENOENT") throw error;
+    }
+  }
+  throw httpError(404, `Workflow not found: ${trimmed}`);
+}
+
+function workflowSourcePath(root: string, workflowId: string, local: boolean): string {
+  return join(local ? localAgentflowsDir(root) : agentflowsDir(root), `${workflowId}.yaml`);
+}
+
+function looksLikeWorkflowPath(target: string): boolean {
+  return target.endsWith(".yaml")
+    || target.endsWith(".yml")
+    || target.includes("/")
+    || target.includes("\\");
+}
+
+function resolveWorkspaceYamlPath(root: string, target: string): string {
+  const rootPath = resolvePath(root);
+  const candidate = isAbsolute(target) ? resolvePath(target) : resolvePath(rootPath, target);
+  const relativePath = relative(rootPath, candidate);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw httpError(400, "Workflow path must stay inside the workspace.");
+  }
+  if (!/\.ya?ml$/i.test(candidate)) {
+    throw httpError(400, "Workflow path must point to a .yaml or .yml file.");
+  }
+  return candidate;
+}
+
+async function readWorkflowFile(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") {
+      throw Object.assign(httpError(404, "Workflow source file not found."), { code: "ENOENT" });
+    }
+    throw error;
+  }
+}
+
+function httpError(status: number, message: string): Error & { status: number } {
+  return Object.assign(new Error(message), { status });
+}
+
+function workflowSourceErrorResponse(error: unknown): Response {
+  const status = typeof (error as { status?: unknown })?.status === "number"
+    ? (error as { status: number }).status
+    : 400;
+  return Response.json({ error: errorMessage(error) }, { status });
+}
+
+async function inspectWorkflowAuthenticationForDoc(
+  bridge: SpecflowBridge,
+  root: string,
+  doc: AgentFlowDoc,
+): Promise<AgentAuthenticationStatus[]> {
+  const servers = new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry]));
+  const agentServerIds = [...new Set(doc.sessions
+    .map((session) => session.agentServerId ?? session.agent)
+    .filter((id): id is string => Boolean(id) && id !== "unconfigured"))];
+  return Promise.all(agentServerIds
+    .filter((id) => servers.get(id)?.settings.type !== "headless")
+    .map((id) => bridge.inspectAgentAuthentication(root, id).catch((error) => ({
+      agentServerId: id,
+      needsAuth: true,
+      methods: [],
+      error: errorMessage(error),
+    }) as AgentAuthenticationStatus & { error: string })));
 }
 
 function redactAgentServerSettings(settings: AgentServerSettings): AgentServerSettings {
@@ -592,7 +703,6 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
   const authTerminals = new AuthTerminalSessionStore({
     checkAuth: (agentServerId) => bridge.inspectAgentAuthentication(root, agentServerId),
   });
-  const aflowMigrationTerminals = new TerminalSessionStore();
   const restoreStreams = new Map<string, RestoreStreamState>();
   const restoreControllers = new Map<string, AbortController>();
   const activeConversations = new Map<string, ActiveConversation>();
@@ -707,51 +817,6 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
           return;
         }
         cleanup = authTerminals.subscribe(sessionId, (event) => {
-          enqueue(event);
-          if (event.type === "status" && event.status !== "running") {
-            setTimeout(() => {
-              try { controller.close(); } catch { /* already closed */ }
-            }, 200);
-          }
-        });
-      },
-      cancel() {
-        cleanup();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-cache",
-        "x-accel-buffering": "no",
-      },
-    });
-  }
-
-  function terminalSseResponse(
-    store: TerminalSessionStore,
-    sessionId: string,
-    notFoundMessage: string,
-  ): Response {
-    const record = store.get(sessionId);
-    if (!record) {
-      return Response.json({ error: notFoundMessage }, { status: 404 });
-    }
-    const encoder = new TextEncoder();
-    let cleanup = () => {};
-    const stream = new ReadableStream({
-      start(controller) {
-        const enqueue = (event: { type: string }) => {
-          controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
-        };
-
-        for (const event of record.events) enqueue(event);
-        if (record.status !== "running") {
-          controller.close();
-          return;
-        }
-        cleanup = store.subscribe(sessionId, (event) => {
           enqueue(event);
           if (event.type === "status" && event.status !== "running") {
             setTimeout(() => {
@@ -1676,6 +1741,61 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
       return Response.json(await bridge.listAgentRegistry(root));
     }
 
+    // POST /api/agent-servers/registry/:registryId/install
+    const agentServerRegistryInstallMatch = pathname.match(/^\/api\/agent-servers\/registry\/([^/]+)\/install$/);
+    if (agentServerRegistryInstallMatch && request.method === "POST") {
+      const registryId = decodeURIComponent(agentServerRegistryInstallMatch[1]);
+      let body: { agentServerId?: unknown } = {};
+      try {
+        body = await request.json();
+      } catch {
+        // Empty body is allowed.
+      }
+      const registry = await bridge.listAgentRegistry(root);
+      const agent = registry.agents.find((candidate) => candidate.id === registryId);
+      if (!agent) return Response.json({ error: `Registry agent not found: ${registryId}` }, { status: 404 });
+      const id = typeof body.agentServerId === "string" && body.agentServerId.trim()
+        ? body.agentServerId.trim()
+        : agent.id;
+      await upsertLocalAgentServer(root, id, {
+        type: "registry",
+        registryId: agent.id,
+        installedVersion: agent.version,
+      });
+      try {
+        await bridge.ensureAgentServerInstalled(root, id);
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+      return Response.json(redactAgentServerEntries(await listAgentServerEntries(bridge, root)));
+    }
+
+    // POST /api/agent-servers/:id/update
+    const agentServerUpdateMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)\/update$/);
+    if (agentServerUpdateMatch && request.method === "POST") {
+      const id = decodeURIComponent(agentServerUpdateMatch[1]);
+      const entries = await bridge.listAgentServers(root);
+      const entry = entries.find((candidate) => candidate.id === id);
+      if (!entry) return Response.json({ error: `Agent server not found: ${id}` }, { status: 404 });
+      if (entry.settings.type !== "registry") {
+        return Response.json({ error: "Only registry agent servers can be updated automatically." }, { status: 409 });
+      }
+      const settings = entry.settings;
+      const registry = await bridge.listAgentRegistry(root);
+      const agent = registry.agents.find((candidate) => candidate.id === settings.registryId);
+      if (!agent) return Response.json({ error: `Registry agent not found: ${settings.registryId}` }, { status: 404 });
+      await upsertLocalAgentServer(root, id, {
+        ...settings,
+        installedVersion: agent.version,
+      });
+      try {
+        await bridge.ensureAgentServerInstalled(root, id);
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 409 });
+      }
+      return Response.json(redactAgentServerEntries(await listAgentServerEntries(bridge, root)));
+    }
+
     // GET /api/agent-servers/:id/auth
     const agentServerAuthMatch = pathname.match(/^\/api\/agent-servers\/([^/]+)\/auth$/);
     if (agentServerAuthMatch && request.method === "GET") {
@@ -1748,67 +1868,6 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
         }
         const authStatus = await authTerminals.check(sessionId);
         return Response.json({ ok: true, authStatus });
-      } catch (error) {
-        return Response.json({ error: errorMessage(error) }, { status: 404 });
-      }
-    }
-
-    // POST /api/aflow/migrations — start an Aflow terminal to migrate a v1 workflow to v2.
-    if (pathname === "/api/aflow/migrations" && request.method === "POST") {
-      const body = await request.json().catch(() => ({})) as { workflowId?: unknown };
-      if (typeof body.workflowId !== "string" || body.workflowId.trim() === "") {
-        return Response.json({ error: "Missing workflowId" }, { status: 400 });
-      }
-      const workflowId = body.workflowId.trim();
-      const serverUrl = new URL("/", request.url).toString();
-      const task = buildAflowMigrationTask({ root, workflowId, serverUrl });
-      try {
-        const terminalSessionId = aflowMigrationTerminals.start(task);
-        return Response.json({ terminalSessionId, label: task.label ?? workflowId });
-      } catch (error) {
-        return Response.json({ error: errorMessage(error) }, { status: 409 });
-      }
-    }
-
-    const aflowMigrationMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)$/);
-    const aflowMigrationEventsMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)\/events$/);
-    if (aflowMigrationEventsMatch && request.method === "GET") {
-      return terminalSseResponse(
-        aflowMigrationTerminals,
-        decodeURIComponent(aflowMigrationEventsMatch[1]),
-        "Aflow migration terminal session not found",
-      );
-    }
-    if (aflowMigrationMatch && request.method === "GET") {
-      const record = aflowMigrationTerminals.get(decodeURIComponent(aflowMigrationMatch[1]));
-      if (!record) return Response.json({ error: "Aflow migration terminal session not found" }, { status: 404 });
-      return Response.json({
-        sessionId: record.id,
-        label: record.task.label,
-        status: record.status,
-      });
-    }
-    const aflowMigrationActionMatch = pathname.match(/^\/api\/aflow\/migrations\/([^/]+)\/(input|resize|cancel)$/);
-    if (aflowMigrationActionMatch && request.method === "POST") {
-      const sessionId = decodeURIComponent(aflowMigrationActionMatch[1]);
-      const action = aflowMigrationActionMatch[2];
-      try {
-        if (action === "input") {
-          const body = await request.json().catch(() => ({})) as { data?: unknown };
-          if (typeof body.data !== "string") return Response.json({ error: "Missing input data" }, { status: 400 });
-          aflowMigrationTerminals.input(sessionId, body.data);
-          return Response.json({ ok: true });
-        }
-        if (action === "resize") {
-          const body = await request.json().catch(() => ({})) as { cols?: unknown; rows?: unknown };
-          if (typeof body.cols !== "number" || typeof body.rows !== "number") {
-            return Response.json({ error: "Missing terminal size" }, { status: 400 });
-          }
-          aflowMigrationTerminals.resize(sessionId, body.cols, body.rows);
-          return Response.json({ ok: true });
-        }
-        aflowMigrationTerminals.cancel(sessionId);
-        return Response.json({ ok: true });
       } catch (error) {
         return Response.json({ error: errorMessage(error) }, { status: 404 });
       }
@@ -1903,6 +1962,170 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
         filePath: skill.filePath,
         bodyPreview: skill.body.slice(0, 200),
       })));
+    }
+
+    // POST /api/workflows/source/read
+    if (request.method === "POST" && pathname === "/api/workflows/source/read") {
+      const body = await request.json().catch(() => ({})) as { target?: unknown };
+      if (typeof body.target !== "string" || body.target.trim() === "") {
+        return Response.json({ error: "Missing target" }, { status: 400 });
+      }
+      try {
+        return Response.json(await readWorkflowSource(root, body.target));
+      } catch (error) {
+        return workflowSourceErrorResponse(error);
+      }
+    }
+
+    // POST /api/workflows/source/write
+    if (request.method === "POST" && pathname === "/api/workflows/source/write") {
+      const body = await request.json().catch(() => ({})) as {
+        workflowId?: unknown;
+        yaml?: unknown;
+        local?: unknown;
+      };
+      if (typeof body.workflowId !== "string" || body.workflowId.trim() === "") {
+        return Response.json({ error: "Missing workflowId" }, { status: 400 });
+      }
+      if (typeof body.yaml !== "string" || body.yaml.trim() === "") {
+        return Response.json({ error: "Missing yaml" }, { status: 400 });
+      }
+      try {
+        const workflowId = body.workflowId.trim();
+        assertSymbolKey(workflowId, "workflow key");
+        const parsed = parseAgentFlowSource(body.yaml, workflowId);
+        const diagnosticsResult = collectAgentFlowDiagnostics(parsed);
+        const yaml = stringifyAgentFlowSource({ ...parsed, id: workflowId });
+        const local = body.local !== false;
+        const path = workflowSourcePath(root, workflowId, local);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, yaml, "utf8");
+        return Response.json({
+          ok: true,
+          workflowId,
+          path,
+          local,
+          diagnostics: diagnosticsResult.diagnostics,
+          derived: diagnosticsResult.derived,
+        });
+      } catch (error) {
+        return Response.json({ error: errorMessage(error) }, { status: 400 });
+      }
+    }
+
+    // POST /api/workflows/source/fork
+    if (request.method === "POST" && pathname === "/api/workflows/source/fork") {
+      const body = await request.json().catch(() => ({})) as {
+        source?: unknown;
+        newWorkflowId?: unknown;
+        newName?: unknown;
+        local?: unknown;
+      };
+      if (typeof body.source !== "string" || body.source.trim() === "") {
+        return Response.json({ error: "Missing source" }, { status: 400 });
+      }
+      try {
+        const source = await readWorkflowSource(root, body.source);
+        const parsed = parseAgentFlowSource(source.yaml, source.workflowId);
+        const newName = typeof body.newName === "string" && body.newName.trim()
+          ? body.newName.trim()
+          : `${parsed.name || parsed.id} copy`;
+        const existingIds = new Set((await listCanvases(root)).map((entry) => entry.id));
+        let workflowId = typeof body.newWorkflowId === "string" && body.newWorkflowId.trim()
+          ? body.newWorkflowId.trim()
+          : keyFromLabel(newName, `${parsed.id}-copy`);
+        assertSymbolKey(workflowId, "workflow key");
+        if (existingIds.has(workflowId)) {
+          const base = workflowId;
+          let suffix = 2;
+          while (existingIds.has(`${base}-${suffix}`)) suffix += 1;
+          workflowId = `${base}-${suffix}`;
+        }
+        const local = body.local !== false;
+        const forked = { ...parsed, id: workflowId, name: newName };
+        const yaml = stringifyAgentFlowSource(forked);
+        const path = workflowSourcePath(root, workflowId, local);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, yaml, "utf8");
+        return Response.json({
+          ok: true,
+          sourceWorkflowId: source.workflowId,
+          workflowId,
+          path,
+          local,
+          yaml,
+        });
+      } catch (error) {
+        return workflowSourceErrorResponse(error);
+      }
+    }
+
+    // POST /api/workflows/validate
+    if (request.method === "POST" && pathname === "/api/workflows/validate") {
+      const body = await request.json().catch(() => ({})) as { target?: unknown };
+      if (typeof body.target !== "string" || body.target.trim() === "") {
+        return Response.json({ ok: false, error: "Missing target", diagnostics: [] }, { status: 400 });
+      }
+      try {
+        const source = await readWorkflowSource(root, body.target);
+        const doc = parseAgentFlowSource(source.yaml, source.workflowId);
+        const diagnosticsResult = collectAgentFlowDiagnostics(doc);
+        assertServerRunnableAgentFlow(doc, new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry])));
+        return Response.json({
+          ok: true,
+          workflowId: doc.id,
+          name: doc.name,
+          version: doc.version ?? 1,
+          sessions: doc.sessions.length,
+          nodes: doc.nodes.length,
+          edges: doc.edges.length,
+          diagnostics: diagnosticsResult.diagnostics,
+          derived: diagnosticsResult.derived,
+        });
+      } catch (error) {
+        return Response.json({ ok: false, error: errorMessage(error), diagnostics: [] });
+      }
+    }
+
+    // POST /api/workflows/prepare-run
+    if (request.method === "POST" && pathname === "/api/workflows/prepare-run") {
+      const body = await request.json().catch(() => ({})) as {
+        workflowId?: unknown;
+        initialInput?: unknown;
+        variableValues?: unknown;
+      };
+      if (typeof body.workflowId !== "string" || body.workflowId.trim() === "") {
+        return Response.json({ ready: false, error: "Missing workflowId" }, { status: 400 });
+      }
+      try {
+        const workflowId = body.workflowId.trim();
+        const canvasDocument = await loadCanvas(workflowId, root);
+        const prepared = prepareCanvasRun(canvasDocument, {
+          initialInput: typeof body.initialInput === "string" ? body.initialInput : undefined,
+          variableValues: recordOfStrings(body.variableValues) ?? {},
+        });
+        const agentServers = new Map((await bridge.listAgentServers(root)).map((entry) => [entry.id, entry]));
+        let validationError: string | undefined;
+        try {
+          assertServerRunnableAgentFlow(prepared.doc, agentServers);
+        } catch (error) {
+          validationError = errorMessage(error);
+        }
+        const authStatuses = await inspectWorkflowAuthenticationForDoc(bridge, root, prepared.doc);
+        const authRequired = authStatuses.filter((status) => status.needsAuth);
+        return Response.json({
+          ready: !validationError && prepared.missingVariables.length === 0 && authRequired.length === 0,
+          workflowId,
+          variables: prepared.variables,
+          effectiveValues: prepared.effectiveValues,
+          missingVariables: prepared.missingVariables,
+          authStatuses,
+          validationError,
+          diagnostics: collectAgentFlowDiagnostics(prepared.doc).diagnostics,
+        });
+      } catch (error) {
+        return Response.json({ ready: false, error: errorMessage(error) }, { status: 400 });
+      }
     }
 
     // GET /api/canvases
@@ -2539,6 +2762,22 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
       return Response.json(await listRunLogEvents(root, runLogsMatch[1]));
     }
 
+    // GET /api/runs/:id/native-resume-commands
+    const runNativeResumeMatch = pathname.match(/^\/api\/runs\/([^/]+)\/native-resume-commands$/);
+    if (runNativeResumeMatch && request.method === "GET") {
+      try {
+        const run = await loadRun(decodeURIComponent(runNativeResumeMatch[1]), root);
+        const agentServers = await listAgentServerEntries(bridge, root);
+        const sessions = run.agentSessions.length > 0 ? run.agentSessions : buildAgentSessionsForRun(run);
+        const commands = await Promise.all(
+          sessions.map((session) => nativeResumeSummaryForSession({ session, run, agentServers })),
+        );
+        return Response.json({ runId: run.id, workflowId: run.workflowId, commands });
+      } catch {
+        return Response.json({ error: "Run not found" }, { status: 404 });
+      }
+    }
+
     // GET /api/runs/:id/paused-nodes
     const runPausesMatch = pathname.match(/^\/api\/runs\/([^/]+)\/paused-nodes$/);
     if (runPausesMatch && request.method === "GET") {
@@ -2593,6 +2832,19 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
       const workflowId = url.searchParams.get("workflowId") ?? undefined;
       const agentServerId = url.searchParams.get("agentServerId") ?? undefined;
       return Response.json(await listAgentSessions(root, { workflowId, agentServerId }));
+    }
+
+    // GET /api/agent-sessions/:id/native-resume-command
+    const agentSessionNativeResumeMatch = pathname.match(/^\/api\/agent-sessions\/([^/]+)\/native-resume-command$/);
+    if (agentSessionNativeResumeMatch && request.method === "GET") {
+      try {
+        const session = await loadAgentSession(root, decodeURIComponent(agentSessionNativeResumeMatch[1]));
+        const run = await loadRun(session.latestRunId, root).catch(() => undefined);
+        const agentServers = await listAgentServerEntries(bridge, root);
+        return Response.json(await nativeResumeSummaryForSession({ session, run, agentServers }));
+      } catch {
+        return Response.json({ error: "Agent session not found" }, { status: 404 });
+      }
     }
 
     // GET /api/agent-sessions/:id
@@ -2697,6 +2949,17 @@ export function createApiHandler(bridge: SpecflowBridge, root: string, options: 
       activeConversations.delete(restoreCloseMatch[1]);
       if (active) await closeActiveConversation(active);
       return Response.json({ ok: true });
+    }
+
+    // POST /api/runs/:id/interactions/:interactionId/respond
+    const interactionsListMatch = pathname.match(/^\/api\/runs\/([^/]+)\/interactions$/);
+    if (interactionsListMatch && request.method === "GET") {
+      const runId = interactionsListMatch[1];
+      const statusParam = url.searchParams.get("status");
+      const status = statusParam === "pending" || statusParam === "resolved" || statusParam === "cancelled"
+        ? statusParam
+        : undefined;
+      return Response.json(bridge.interactions.list({ runId, status }));
     }
 
     // POST /api/runs/:id/interactions/:interactionId/respond
@@ -2946,45 +3209,6 @@ function updateCheckpointPendingCompletionOutput(record: RunRecord, nodeId: stri
   if (pendingCompletion.origin) pendingCompletion.origin.output = output;
   record.checkpoint = checkpoint as unknown as Record<string, unknown>;
   return true;
-}
-
-function buildAflowMigrationTask(input: {
-  root: string;
-  workflowId: string;
-  serverUrl: string;
-}): TerminalSessionTask {
-  const directArgs = ["/specflow-migrate-v2", input.workflowId, "--server", input.serverUrl];
-  const env = { AFLOW_SPECFLOW_URL: input.serverUrl };
-  const configuredCommand = process.env["AFLOW_COMMAND"]?.trim();
-  if (configuredCommand) {
-    return {
-      command: configuredCommand,
-      args: directArgs,
-      cwd: input.root,
-      env,
-      label: `Aflow migrate ${input.workflowId}`,
-    };
-  }
-
-  const serverSourceDir = dirname(fileURLToPath(import.meta.url));
-  const devAflowEntry = join(serverSourceDir, "../../aflow/src/cli.ts");
-  if (existsSync(devAflowEntry)) {
-    return {
-      command: "bun",
-      args: [devAflowEntry, ...directArgs],
-      cwd: input.root,
-      env,
-      label: `Aflow migrate ${input.workflowId}`,
-    };
-  }
-
-  return {
-    command: "aflow",
-    args: directArgs,
-    cwd: input.root,
-    env,
-    label: `Aflow migrate ${input.workflowId}`,
-  };
 }
 
 function parseRestoreConfigOptions(value: unknown): Record<string, string | boolean> | undefined {

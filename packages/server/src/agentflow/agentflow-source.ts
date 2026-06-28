@@ -16,22 +16,22 @@ import {
 
 export { assertSymbolKey, edgeIdFromReferences } from "./agentflow-validation";
 
-export const AGENTFLOW_SOURCE_VERSION = 1;
+export const AGENTFLOW_SOURCE_VERSION = 2;
 export const LATEST_AGENTFLOW_SOURCE_VERSION = 2;
 const SYMBOL_KEY = /^[a-z][a-z0-9-]*$/;
 
 export function parseAgentFlowSource(rawValue: string, workflowId: string): AgentFlowDoc {
   assertSymbolKey(workflowId, "workflow filename");
   const source = asRecord(parse(rawValue), "agentflow");
-  const version = source.version === 2 ? 2 : source.version === 1 ? 1 : undefined;
-  if (!version) {
-    throw new Error(`Agentflow "${workflowId}" must declare version: 1 or 2.`);
+  if (source.version !== 2) {
+    throw new Error(`Agentflow "${workflowId}" must declare version: 2. Workflow YAML v1 is no longer supported.`);
   }
+  const version = 2;
 
   const sessions = parseSessions(asRecord(source.sessions, "sessions"));
-  const nodes = parseNodes(asRecord(source.nodes, "nodes"), version);
+  const nodes = parseNodes(asRecord(source.nodes, "nodes"));
   const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = parseEdges(source.edges, nodes, nodeIds, version);
+  const edges = parseEdges(source.edges, nodes, nodeIds);
 
   const canvasDocument = normalizeAgentFlowDraft({
     id: workflowId,
@@ -49,7 +49,10 @@ export function parseAgentFlowSource(rawValue: string, workflowId: string): Agen
 export function stringifyAgentFlowSource(canvasDocument: AgentFlowDoc): string {
   const normalized = normalizeAgentFlowDraft(canvasDocument);
   assertValidAgentFlowDraft(normalized);
-  const version = normalized.version ?? AGENTFLOW_SOURCE_VERSION;
+  if ((normalized.version ?? AGENTFLOW_SOURCE_VERSION) !== 2) {
+    throw new Error(`Workflow "${normalized.id}" must use version: 2. Workflow YAML v1 is no longer supported.`);
+  }
+  const version = 2;
 
   return stringify({
     version,
@@ -117,7 +120,7 @@ function assertMcpServersString(value: string, sessionId: string): string {
   return value;
 }
 
-function parseNodes(rawValue: Record<string, unknown>, version: 1 | 2): AgentFlowNode[] {
+function parseNodes(rawValue: Record<string, unknown>): AgentFlowNode[] {
   return Object.entries(rawValue).map(([id, input]) => {
     assertSymbolKey(id, "node key");
     const node = asRecord(input, `node "${id}"`);
@@ -125,9 +128,6 @@ function parseNodes(rawValue: Record<string, unknown>, version: 1 | 2): AgentFlo
     const title = optionalString(node.title) ?? "";
 
     if (kind === "start") {
-      if (version !== 2) {
-        throw new Error(`Node "${id}" uses kind: start, which is only supported in version: 2.`);
-      }
       return {
         kind,
         id,
@@ -137,20 +137,7 @@ function parseNodes(rawValue: Record<string, unknown>, version: 1 | 2): AgentFlo
       };
     }
     if (kind === "input") {
-      if (version === 2) {
-        throw new Error(`v2 node "${id}" cannot use kind: input; declare top-level variables instead.`);
-      }
-      return {
-        kind,
-        id,
-        alias: optionalString(node.alias) ?? "",
-        title,
-        variableName: optionalString(node.variableName) ?? "",
-        ...(node.required === false ? { required: false } : {}),
-        defaultValue: optionalString(node.defaultValue),
-        description: optionalString(node.description),
-        sessionId: null,
-      };
+      throw new Error(`v2 node "${id}" cannot use kind: input; declare top-level variables instead.`);
     }
     if (kind === "end") {
       return {
@@ -217,7 +204,7 @@ function parseBranches(rawValue: Record<string, unknown>, nodeId: string): Canva
   return branches;
 }
 
-function parseEdges(rawValue: unknown, nodes: AgentFlowNode[], nodeIds: Set<string>, version: 1 | 2): CanvasEdge[] {
+function parseEdges(rawValue: unknown, nodes: AgentFlowNode[], nodeIds: Set<string>): CanvasEdge[] {
   if (!Array.isArray(rawValue)) throw new Error("edges must be an array.");
   const branchesByGate = new Map(
     nodes
@@ -244,15 +231,11 @@ function parseEdges(rawValue: unknown, nodes: AgentFlowNode[], nodeIds: Set<stri
       ...(optionalString(edge.outputTag) ? { outputTag: optionalString(edge.outputTag)! } : {}),
       ...(optionalString(edge.handoffPrompt) ? { handoffPrompt: optionalString(edge.handoffPrompt)! } : {}),
       ...(branch ? { branch } : {}),
-      ...(edge.loopback === true ? { loopback: true } : {}),
-      ...(parseMaxTraversals(edge.maxTraversals, `edges[${index}].maxTraversals`) != null
-        ? { maxTraversals: parseMaxTraversals(edge.maxTraversals, `edges[${index}].maxTraversals`)! }
-        : {}),
     };
-    if (version === 2 && parsed.loopback) {
+    if (edge.loopback !== undefined) {
       throw new Error(`v2 edge "${parsed.id}" cannot define loopback; loops are detected automatically.`);
     }
-    if (version === 2 && parsed.maxTraversals !== undefined) {
+    if (edge.maxTraversals !== undefined) {
       throw new Error(`v2 edge "${parsed.id}" cannot define maxTraversals; put it on the gate branch instead.`);
     }
     if (edgeIds.has(parsed.id)) {
@@ -346,25 +329,15 @@ function parseConfigOptions(rawValue: unknown, nodeId: string): Record<string, s
   return output;
 }
 
-function parseVariables(rawValue: unknown, version: 1 | 2): CanvasVariable[] | undefined {
+function parseVariables(rawValue: unknown, _version: 2): CanvasVariable[] | undefined {
   if (rawValue === undefined) return undefined;
-  if (version === 2 && rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
-    return Object.entries(rawValue as Record<string, unknown>).map(([name, input]) => {
-      const variable = input == null ? {} : asRecord(input, `variables.${name}`);
-      return compact({
-        name,
-        title: optionalString(variable.title),
-        required: variable.required === false ? false : variable.required === true ? true : undefined,
-        defaultValue: optionalString(variable.defaultValue),
-        description: optionalString(variable.description),
-      }) as CanvasVariable;
-    });
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    throw new Error("variables must be an object keyed by variable name.");
   }
-  if (!Array.isArray(rawValue)) throw new Error("variables must be an array.");
-  return rawValue.map((input, index) => {
-    const variable = asRecord(input, `variables[${index}]`);
+  return Object.entries(rawValue as Record<string, unknown>).map(([name, input]) => {
+    const variable = input == null ? {} : asRecord(input, `variables.${name}`);
     return compact({
-      name: requireString(variable.name, `variables[${index}].name`),
+      name,
       title: optionalString(variable.title),
       required: variable.required === false ? false : variable.required === true ? true : undefined,
       defaultValue: optionalString(variable.defaultValue),
@@ -373,28 +346,22 @@ function parseVariables(rawValue: unknown, version: 1 | 2): CanvasVariable[] | u
   });
 }
 
-function serializeVariables(variables: CanvasVariable[], version: 1 | 2): unknown {
-  if (version === 2) {
-    return Object.fromEntries(variables.map((variable) => [
-      variable.name,
-      compact({
-        title: variable.title,
-        required: variable.required,
-        defaultValue: variable.defaultValue,
-        description: variable.description,
-      }),
-    ]));
-  }
-  return variables;
+function serializeVariables(variables: CanvasVariable[], _version: 2): unknown {
+  return Object.fromEntries(variables.map((variable) => [
+    variable.name,
+    compact({
+      title: variable.title,
+      required: variable.required,
+      defaultValue: variable.defaultValue,
+      description: variable.description,
+    }),
+  ]));
 }
 
-function serializeEdge(edge: CanvasEdge, version: 1 | 2): Record<string, unknown> {
+function serializeEdge(edge: CanvasEdge, _version: 2): Record<string, unknown> {
   const { id: _id, ...serialized } = edge;
-  if (version === 2) {
-    const { loopback: _loopback, maxTraversals: _maxTraversals, ...v2Edge } = serialized;
-    return v2Edge;
-  }
-  return serialized;
+  const { loopback: _loopback, maxTraversals: _maxTraversals, ...v2Edge } = serialized;
+  return v2Edge;
 }
 
 function parseMaxTraversals(value: unknown, label: string): number | undefined {

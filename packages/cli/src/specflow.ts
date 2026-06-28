@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { resolve } from "node:path";
+import { runSpecflowMcpServer } from "@specflow/mcp";
 import {
   executeAgentFlowDoc,
   assertCliRunnableAgentFlow,
@@ -33,6 +34,11 @@ export async function main(args = Bun.argv.slice(2)): Promise<void> {
     return;
   }
 
+  if (args[0] === "mcp") {
+    await runSpecflowMcpServer({ serveCommand: serveCommandForCurrentEntrypoint() });
+    return;
+  }
+
   await prepareSpecflowWorkspace(process.cwd(), {
     createIfMissing: true,
     prewarmAgentServers: true,
@@ -43,6 +49,8 @@ export async function main(args = Bun.argv.slice(2)): Promise<void> {
     await runWorkflowCommand(args.slice(1));
   } else if (args[0] === "validate") {
     await validateWorkflowCommand(args.slice(1));
+  } else if (args[0] === "serve") {
+    await serveCommand();
   } else {
     await serveCommand();
   }
@@ -79,6 +87,15 @@ async function serveCommand(): Promise<void> {
   await new Promise<void>(() => {
     // Keep the CLI process alive until a signal arrives.
   });
+}
+
+function serveCommandForCurrentEntrypoint(): string[] {
+  const argv1 = Bun.argv[1];
+  if (argv1 && argv1.endsWith(".ts")) return [process.execPath, argv1, "serve"];
+  if (argv1 && !["mcp", "serve", "run", "validate"].includes(argv1)) {
+    return [process.execPath, argv1, "serve"];
+  }
+  return [process.execPath, "serve"];
 }
 
 async function runWorkflowCommand(args: string[]): Promise<void> {
@@ -229,11 +246,7 @@ function assignDefine(target: Record<string, string>, rawValue: string): void {
 }
 
 export function normalizeVariableValues(canvasDocument: AgentFlowDoc, values: Record<string, string>): Record<string, string> {
-  const names = new Set(
-    (canvasDocument.version ?? 1) === 2
-      ? (canvasDocument.variables ?? []).map((variable) => variable.name)
-      : canvasDocument.nodes.filter((node) => node.kind === "input").map((node) => node.variableName),
-  );
+  const names = new Set((canvasDocument.variables ?? []).map((variable) => variable.name));
   const normalized: Record<string, string> = {};
   for (const [key, value] of Object.entries(values)) {
     const fullKey = key.startsWith("specflow_") ? key : `specflow_${key}`;

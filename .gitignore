@@ -24,7 +24,10 @@ dist/
 Thumbs.db
 
 .claude/
-.agents/
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json
 .codex
 .vscode/
 .idea/

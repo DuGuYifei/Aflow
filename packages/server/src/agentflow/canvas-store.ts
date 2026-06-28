@@ -22,7 +22,6 @@ export interface CanvasSummary {
   name: string;
   version: 1 | 2;
   local?: boolean;
-  deprecated?: boolean;
   diagnostics?: WorkflowDiagnostic[];
 }
 
@@ -57,14 +56,13 @@ async function collectCanvases(
       const rawValue = await readFile(join(directory, file), "utf8");
       const id = basename(file, ".yaml");
       const canvasDocument = parseAgentFlowSource(rawValue, id);
-      const version = canvasDocument.version ?? 1;
+      const version = canvasDocument.version ?? 2;
       const diagnostics = collectAgentFlowDiagnostics(canvasDocument).diagnostics;
       results.set(id, {
         id: canvasDocument.id,
         name: canvasDocument.name,
         version,
         diagnostics,
-        ...(version === 1 ? { deprecated: true } : {}),
         ...(local ? { local: true } : {}),
       });
     } catch {
@@ -194,7 +192,7 @@ export function splitCanvasDoc(canvasDocument: CanvasDoc): { agentflow: AgentFlo
   return {
     agentflow: {
       id: canvasDocument.id,
-      version: canvasDocument.version ?? 1,
+      version: canvasDocument.version ?? 2,
       name: canvasDocument.name,
       sessions: canvasDocument.sessions,
       nodes,
@@ -215,7 +213,7 @@ export function combineAgentFlowAndLayout(
   const generatedByNode = new Map(generated.nodes.map((node) => [node.nodeId, node]));
   return {
     id: agentflow.id,
-    version: agentflow.version ?? 1,
+    version: agentflow.version ?? 2,
     name: agentflow.name,
     sessions: agentflow.sessions,
     nodes: agentflow.nodes.map((node) => {
@@ -230,16 +228,12 @@ export function combineAgentFlowAndLayout(
     edges: agentflow.edges,
     variables: agentflow.variables,
     diagnostics: diagnosticsResult.diagnostics,
-    ...((agentflow.version ?? 1) === 2
-      ? { derived: diagnosticsResult.derived }
-      : {}),
+    derived: diagnosticsResult.derived,
   };
 }
 
 export function generateCanvasLayout(agentflow: AgentFlowDoc): CanvasLayoutDoc {
-  const derivedLoopClosingEdgeIds = (agentflow.version ?? 1) === 2
-    ? collectAgentFlowDiagnostics(agentflow).derived.loopClosingEdgeIds ?? []
-    : [];
+  const derivedLoopClosingEdgeIds = collectAgentFlowDiagnostics(agentflow).derived.loopClosingEdgeIds ?? [];
   const ignoredEdges = new Set([
     ...agentflow.edges.filter((edge) => edge.loopback).map((edge) => edge.id),
     ...derivedLoopClosingEdgeIds,

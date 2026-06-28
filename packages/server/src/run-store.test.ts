@@ -37,6 +37,69 @@ describe("run store snapshots", () => {
     expect(rawValue.agentSessions).toEqual([]);
   });
 
+  it("serializes concurrent saves and keeps run JSON parseable", async () => {
+    const root = await tempProject();
+    const canvasDocument = sampleCanvas();
+    const { agentflow, layout } = splitCanvasDoc(canvasDocument);
+    const saves: Promise<void>[] = [];
+    for (let index = 0; index < 25; index += 1) {
+      saves.push(saveRun({
+        id: "run1",
+        workflowId: canvasDocument.id,
+        label: `Run #${index}`,
+        status: index === 24 ? "paused" : "running",
+        startedAt: new Date().toISOString(),
+        agent: "codex-acp",
+        nodeStates: { n1: index === 24 ? "paused" : "running" },
+        nodeOutputs: {},
+        agentInvocations: [],
+        agentSessions: [],
+        agentflowSnapshot: agentflow,
+        canvasSnapshot: layout,
+        initialInput: "",
+        variableValues: {},
+      }, root));
+    }
+
+    await Promise.all(saves);
+    const rawValue = await readFile(join(root, ".aflow/.specflow", "agentflow", "runs", "run1.json"), "utf8");
+    expect(rawValue.includes("\0")).toBe(false);
+    const loaded = await loadRun("run1", root);
+    expect(loaded.label).toBe("Run #24");
+    expect(loaded.nodeStates.n1).toBe("paused");
+  });
+
+  it("loads JSON run files with legacy trailing nul padding", async () => {
+    const root = await tempProject();
+    const canvasDocument = sampleCanvas();
+    const { agentflow, layout } = splitCanvasDoc(canvasDocument);
+    const record: RunRecord = {
+      id: "padded-run",
+      workflowId: canvasDocument.id,
+      label: "Padded",
+      status: "paused",
+      startedAt: new Date().toISOString(),
+      agent: "codex-acp",
+      nodeStates: { n1: "paused" },
+      nodeOutputs: {},
+      agentInvocations: [],
+      agentSessions: [],
+      agentflowSnapshot: agentflow,
+      canvasSnapshot: layout,
+      initialInput: "",
+      variableValues: {},
+    };
+    await writeFile(
+      join(root, ".aflow/.specflow", "agentflow", "runs", "padded-run.json"),
+      `${JSON.stringify(record)}\0\0`,
+      "utf8",
+    );
+
+    const loaded = await loadRun("padded-run", root);
+    expect(loaded.id).toBe("padded-run");
+    expect(loaded.status).toBe("paused");
+  });
+
   it("adapts legacy run records with combined canvasSnapshot", async () => {
     const root = await tempProject();
     const legacy = {

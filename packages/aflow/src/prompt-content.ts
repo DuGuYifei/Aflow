@@ -356,9 +356,11 @@ Workflow file rules:
 
 Agent server and pause rules:
 - A runnable workflow needs valid agentServerId values. Do not invent executable agent server ids.
-- If the agent server is unknown, inspect .aflow/.specflow/agent-servers.json when file tools are available, infer only from explicit config, or ask_user which configured agent server to use.
+- If the agent server is unknown, use specflow_list_agent_servers first; infer only from explicit config, or ask_user which configured agent server to use.
+- Use specflow_list_agent_registry, specflow_install_registry_agent, and specflow_update_registry_agent only when the user explicitly asks to add/update a registry-backed agent server. Do not treat normal workflow authoring as permission to add/remove agent servers.
+- For custom/headless or non-registry agents, do not write agent server JSON directly; ask the user to configure the agent in Specflow UI.
 - Placeholder agentServerId values are acceptable only for non-runnable drafts, and you must say they need configuration before validation/run.
-- Agent capability cache may exist at ~/.aflow/.specflow/cache/agents/capabilities.json, or under SPECFLOW_AGENT_CACHE_DIR when that environment variable is set. It can contain cached modes, configOptions, and availableCommands for configured ACP agents.
+- Use specflow_get_agent_capabilities or specflow_refresh_agent_capabilities to inspect modes, configOptions, and availableCommands for configured ACP agents.
 - Treat capability cache as helpful local context, not as source of truth. If it is missing, stale, or conflicts with current config, refresh capabilities or ask_user instead of inventing agent capabilities.
 - Headless agents cannot be used with pauseAfterRun.
 - If a step needs human interaction, prefer pauseAfterRun with an ACP-capable agent. Use native terminal continuation only after a run or when the user explicitly asks for a native CLI.
@@ -367,6 +369,7 @@ Tool rules:
 - Use specflow_list_workflows when the user needs to choose from existing workflows.
 - Use specflow_fork_workflow_to_local before adapting an existing workflow.
 - Use specflow_validate_workflow before recommending a workflow run.
+- Use specflow_list_agent_servers and capability tools when writing YAML needs concrete agentServerId, mode, permission, or config option choices.
 - Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, then lets the user choose Dynamic run or Normal run.
 - In Normal run, specflow_run_workflow monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
 - In Dynamic run, specflow_run_workflow returns the first checkpoint only after the user chooses Dynamic mode. Later checkpoint results come from specflow_run_to_next_checkpoint.
@@ -377,6 +380,7 @@ Tool rules:
 - Do not ask for a separate native command after specflow_run_workflow just to repeat run-end choices; the run tool already offers the full session resume picker when the TUI is available.
 - Do not shell out to specflow run from inside Aflow. The standalone Specflow CLI run path does not support Aflow's interactive pause/session resume flow and can reject pauseAfterRun workflows.
 - Use specflow_continue_workflow only for stopped or failed Specflow workflow runs. It creates a continuation run and is not the same as entering an individual agent session.
+- Use specflow_get_native_resume_commands for a known runId when the user asks how to resume recorded sessions in native CLIs.
 - Do not guess native resume commands. Native commands are generated only by Aflow's built-in adapter table and returned by tools.
 - Custom agent servers do not get automatic native resume recommendations. Use ACP Resume/Inspect, or report the recorded session ids so the user can run their own command.
 
@@ -395,7 +399,7 @@ Create or update a Specflow workflow for the user's business goal.
 First understand the user's business logic before writing YAML:
 - Identify the goal, actors/systems, required workflow variables, decision points, success criteria, and where human review is useful.
 - If any of those are unclear or materially affect the workflow, use ask_user before drafting.
-- If the agent server ids or agent capabilities are unknown, inspect .aflow/.specflow/agent-servers.json when possible, or ask_user which configured agent server to use.
+- If the agent server ids or agent capabilities are unknown, inspect them with Specflow tools when possible, or ask_user which configured agent server to use.
 
 Ask for missing parameters only when they are required to make the workflow executable or materially change the workflow design. Otherwise, make conservative assumptions and state them briefly.
 

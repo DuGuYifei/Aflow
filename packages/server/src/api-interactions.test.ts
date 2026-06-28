@@ -33,6 +33,10 @@ describe("interaction API", () => {
     expect(eventText).toContain("Edit file");
 
     const interaction = bridge.interactions.list({ runId: "run1", status: "pending" })[0]!;
+    const pending = await handle(new Request("http://specflow.test/api/runs/run1/interactions?status=pending"));
+    expect(pending?.status).toBe(200);
+    expect(await pending!.json()).toMatchObject([{ id: interaction.id, status: "pending" }]);
+
     const response = await handle(new Request(`http://specflow.test/api/runs/run1/interactions/${interaction.id}/respond`, {
       method: "POST",
       headers: { "content-type": "application/json" },

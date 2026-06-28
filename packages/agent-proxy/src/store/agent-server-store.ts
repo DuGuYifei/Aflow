@@ -43,7 +43,7 @@ export class AgentServerStore {
     await this.#loadCapabilities();
     return [...this.#settings!.entries()].map(([id, settings]) => {
       const entry: AgentServerEntry = { id, settings };
-      const cached = this.#capabilities!.get(capabilityCacheKey(id, settings));
+      const cached = this.#capabilities!.get(id);
       if (cached && capabilityCacheStillValid(cached, settings)) {
         entry.capabilities = cached;
       }
@@ -74,16 +74,15 @@ export class AgentServerStore {
 
   /**
    * Look up cached capabilities for an agent server. Returns undefined when
-   * either no probe has run yet, or the cached probe pre-dates the current
-   * installedVersion. Stale entries are not auto-removed here — call
-   * `clearCapabilities` if you want them gone from disk.
+   * no probe has run yet, or the cached probe no longer matches the current
+   * installedVersion/settings fingerprint.
    */
   async getCapabilities(agentServerId: AgentServerId): Promise<AgentServerCapabilitiesCache | undefined> {
     await this.#load();
     await this.#loadCapabilities();
     const settings = this.#settings!.get(agentServerId);
     if (!settings) return undefined;
-    const cached = this.#capabilities!.get(capabilityCacheKey(agentServerId, settings));
+    const cached = this.#capabilities!.get(agentServerId);
     if (!cached) return undefined;
     if (!capabilityCacheStillValid(cached, settings)) return undefined;
     return cached;
@@ -91,39 +90,34 @@ export class AgentServerStore {
 
   /**
    * Persist a freshly probed capability snapshot. Overwrites any prior
-   * entry for the same agent server. Auto-stamps installedVersion from
-   * the resolved settings so invalidation works on the next read.
+   * entry for the same agent server. Auto-stamps installedVersion/settings
+   * fingerprint from the resolved settings so invalidation works on the next read.
    */
-  async setCapabilities(agentServerId: AgentServerId, snapshot: Omit<AgentServerCapabilitiesCache, "installedVersion" | "probedAt"> & {
+  async setCapabilities(agentServerId: AgentServerId, snapshot: Omit<AgentServerCapabilitiesCache, "installedVersion" | "probedAt" | "settingsFingerprint"> & {
     probedAt?: string;
   }): Promise<void> {
     await this.#load();
     await this.#loadCapabilities();
     const settings = this.#settings!.get(agentServerId);
     const installedVersion = installedVersionOf(settings);
+    const settingsFingerprint = capabilitySettingsFingerprint(settings);
     const entry: AgentServerCapabilitiesCache = {
       probedAt: snapshot.probedAt ?? new Date().toISOString(),
       installedVersion,
+      settingsFingerprint,
       agentCapabilities: snapshot.agentCapabilities,
       modes: snapshot.modes,
       configOptions: snapshot.configOptions,
       availableCommands: snapshot.availableCommands,
     };
-    this.#capabilities!.set(capabilityCacheKey(agentServerId, settings), entry);
+    this.#capabilities!.set(agentServerId, entry);
     await this.#writeCapabilities();
   }
 
   async clearCapabilities(agentServerId: AgentServerId): Promise<void> {
     await this.#load();
     await this.#loadCapabilities();
-    const settings = this.#settings!.get(agentServerId);
-    const keys = settings
-      ? [capabilityCacheKey(agentServerId, settings)]
-      : [...this.#capabilities!.keys()].filter((key) => key.startsWith(`${agentServerId}:`));
-    let changed = false;
-    for (const key of keys) {
-      changed = this.#capabilities!.delete(key) || changed;
-    }
+    const changed = this.#capabilities!.delete(agentServerId);
     if (!changed) return;
     await this.#writeCapabilities();
   }
@@ -146,11 +140,34 @@ export class AgentServerStore {
     try {
       const rawValue = await readFile(this.#capabilitiesFile, "utf8");
       const parsed = JSON.parse(rawValue) as CapabilitiesCacheFile;
-      for (const [id, entry] of Object.entries(parsed.capabilities ?? {})) {
+      let migrated = false;
+      const grouped = new Map<string, Array<{ key: string; legacyFingerprint?: string; entry: AgentServerCapabilitiesCache }>>();
+      for (const [key, entry] of Object.entries(parsed.capabilities ?? {})) {
         if (!entry || typeof entry !== "object") continue;
-        // Trust on-disk shape; this file is owned by the proxy and isn't user-edited.
-        this.#capabilities.set(id, entry);
+        const legacy = parseLegacyCapabilityKey(key);
+        migrated ||= Boolean(legacy);
+        const agentServerId = legacy?.agentServerId ?? key;
+        const entries = grouped.get(agentServerId) ?? [];
+        entries.push({ key, legacyFingerprint: legacy?.settingsFingerprint, entry });
+        grouped.set(agentServerId, entries);
       }
+      for (const [agentServerId, entries] of grouped) {
+        if (entries.length > 1) migrated = true;
+        const settings = this.#settings!.get(agentServerId);
+        const selected = selectCapabilityEntry(entries, settings);
+        if (!selected) continue;
+        const settingsFingerprint = selected.entry.settingsFingerprint
+          ?? selected.legacyFingerprint
+          ?? capabilitySettingsFingerprint(settings);
+        this.#capabilities.set(agentServerId, {
+          ...selected.entry,
+          settingsFingerprint,
+        });
+        if (selected.key !== agentServerId || selected.entry.settingsFingerprint !== settingsFingerprint) {
+          migrated = true;
+        }
+      }
+      if (migrated) await this.#writeCapabilities();
     } catch (error) {
       if ((error as { code?: string }).code === "ENOENT") return;
       throw error;
@@ -171,20 +188,37 @@ function capabilityCacheStillValid(
   settings: AgentServerSettings,
 ): boolean {
   const current = installedVersionOf(settings);
+  const currentFingerprint = capabilitySettingsFingerprint(settings);
   // Both undefined (custom/headless agents that don't pin a version) →
   // treat as still valid; user must hit refresh after changing command/env.
-  return cached.installedVersion === current;
+  return cached.installedVersion === current && cached.settingsFingerprint === currentFingerprint;
 }
 
-function capabilityCacheKey(
-  agentServerId: AgentServerId,
+function capabilitySettingsFingerprint(
   settings: AgentServerSettings | undefined,
 ): string {
-  const fingerprint = createHash("sha256")
+  return createHash("sha256")
     .update(stableStringify(settings ?? null))
     .digest("hex")
     .slice(0, 24);
-  return `${agentServerId}:${fingerprint}`;
+}
+
+function parseLegacyCapabilityKey(key: string): { agentServerId: string; settingsFingerprint: string } | undefined {
+  const match = key.match(/^(.+):([a-f0-9]{24})$/);
+  if (!match) return undefined;
+  return { agentServerId: match[1], settingsFingerprint: match[2] };
+}
+
+function selectCapabilityEntry(
+  entries: Array<{ key: string; legacyFingerprint?: string; entry: AgentServerCapabilitiesCache }>,
+  settings: AgentServerSettings | undefined,
+): { key: string; legacyFingerprint?: string; entry: AgentServerCapabilitiesCache } | undefined {
+  const currentFingerprint = capabilitySettingsFingerprint(settings);
+  return entries.find((candidate) =>
+    candidate.entry.settingsFingerprint === currentFingerprint || candidate.legacyFingerprint === currentFingerprint
+  ) ?? entries
+    .slice()
+    .sort((a, b) => (b.entry.probedAt ?? "").localeCompare(a.entry.probedAt ?? ""))[0];
 }
 
 function stableStringify(value: unknown): string {

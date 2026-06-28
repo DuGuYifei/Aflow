@@ -18,13 +18,14 @@
     },
     "packages/aflow": {
       "name": "@specflow/aflow",
-      "version": "0.0.4-snapshot",
+      "version": "0.0.7-snapshot",
       "bin": {
         "aflow": "./src/cli.ts",
       },
       "dependencies": {
         "@earendil-works/pi-coding-agent": "^0.79.4",
         "@specflow/agent-proxy": "workspace:*",
+        "@specflow/native-resume": "workspace:*",
         "@specflow/server": "workspace:*",
         "@specflow/shared": "workspace:*",
         "typebox": "1.2.11",
@@ -54,8 +55,28 @@
         "specflow": "./src/specflow.ts",
       },
       "dependencies": {
+        "@specflow/mcp": "workspace:*",
         "@specflow/server": "workspace:*",
       },
+    },
+    "packages/client": {
+      "name": "@specflow/client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@specflow/shared": "workspace:*",
+      },
+    },
+    "packages/mcp": {
+      "name": "@specflow/mcp",
+      "version": "0.0.0",
+      "dependencies": {
+        "@specflow/client": "workspace:*",
+        "@specflow/shared": "workspace:*",
+      },
+    },
+    "packages/native-resume": {
+      "name": "@specflow/native-resume",
+      "version": "0.0.0",
     },
     "packages/server": {
       "name": "@specflow/server",
@@ -63,6 +84,7 @@
       "dependencies": {
         "@specflow/agent-proxy": "workspace:*",
         "@specflow/bridge": "workspace:*",
+        "@specflow/native-resume": "workspace:*",
         "@specflow/shared": "workspace:*",
         "@specflow/workflow": "workspace:*",
         "yaml": "^2.9.0",
@@ -333,6 +355,12 @@
     "@specflow/bridge": ["@specflow/bridge@workspace:packages/bridge"],
 
     "@specflow/cli": ["@specflow/cli@workspace:packages/cli"],
+
+    "@specflow/client": ["@specflow/client@workspace:packages/client"],
+
+    "@specflow/mcp": ["@specflow/mcp@workspace:packages/mcp"],
+
+    "@specflow/native-resume": ["@specflow/native-resume@workspace:packages/native-resume"],
 
     "@specflow/server": ["@specflow/server@workspace:packages/server"],
 

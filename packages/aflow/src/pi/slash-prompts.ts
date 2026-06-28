@@ -75,34 +75,6 @@ export function buildResumeSessionPrompt(args: string): string {
   ].join("\n");
 }
 
-export function buildMigrateV2WorkflowPrompt(target: string): string {
-  return [
-    "Migrate a Specflow Agentflow workflow from version 1 to version 2.",
-    "",
-    "Target workflow:",
-    target,
-    "",
-    "Read the workflow first with `specflow_read_workflow`. Create a local migrated copy unless the user explicitly requested in-place shared maintenance. For a UI-launched migration, prefer a local draft in `.aflow/.specflow/agentflow/agentflows-local/` with a new kebab-case id ending in `-v2` when needed.",
-    "",
-    "Required v2 changes:",
-    "- Set `version: 2`.",
-    "- Add one or more `kind: start` nodes and connect each start node to the intended first step. Do not rely on inferred initial nodes.",
-    "- Replace v1 `kind: input` nodes with top-level `variables:` entries. Preserve `variableName`, title, required, defaultValue, and description where present. Prompts may keep using `<specflow_...>` tokens.",
-    "- Remove authored edge `loopback`. In v2 loop-closing edges are derived by validation/runtime and shown by the UI.",
-    "- Move gate branch traversal limits from edge `maxTraversals` to the matching gate branch `maxTraversals` field.",
-    "- Remove edge `maxTraversals` from all edges.",
-    "- Start edges are control-only and should target step nodes.",
-    "",
-    "Validation expectations:",
-    "- Use `specflow_validate_workflow` after writing the migrated workflow.",
-    "- If validation reports a loop-internal gate branch missing `maxTraversals`, add a conservative branch bound based on the v1 edge limit or ask the user if the business limit is ambiguous.",
-    "- Do not teach or reintroduce v1 input nodes, edge loopback, or edge maxTraversals.",
-    "",
-    "After validation, summarize the new workflow id/path and the specific v1 keys that were removed or moved.",
-    "At the very end, print exactly: Finished",
-  ].join("\n");
-}
-
 function commandGuidance(toolName: string): string {
   return [
     `Use the \`${toolName}\` tool after extracting enough arguments from the conversation.`,

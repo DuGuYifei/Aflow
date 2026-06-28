@@ -27,9 +27,9 @@ describe("withAflowSystemPrompt", () => {
     }
   });
 
-  test("documents the agent capability cache for workflow authoring", () => {
-    expect(AFLOW_SYSTEM_PROMPT).toContain("capabilities.json");
-    expect(AFLOW_SYSTEM_PROMPT).toContain("SPECFLOW_AGENT_CACHE_DIR");
+  test("documents agent capability tools for workflow authoring", () => {
+    expect(AFLOW_SYSTEM_PROMPT).toContain("specflow_get_agent_capabilities");
+    expect(AFLOW_SYSTEM_PROMPT).toContain("specflow_refresh_agent_capabilities");
     expect(AFLOW_SYSTEM_PROMPT).toContain("availableCommands");
     expect(AFLOW_SYSTEM_PROMPT).toContain("configOptions");
   });

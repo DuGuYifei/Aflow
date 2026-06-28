@@ -145,7 +145,7 @@ prompt: |
 
 If `required: true` and no `defaultValue` exists, Aflow and Specflow run configuration ask for a value before the workflow runs.
 
-Do not create `kind: input` nodes in v2. Input nodes are v1 compatibility only.
+Do not create `kind: input` nodes. Input nodes are an unsupported legacy shape.
 
 ## Start Nodes
 

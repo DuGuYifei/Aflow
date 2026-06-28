@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse } from "yaml";
 import type { NodeStatus } from "@specflow/shared";
@@ -81,6 +81,8 @@ function runYamlPath(id: string, root: string) {
   return join(runsDir(root), `${id}.yaml`);
 }
 
+const saveRunQueues = new Map<string, Promise<void>>();
+
 export async function listRuns(workflowId: string | undefined, root: string): Promise<RunRecord[]> {
   const byId = new Map<string, RunRecord>();
   let files: string[];
@@ -126,8 +128,33 @@ export async function loadRun(id: string, root: string): Promise<RunRecord> {
 
 export async function saveRun(record: RunRecord, root: string): Promise<void> {
   const path = runPath(record.id, root);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+  const contents = `${JSON.stringify(record, null, 2)}\n`;
+  const previous = saveRunQueues.get(path) ?? Promise.resolve();
+  const write = previous.catch(() => undefined).then(async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFileAtomically(path, contents);
+  });
+  saveRunQueues.set(path, write);
+  try {
+    await write;
+  } finally {
+    if (saveRunQueues.get(path) === write) saveRunQueues.delete(path);
+  }
+}
+
+async function writeFileAtomically(path: string, contents: string): Promise<void> {
+  const tempPath = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    await writeFile(tempPath, contents, "utf8");
+    await rename(tempPath, path);
+  } catch (error) {
+    try {
+      await unlink(tempPath);
+    } catch {
+      // best effort cleanup
+    }
+    throw error;
+  }
 }
 
 /**
@@ -292,6 +319,6 @@ function normalizeRunRecord(runRecord: RunRecord): void {
 
 function parseRunRecord(rawValue: string, path: string): RunRecord {
   return path.endsWith(".json")
-    ? JSON.parse(rawValue) as RunRecord
+    ? JSON.parse(rawValue.replace(/\0+$/u, "")) as RunRecord
     : parse(rawValue) as RunRecord;
 }

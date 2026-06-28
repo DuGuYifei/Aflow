@@ -43,7 +43,7 @@ specflow validate .aflow/.specflow/agentflow/agentflows/example.yaml
 specflow run .aflow/.specflow/agentflow/agentflows/example.yaml -Dtask="Review this change"
 ```
 
-详见 [Aflow Agent 使用教程](docs/public/tutorial/zh/aflow-agent.md)、[Designer 使用教程](docs/public/tutorial/zh/designer.md) 和 [Specflow 命令](docs/public/tutorial/zh/specflow-command.md)。
+详见 [Aflow Agent 使用教程](docs/public/tutorial/zh/aflow-agent.md)、[Designer 使用教程](docs/public/tutorial/zh/designer.md)、[Specflow 命令](docs/public/tutorial/zh/specflow-command.md) 和 [Codex 插件](docs/public/tutorial/zh/codex-plugin.md)。
 
 ## Workspace 文件
 
