@@ -211,6 +211,66 @@ describe("agent server API", () => {
     });
   });
 
+  test("installs and updates registry agents through high-level registry APIs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-registry-install-api-"));
+    const ensured: string[] = [];
+    const registry = {
+      version: "1",
+      agents: [{
+        id: "codex-acp",
+        name: "Codex",
+        version: "2.0.0",
+        distribution: { npx: { package: "codex-acp" } },
+      }],
+    };
+    const bridge = {
+      ...createSpecflowBridge(),
+      listAgentRegistry: async () => registry,
+      ensureAgentServerInstalled: async (_root: string, id: string) => {
+        ensured.push(id);
+      },
+    };
+    const handle = createApiHandler(bridge, root);
+
+    const install = await handle(new Request("http://specflow.test/api/agent-servers/registry/codex-acp/install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentServerId: "codex" }),
+    }));
+    expect(install?.status).toBe(200);
+    expect(await loadLocalAgentServerConfig(root)).toMatchObject({
+      agent_servers: {
+        codex: {
+          type: "registry",
+          registryId: "codex-acp",
+          installedVersion: "2.0.0",
+        },
+      },
+    });
+
+    registry.agents[0]!.version = "2.1.0";
+    const update = await handle(new Request("http://specflow.test/api/agent-servers/codex/update", { method: "POST" }));
+    expect(update?.status).toBe(200);
+    expect(await loadLocalAgentServerConfig(root)).toMatchObject({
+      agent_servers: {
+        codex: {
+          type: "registry",
+          registryId: "codex-acp",
+          installedVersion: "2.1.0",
+        },
+      },
+    });
+    expect(ensured).toEqual(["codex", "codex"]);
+
+    await handle(new Request("http://specflow.test/api/agent-servers/custom", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "custom", command: "custom-agent" }),
+    }));
+    const customUpdate = await handle(new Request("http://specflow.test/api/agent-servers/custom/update", { method: "POST" }));
+    expect(customUpdate?.status).toBe(409);
+  });
+
   test("probes auth methods without storing env auth values", async () => {
     const root = await mkdtemp(join(tmpdir(), "specflow-agent-server-auth-api-"));
     const authStatus = {
@@ -272,18 +332,30 @@ describe("agent server API", () => {
       id: "wf-auth",
       name: "Auth workflow",
       sessions: [{ id: "s1", name: "main", agentServerId: "needs-auth" }],
-      nodes: [{
-        kind: "step",
-        id: "n1",
-        alias: "1",
-        x: 0,
-        y: 0,
-        w: 200,
-        title: "Prompt",
-        prompt: "Needs auth",
-        sessionId: "s1",
-      }],
-      edges: [],
+      nodes: [
+        {
+          kind: "step",
+          id: "n1",
+          alias: "1",
+          x: 0,
+          y: 0,
+          w: 200,
+          title: "Prompt",
+          prompt: "Needs auth",
+          sessionId: "s1",
+        },
+        {
+          kind: "start",
+          id: "start",
+          alias: "START",
+          x: -180,
+          y: 0,
+          w: 140,
+          title: "Start",
+          sessionId: null,
+        },
+      ],
+      edges: [{ id: "edge-start", from: "start", to: "n1" }],
     }, root);
 
     const response = await handle(new Request("http://specflow.test/api/canvases/wf-auth/run", {

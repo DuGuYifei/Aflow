@@ -37,7 +37,7 @@ describe("run event API", () => {
       status: "done",
     });
     expect(record.agentflowSnapshot.nodes[0]).not.toHaveProperty("x");
-    expect(record.canvasSnapshot.nodes[0]).toMatchObject({
+    expect(record.canvasSnapshot.nodes.find((node) => node.nodeId === "node-1")).toMatchObject({
       nodeId: "node-1",
       x: 80,
       y: 80,
@@ -120,8 +120,18 @@ describe("run event API", () => {
           prompt: "",
           sessionId: null,
         },
+        {
+          kind: "start",
+          id: "start",
+          alias: "START",
+          x: 0,
+          y: 80,
+          w: 140,
+          title: "Start",
+          sessionId: null,
+        },
       ],
-      edges: [],
+      edges: [{ id: "edge-start", from: "start", to: "node-1" }],
     }, root);
 
     const handle = createApiHandler(createSpecflowBridge(), root);
@@ -292,8 +302,18 @@ function sampleCanvas(agentServerId = "echo-headless"): CanvasDoc {
         prompt: "echo prompt",
         sessionId: "s1",
       },
+      {
+        kind: "start",
+        id: "start",
+        alias: "START",
+        x: 0,
+        y: 80,
+        w: 140,
+        title: "Start",
+        sessionId: null,
+      },
     ],
-    edges: [],
+    edges: [{ id: "edge-start", from: "start", to: "node-1" }],
   };
 }
 

@@ -7,9 +7,9 @@ describe("direct aflow commands", () => {
     expect(isDirectAflowCommand("/upgrade")).toBe(false);
   });
 
-  test("recognizes migration as a direct command", () => {
-    expect(isDirectAflowCommand("/specflow-migrate-v2")).toBe(true);
-    expect(isDirectAflowCommand("specflow-migrate-v2")).toBe(true);
+  test("does not recognize legacy migration as a direct command", () => {
+    expect(isDirectAflowCommand("/specflow-migrate-v2")).toBe(false);
+    expect(isDirectAflowCommand("specflow-migrate-v2")).toBe(false);
   });
 
   test("does not treat ordinary messages as direct commands", () => {

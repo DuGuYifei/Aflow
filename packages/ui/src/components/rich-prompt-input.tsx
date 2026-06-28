@@ -9,6 +9,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { AgentServerCapabilities, SkillSummary } from '../api';
 
 export interface RichPromptInputHandle {
@@ -43,7 +44,7 @@ interface RichPromptSegment {
   token?: RichPromptToken;
 }
 
-interface SlashCandidate {
+export interface RichPromptSlashCandidate {
   name: string;
   kind: 'skill' | 'command';
   label: string;
@@ -54,6 +55,12 @@ interface ActiveSlashQuery {
   slashIdx: number;
   queryStart: number;
   query: string;
+}
+
+interface PopupRect {
+  left: number;
+  top: number;
+  width: number;
 }
 
 export const RichPromptInput = forwardRef<RichPromptInputHandle, {
@@ -75,7 +82,9 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
   const tokenDefinitions = useMemo(() => props.tokenDefinitions ?? [], [props.tokenDefinitions]);
   const [active, setActive] = useState<ActiveSlashQuery | null>(null);
   const [highlight, setHighlight] = useState(0);
-  const candidates = active ? buildCandidates(props.skills ?? [], props.availableCommands, active.query) : [];
+  const [popupRect, setPopupRect] = useState<PopupRect | null>(null);
+  const activeSlashKeyRef = useRef<string | null>(null);
+  const candidates = active ? buildRichPromptSlashCandidates(props.skills ?? [], props.availableCommands, active.query) : [];
 
   const setEditorValue = (value: string, caret?: number) => {
     const editor = editorRef.current;
@@ -91,20 +100,39 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
     const editor = editorRef.current;
     if (!editor) return;
     const next = serializeEditor(editor);
+    const caret = getSerializedCaretOffset(editor);
     lastRenderedValueRef.current = next;
     props.onChange(next);
-    requestAnimationFrame(syncSlashState);
+    updateSlashState(editor, next, caret);
   };
 
   const syncSlashState = () => {
     const editor = editorRef.current;
     if (!editor || props.disabled) {
       setActive(null);
+      activeSlashKeyRef.current = null;
+      setPopupRect(null);
       return;
     }
     const caret = getSerializedCaretOffset(editor);
-    setActive(findActiveSlashQuery(serializeEditor(editor), caret));
-    setHighlight(0);
+    updateSlashState(editor, serializeEditor(editor), caret);
+  };
+
+  const updateSlashState = (editor: HTMLDivElement, value: string, caret: number) => {
+    if (props.disabled) {
+      setActive(null);
+      activeSlashKeyRef.current = null;
+      setPopupRect(null);
+      return;
+    }
+    const nextActive = findActiveSlashQuery(value, caret);
+    const nextKey = activeSlashKey(nextActive);
+    if (activeSlashKeyRef.current !== nextKey) {
+      setHighlight(0);
+      activeSlashKeyRef.current = nextKey;
+    }
+    setActive(nextActive);
+    setPopupRect(nextActive ? popupRectForEditor(editor) : null);
   };
 
   const insertSerialized = (serialized: string) => {
@@ -132,7 +160,23 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
     setEditorValue(props.value);
   }, [props.value, props.disabled, tokenDefinitions]);
 
-  const accept = (candidate: SlashCandidate) => {
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const handleInput = () => syncFromDom();
+    const handleKeyUp = () => syncSlashState();
+    const handleClick = () => syncSlashState();
+    editor.addEventListener('input', handleInput);
+    editor.addEventListener('keyup', handleKeyUp);
+    editor.addEventListener('click', handleClick);
+    return () => {
+      editor.removeEventListener('input', handleInput);
+      editor.removeEventListener('keyup', handleKeyUp);
+      editor.removeEventListener('click', handleClick);
+    };
+  });
+
+  const accept = (candidate: RichPromptSlashCandidate) => {
     const editor = editorRef.current;
     if (!editor || !active) return;
     const value = serializeEditor(editor);
@@ -141,6 +185,8 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
     const next = value.slice(0, active.slashIdx) + insert + value.slice(caret);
     const nextCaret = active.slashIdx + insert.length;
     setActive(null);
+    activeSlashKeyRef.current = null;
+    setPopupRect(null);
     setEditorValue(next, nextCaret);
     lastRenderedValueRef.current = next;
     props.onChange(next);
@@ -166,13 +212,17 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
       if (event.key === 'Escape') {
         event.preventDefault();
         setActive(null);
+        activeSlashKeyRef.current = null;
+        setPopupRect(null);
         return;
       }
     }
     if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
       event.preventDefault();
       props.onSubmit();
+      return;
     }
+    requestAnimationFrame(syncSlashState);
   };
 
   const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -183,6 +233,30 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
     event.preventDefault();
     insertSerialized(text);
   };
+
+  const popup = active && candidates.length > 0 && popupRect ? (
+    <div
+      className="rich-prompt-slash-popup"
+      style={{ left: popupRect.left, top: popupRect.top, width: popupRect.width }}
+    >
+      {candidates.map((candidate, index) => (
+        <button
+          key={`${candidate.kind}:${candidate.name}`}
+          type="button"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            accept(candidate);
+          }}
+          onMouseEnter={() => setHighlight(index)}
+          className={index === highlight ? 'active' : ''}
+        >
+          <span className="rich-prompt-slash-name">/{candidate.name}</span>
+          <span className="rich-prompt-slash-kind">{candidate.label}</span>
+          {candidate.detail && <span className="rich-prompt-slash-detail">{candidate.detail}</span>}
+        </button>
+      ))}
+    </div>
+  ) : null;
 
   return (
     <div className={`rich-prompt-wrap${props.className ? ` ${props.className}` : ''}`}>
@@ -204,10 +278,7 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
         data-empty={props.value ? undefined : 'true'}
         style={{ minHeight: `${Math.max(1, props.rows) * 22 + 18}px` }}
         suppressContentEditableWarning
-        onInput={syncFromDom}
         onKeyDown={onKeyDown}
-        onKeyUp={syncSlashState}
-        onClick={syncSlashState}
         onPaste={onPaste}
         onDrop={props.onDrop}
         onDragOver={(event) => {
@@ -223,31 +294,33 @@ export const RichPromptInput = forwardRef<RichPromptInputHandle, {
           syncFromDom();
           requestAnimationFrame(() => editorRef.current?.focus());
         }}
-        onBlur={() => requestAnimationFrame(() => setActive(null))}
+        onBlur={() => requestAnimationFrame(() => {
+          setActive(null);
+          activeSlashKeyRef.current = null;
+          setPopupRect(null);
+        })}
       />
-      {active && candidates.length > 0 && (
-        <div className="rich-prompt-slash-popup">
-          {candidates.map((candidate, index) => (
-            <button
-              key={`${candidate.kind}:${candidate.name}`}
-              type="button"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                accept(candidate);
-              }}
-              onMouseEnter={() => setHighlight(index)}
-              className={index === highlight ? 'active' : ''}
-            >
-              <span className="rich-prompt-slash-name">/{candidate.name}</span>
-              <span className="rich-prompt-slash-kind">{candidate.label}</span>
-              {candidate.detail && <span className="rich-prompt-slash-detail">{candidate.detail}</span>}
-            </button>
-          ))}
-        </div>
-      )}
+      {popup ? createPortal(popup, document.body) : null}
     </div>
   );
 });
+
+function popupRectForEditor(editor: HTMLElement): PopupRect {
+  const rect = editor.getBoundingClientRect();
+  const viewportGap = 8;
+  const maxWidth = Math.max(240, window.innerWidth - viewportGap * 2);
+  const width = Math.min(rect.width, maxWidth);
+  const left = Math.min(Math.max(rect.left, viewportGap), window.innerWidth - width - viewportGap);
+  const below = rect.bottom + 6;
+  const top = below + 220 + viewportGap <= window.innerHeight
+    ? below
+    : Math.max(viewportGap, rect.top - 226);
+  return { left, top, width };
+}
+
+function activeSlashKey(active: ActiveSlashQuery | null): string | null {
+  return active ? `${active.slashIdx}:${active.queryStart}:${active.query}` : null;
+}
 
 export function variableTokenDefinition(variables: Array<{ token: string; hint?: string }>): RichPromptTokenDefinition {
   const known = new Map(variables.map((variable) => [variable.token, variable.hint]));
@@ -509,7 +582,8 @@ function offsetWithin(root: Node, target: Node, targetOffset: number): { offset:
     }
     return false;
   };
-  return { offset, found: walk(root) };
+  const found = walk(root);
+  return { offset, found };
 }
 
 function setSerializedCaretOffset(editor: HTMLElement, targetOffset: number): void {
@@ -560,7 +634,7 @@ function setSerializedCaretOffset(editor: HTMLElement, targetOffset: number): vo
 
 function findActiveSlashQuery(text: string, caret: number): ActiveSlashQuery | null {
   let queryStart = caret;
-  while (queryStart > 0 && /[A-Za-z0-9_:.-]/.test(text[queryStart - 1])) queryStart -= 1;
+  while (queryStart > 0 && /[$A-Za-z0-9_:.-]/.test(text[queryStart - 1])) queryStart -= 1;
   const slashIdx = queryStart - 1;
   if (slashIdx < 0 || text[slashIdx] !== '/') return null;
   const lineStart = text.lastIndexOf('\n', slashIdx - 1) + 1;
@@ -568,19 +642,36 @@ function findActiveSlashQuery(text: string, caret: number): ActiveSlashQuery | n
   return { slashIdx, queryStart, query: text.slice(queryStart, caret) };
 }
 
-function buildCandidates(
+export function buildRichPromptSlashCandidates(
   skills: SkillSummary[],
   commands: AgentServerCapabilities['availableCommands'] | undefined,
   query: string,
-): SlashCandidate[] {
+): RichPromptSlashCandidate[] {
   const lowercaseQuery = query.toLowerCase();
-  const skillItems: SlashCandidate[] = skills
+  const commandQuery = lowercaseQuery.replace(/^\$/, '');
+  const dollarOnly = lowercaseQuery.startsWith('$');
+  const skillItems: RichPromptSlashCandidate[] = skills
     .filter((skill) => skill.name.toLowerCase().startsWith(lowercaseQuery))
     .map((skill) => ({ name: skill.name, kind: 'skill', label: `skill · ${skill.source}`, detail: skill.description }));
-  const commandItems: SlashCandidate[] = (commands ?? [])
-    .filter((command) => command.name.toLowerCase().startsWith(lowercaseQuery) && !skillItems.some((skill) => skill.name === command.name))
-    .map((command) => ({ name: command.name, kind: 'command', label: 'command', detail: command.description ?? command.inputHint ?? '' }));
+  const commandItems: RichPromptSlashCandidate[] = (commands ?? [])
+    .map((command) => ({ command, slashName: slashCommandName(command.name) }))
+    .filter(({ command }) => !dollarOnly || command.name.startsWith('$'))
+    .filter(({ slashName }) =>
+      slashName.toLowerCase().startsWith(commandQuery) &&
+      !skillItems.some((skill) => skill.name === slashName)
+    )
+    .sort((left, right) => commandPriority(left.command.name, lowercaseQuery) - commandPriority(right.command.name, lowercaseQuery))
+    .map(({ command, slashName }) => ({ name: slashName, kind: 'command', label: 'command', detail: command.description ?? command.inputHint ?? '' }));
   return [...skillItems, ...commandItems].slice(0, 8);
+}
+
+function slashCommandName(name: string): string {
+  return name.startsWith('$') ? name.slice(1) : name;
+}
+
+function commandPriority(name: string, query: string): number {
+  if (query !== '') return 0;
+  return name.startsWith('$') ? 0 : 1;
 }
 
 function unescapePromptAttr(value: string): string {

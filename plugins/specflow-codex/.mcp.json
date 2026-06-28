@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "specflow": {
+      "command": "specflow",
+      "args": ["mcp"],
+      "env_vars": [
+        "SPECFLOW_SERVER_URL",
+        "SPECFLOW_MCP_SERVE_COMMAND",
+        "SPECFLOW_HOST",
+        "SPECFLOW_PORT"
+      ],
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 300
+    }
+  }
+}

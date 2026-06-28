@@ -16,6 +16,67 @@ describe("specflow workflow tools", () => {
     expect(names).not.toContain("specflow_run_and_pause");
   });
 
+  test("registers operator run tools with existing-run guidance", () => {
+    const tools: Array<{ name: string; description?: string; promptGuidelines?: string[] }> = [];
+    registerSpecflowWorkflowTools({
+      registerTool(tool) {
+        tools.push(tool as { name: string; description?: string; promptGuidelines?: string[] });
+      },
+    } as ExtensionAPI);
+
+    for (const name of [
+      "specflow_get_run",
+      "specflow_get_run_logs",
+      "specflow_pause_run",
+      "specflow_play_run",
+      "specflow_stop_run",
+    ]) {
+      expect(tools.map((tool) => tool.name)).toContain(name);
+      const tool = tools.find((candidate) => candidate.name === name);
+      const visibleText = [tool?.description, ...(tool?.promptGuidelines ?? [])].join("\n");
+      expect(visibleText).toContain("existing");
+      expect(visibleText).toContain("external");
+    }
+
+    const stopTool = tools.find((tool) => tool.name === "specflow_stop_run");
+    expect([stopTool?.description, ...(stopTool?.promptGuidelines ?? [])].join("\n")).toContain("terminal");
+
+    const playTool = tools.find((tool) => tool.name === "specflow_play_run");
+    expect([playTool?.description, ...(playTool?.promptGuidelines ?? [])].join("\n")).toContain("Stopped runs cannot be played");
+  });
+
+  test("registers agent server and native resume tools with conservative guidance", () => {
+    const tools: Array<{ name: string; description?: string; promptSnippet?: string; promptGuidelines?: string[] }> = [];
+    registerSpecflowWorkflowTools({
+      registerTool(tool) {
+        tools.push(tool as { name: string; description?: string; promptSnippet?: string; promptGuidelines?: string[] });
+      },
+    } as ExtensionAPI);
+
+    for (const name of [
+      "specflow_list_agent_servers",
+      "specflow_list_agent_registry",
+      "specflow_install_registry_agent",
+      "specflow_update_registry_agent",
+      "specflow_remove_agent_server",
+      "specflow_get_agent_capabilities",
+      "specflow_refresh_agent_capabilities",
+      "specflow_get_native_resume_commands",
+    ]) {
+      expect(tools.map((tool) => tool.name)).toContain(name);
+    }
+    expect(tools.map((tool) => tool.name)).not.toContain("specflow_save_agent_server");
+
+    const installTool = tools.find((tool) => tool.name === "specflow_install_registry_agent");
+    const installText = [installTool?.description, installTool?.promptSnippet, ...(installTool?.promptGuidelines ?? [])].join("\n");
+    expect(installText).toContain("explicitly");
+    expect(installText).toContain("Specflow UI");
+    expect(installText).toContain("custom/headless");
+
+    const nativeTool = tools.find((tool) => tool.name === "specflow_get_native_resume_commands");
+    expect([nativeTool?.description, nativeTool?.promptSnippet, ...(nativeTool?.promptGuidelines ?? [])].join("\n")).toContain("do not guess");
+  });
+
   test("documents runtime graph insert operations on the patch tool", () => {
     const tools: Array<{ name: string; promptGuidelines?: string[] }> = [];
     registerSpecflowWorkflowTools({

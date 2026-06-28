@@ -1344,22 +1344,15 @@ function sampleInputCanvas() {
   const canvas = sampleCanvas();
   return {
     ...canvas,
-    nodes: [
+    variables: [
       {
-        kind: "input",
-        id: "value-input",
-        alias: "I",
-        x: 60,
-        y: 140,
-        w: 210,
-        title: "Value",
-        variableName: "specflow_value",
+        name: "specflow_value",
+        title: "Run value",
+        required: false,
         defaultValue: "1",
         description: "Value used by the arithmetic steps.",
       },
-      canvas.nodes[0],
     ],
-    edges: [{ id: "edge:value-input:->node-1", from: "value-input", to: "node-1" }],
   };
 }
 
@@ -1386,13 +1379,12 @@ function sampleRunWithInput(status: string, value: string) {
   const canvas = sampleInputCanvas();
   return {
     ...sampleRun(status),
-    nodeStates: { "value-input": "success", "node-1": status },
+    nodeStates: { "node-1": status },
     agentflowSnapshot: canvas,
     canvasSnapshot: {
       workflowId: "example-code-frontend-flow",
       version: 1,
       nodes: [
-        { nodeId: "value-input", x: 60, y: 140, w: 210 },
         { nodeId: "node-1", x: 120, y: 120, w: 240 },
       ],
     },

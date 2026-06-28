@@ -250,7 +250,6 @@ export function Sidebar({
                 )}
                 {workflow.diagnostics?.length ? <WorkflowDiagnosticsBadge diagnostics={workflow.diagnostics} /> : null}
                 {workflow.local && <span className="wf-badge local">local</span>}
-                {(workflow.deprecated || (workflow.version ?? 1) === 1) && <span className="wf-badge deprecated">v1</span>}
                 <button
                   className="btn sm icon workflow-rename"
                   title={t('sidebar.renameWorkflow')}

@@ -9,6 +9,10 @@ export function specflowRoot(root: string): string {
   return join(root, SPECFLOW_WORKSPACE_PATH);
 }
 
+export function serverRegistryPath(root: string): string {
+  return join(specflowRoot(root), "server.json");
+}
+
 export function agentflowRoot(root: string): string {
   return join(root, SPECFLOW_AGENTFLOW_PATH);
 }

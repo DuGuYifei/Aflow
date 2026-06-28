@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -16,7 +16,7 @@ async function tempCacheDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), "specflow-agent-cache-"));
 }
 
-const snapshot: Omit<AgentServerCapabilitiesCache, "installedVersion" | "probedAt"> = {
+const snapshot: Omit<AgentServerCapabilitiesCache, "installedVersion" | "probedAt" | "settingsFingerprint"> = {
   agentCapabilities: { loadSession: true },
   modes: { availableModes: [{ id: "plan", name: "Plan" }], currentModeId: "plan" },
   configOptions: null,
@@ -87,7 +87,7 @@ describe("AgentServerStore capability cache", () => {
     expect(entriesStale.find((entry) => entry.id === "claude-acp")?.capabilities).toBeUndefined();
   });
 
-  test("does not share capabilities across same agent id with different settings", async () => {
+  test("stores only the current capability snapshot per agent server id", async () => {
     const cacheDir = await tempCacheDir();
     const firstRoot = await workspaceWith({
       codex: { type: "registry", registryId: "codex-acp", installedVersion: "1.0.0", env: { PROFILE: "first" } },
@@ -108,9 +108,53 @@ describe("AgentServerStore capability cache", () => {
     expect(await new AgentServerStore({ root: secondRoot, cacheDir }).getCapabilities("codex")).toBeUndefined();
 
     await new AgentServerStore({ root: secondRoot, cacheDir }).setCapabilities("codex", secondSnapshot);
-    expect((await new AgentServerStore({ root: firstRoot, cacheDir }).getCapabilities("codex"))?.availableCommands[0]?.name)
-      .toBe("first");
+    expect(await new AgentServerStore({ root: firstRoot, cacheDir }).getCapabilities("codex")).toBeUndefined();
     expect((await new AgentServerStore({ root: secondRoot, cacheDir }).getCapabilities("codex"))?.availableCommands[0]?.name)
       .toBe("second");
+    const raw = JSON.parse(await readFile(join(cacheDir, "capabilities.json"), "utf8")) as {
+      capabilities: Record<string, unknown>;
+    };
+    expect(Object.keys(raw.capabilities)).toEqual(["codex"]);
+  });
+
+  test("migrates legacy fingerprint-suffixed capability keys", async () => {
+    const root = await workspaceWith({
+      codex: { type: "registry", registryId: "codex-acp", installedVersion: "1.0.0", env: { PROFILE: "current" } },
+    });
+    const cacheDir = await tempCacheDir();
+    const seedStore = new AgentServerStore({ root, cacheDir });
+    await seedStore.setCapabilities("codex", snapshot);
+    const seeded = JSON.parse(await readFile(join(cacheDir, "capabilities.json"), "utf8")) as {
+      capabilities: Record<string, AgentServerCapabilitiesCache>;
+    };
+    const currentFingerprint = seeded.capabilities.codex!.settingsFingerprint!;
+    const oldSnapshot: AgentServerCapabilitiesCache = {
+      ...snapshot,
+      probedAt: "2026-06-01T00:00:00.000Z",
+      installedVersion: "1.0.0",
+      availableCommands: [{ name: "old", description: "Old" }],
+    };
+    const latestSnapshot: AgentServerCapabilitiesCache = {
+      ...snapshot,
+      probedAt: "2026-06-02T00:00:00.000Z",
+      installedVersion: "1.0.0",
+      settingsFingerprint: currentFingerprint,
+      availableCommands: [{ name: "current", description: "Current" }],
+    };
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(join(cacheDir, "capabilities.json"), JSON.stringify({
+      capabilities: {
+        "codex:111111111111111111111111": oldSnapshot,
+        [`codex:${currentFingerprint}`]: latestSnapshot,
+      },
+    }));
+
+    const cached = await new AgentServerStore({ root, cacheDir }).getCapabilities("codex");
+    expect(cached?.availableCommands[0]?.name).toBe("current");
+    const raw = JSON.parse(await readFile(join(cacheDir, "capabilities.json"), "utf8")) as {
+      capabilities: Record<string, AgentServerCapabilitiesCache>;
+    };
+    expect(Object.keys(raw.capabilities)).toEqual(["codex"]);
+    expect(raw.capabilities.codex?.settingsFingerprint).toBe(currentFingerprint);
   });
 });

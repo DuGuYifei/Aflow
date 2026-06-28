@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, InputNode, Variable, RunSnapshot, RunReachability, RuntimeEditClass, RunGraphOperation } from './types';
+import type { WorkflowNode, Edge, Session, Workflow, Run, Selection, RunStateMap, Theme, RunStatus, TimelineEvent, Variable, RunSnapshot, RunReachability, RuntimeEditClass, RunGraphOperation } from './types';
 import { RESTORE_SSE_EVENTS, RUN_SSE_EVENTS, type RestoreSseEventType, type RunSseEventType } from '@specflow/shared';
 import { edgeKey, isSymbolKey } from './appearance';
 import {
@@ -10,7 +10,7 @@ import {
   fetchAgentSessions, fetchAgentServers, fetchAgentServerCapabilities, refreshAgentServerCapabilities, restoreAgentSession, subscribeToRestore,
   fetchAgentSession, fetchResumableSession, fetchRunLogsRange, continueWorkflowRun,
   promptRestoredSession, closeRestoredSession, cancelRestoredSession, fetchPausedNodes, promptPausedNode, continuePausedNode,
-  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction, startAflowMigration,
+  apiRunToUiRun, apiRunLogsToTimelineEvents, summaryToWorkflow, respondToRunInteraction,
   patchRunGraph, fetchRunReachability,
   saveRunBestPractice,
   AgentAuthenticationRequiredError,
@@ -35,8 +35,6 @@ import { RunConfigPanel } from './components/run-config-panel';
 import { RuntimeControlBar } from './components/runtime-control-bar';
 import { VariablesPalette } from './components/variables-palette';
 import { VariablePanel } from './components/variable-panel';
-import { LegacyWorkflowModal } from './components/legacy-workflow-modal';
-import { AflowMigrationTerminalModal } from './components/aflow-migration-terminal-modal';
 import { InteractionModal } from './components/interaction-modal';
 import { AgentAuthModal } from './components/agent-auth-modal';
 import { AgentServerManager } from './components/agent-server-manager';
@@ -389,10 +387,6 @@ export function App() {
   const [pendingInteractions, setPendingInteractions] = useState<RunInteraction[]>([]);
   const [agentServerManagerOpen, setAgentServerManagerOpen] = useState(false);
   const [authStatuses, setAuthStatuses] = useState<AgentAuthenticationStatus[]>([]);
-  const [legacyWorkflowPrompt, setLegacyWorkflowPrompt] = useState<{ workflowId: string; name: string } | null>(null);
-  const [legacyMigrationBusy, setLegacyMigrationBusy] = useState(false);
-  const [legacyMigrationError, setLegacyMigrationError] = useState('');
-  const [migrationTerminal, setMigrationTerminal] = useState<{ sessionId: string; workflowName: string } | null>(null);
 
   // viewMode is derived from selection: viewing a run → run view (readonly).
   const view: 'edit' | 'run' = activeRunId ? 'run' : 'edit';
@@ -422,20 +416,13 @@ export function App() {
     });
   }, []);
 
-  // v1 variables are derived from InputNodes; v2 variables are top-level workflow data.
   const variables = useMemo(
-    () => workflowVersion === 2
-      ? workflowVariables
-      : nodes.filter((node): node is InputNode => node.kind === 'input')
-        .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
-    [nodes, workflowVariables, workflowVersion],
+    () => workflowVariables,
+    [workflowVariables],
   );
   const displayVariables = useMemo(
-    () => displayWorkflowVersion === 2
-      ? (activeRun?.canvasSnapshot?.variables ?? workflowVariables)
-      : displayNodes.filter((node): node is InputNode => node.kind === 'input')
-        .map((node) => ({ name: node.variableName, required: node.required, defaultValue: node.defaultValue, description: node.description })),
-    [activeRun?.canvasSnapshot?.variables, displayNodes, displayWorkflowVersion, workflowVariables],
+    () => activeRun?.canvasSnapshot?.variables ?? workflowVariables,
+    [activeRun?.canvasSnapshot?.variables, workflowVariables],
   );
   const hasAgentUpdates = useMemo(
     () => agentServers.some((server) => server.registry?.updateAvailable),
@@ -521,7 +508,7 @@ export function App() {
     setLoadedWorkflowId('');
     if (!activeWorkflow) return;
     fetchCanvas(activeWorkflow).then((canvasDocument) => {
-      setWorkflowVersion(canvasDocument.version ?? 1);
+      setWorkflowVersion(canvasDocument.version ?? 2);
       setNodes(canvasDocument.nodes as WorkflowNode[]);
       setEdges(canvasDocument.edges as Edge[]);
       setSessions(canvasDocument.sessions as Session[]);
@@ -531,10 +518,6 @@ export function App() {
       setActiveSessionId(canvasDocument.sessions[0]?.id ?? '');
       setSelection(null);
       setLoadedWorkflowId(canvasDocument.id);
-      if ((canvasDocument.version ?? 1) === 1) {
-        setLegacyMigrationError('');
-        setLegacyWorkflowPrompt({ workflowId: canvasDocument.id, name: canvasDocument.name });
-      }
     }).catch(console.error);
 
     fetchRuns(activeWorkflow).then((records) => {
@@ -1205,10 +1188,9 @@ export function App() {
     scheduleSave();
   }, [scheduleSave]);
 
-  // ── variable management (InputNode-derived) ───────────────────────────────
+  // ── variable management ──────────────────────────────────────────────────
 
-  // Variables are declared via InputNodes on the canvas. Editing a variable
-  // default value from the SessionsBar patches the InputNode directly.
+  // Variables are declared as top-level workflow data.
   const onAddVariable = useCallback(() => {
     const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
     const currentVersion = activeSnapshot?.version ?? workflowVersionRef.current;
@@ -1241,23 +1223,19 @@ export function App() {
   const onEditVariable = useCallback((name: string, patch: Partial<Variable>) => {
     const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
     const currentVersion = activeSnapshot?.version ?? workflowVersionRef.current;
-    if (currentVersion === 2) {
-      if (patchActiveRunSnapshot((snapshot) => ({
-        ...snapshot,
-        variables: (snapshot.variables ?? []).map((variable) => variable.name === name ? { ...variable, ...patch } : variable),
-      }), t('app.snapshotEditedVariable'))) return;
+    if (currentVersion !== 2) return;
+    if (patchActiveRunSnapshot((snapshot) => ({
+      ...snapshot,
+      variables: (snapshot.variables ?? []).map((variable) => variable.name === name ? { ...variable, ...patch } : variable),
+    }), t('app.snapshotEditedVariable'))) return;
 
-      setWorkflowVariables((previousVariables) => {
-        const updated = previousVariables.map((variable) => variable.name === name ? { ...variable, ...patch } : variable);
-        workflowVariablesRef.current = updated;
-        scheduleSave();
-        return updated;
-      });
-      return;
-    }
-    const inputNode = (activeSnapshot?.nodes ?? nodesRef.current).find((node): node is InputNode => node.kind === 'input' && node.variableName === name);
-    if (inputNode) onEditNode(inputNode.id, patch);
-  }, [activeRunId, onEditNode, patchActiveRunSnapshot, scheduleSave, t]);
+    setWorkflowVariables((previousVariables) => {
+      const updated = previousVariables.map((variable) => variable.name === name ? { ...variable, ...patch } : variable);
+      workflowVariablesRef.current = updated;
+      scheduleSave();
+      return updated;
+    });
+  }, [activeRunId, patchActiveRunSnapshot, scheduleSave, t]);
 
   const onRenameVariable = useCallback((oldName: string, newName: string) => {
     const activeSnapshot = runsRef.current.find((run) => run.id === activeRunId)?.canvasSnapshot;
@@ -1318,11 +1296,6 @@ export function App() {
   };
   const onClearSelection = ()            => setSelection(null);
   const onSelectWorkflowFromSidebar = useCallback((id: string) => {
-    const workflow = workflowsRef.current.find((candidate) => candidate.id === id);
-    if (workflow && (workflow.deprecated || (workflow.version ?? 1) === 1)) {
-      setLegacyMigrationError('');
-      setLegacyWorkflowPrompt({ workflowId: workflow.id, name: workflow.name });
-    }
     setActiveWorkflow(id);
   }, []);
 
@@ -2163,22 +2136,6 @@ export function App() {
     }
   }, [appendPausedDisplayMessage, pausedNode, pausedPromptBusy]);
 
-  const onStartLegacyMigration = useCallback(async () => {
-    const target = legacyWorkflowPrompt;
-    if (!target || legacyMigrationBusy) return;
-    setLegacyMigrationBusy(true);
-    setLegacyMigrationError('');
-    try {
-      const result = await startAflowMigration(target.workflowId);
-      setMigrationTerminal({ sessionId: result.terminalSessionId, workflowName: target.name });
-      setLegacyWorkflowPrompt(null);
-    } catch (error) {
-      setLegacyMigrationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLegacyMigrationBusy(false);
-    }
-  }, [legacyMigrationBusy, legacyWorkflowPrompt]);
-
   // ── workflow management ───────────────────────────────────────────────────
 
   const onCreateWorkflow = useCallback(async (name: string) => {
@@ -2503,26 +2460,6 @@ export function App() {
           onChanged={refreshAgentServers}
         />
       )}
-      {!runConfigOpen && legacyWorkflowPrompt && (
-        <LegacyWorkflowModal
-          workflowName={legacyWorkflowPrompt.name}
-          busy={legacyMigrationBusy}
-          error={legacyMigrationError}
-          onMigrate={onStartLegacyMigration}
-          onClose={() => setLegacyWorkflowPrompt(null)}
-        />
-      )}
-      {!runConfigOpen && migrationTerminal && (
-        <AflowMigrationTerminalModal
-          sessionId={migrationTerminal.sessionId}
-          workflowName={migrationTerminal.workflowName}
-          onClose={() => {
-            setMigrationTerminal(null);
-            void refreshWorkflows().catch(console.error);
-          }}
-        />
-      )}
-
       {!runConfigOpen && selection?.kind === 'node' && selectedNodeWithState && (
         <NodePanel
           node={selectedNodeWithState}

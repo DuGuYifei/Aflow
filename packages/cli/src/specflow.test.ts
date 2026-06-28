@@ -4,27 +4,31 @@ import { assertCliRunnableAgentFlow, type AgentFlowDoc } from "@specflow/server"
 
 const canvasDocument: AgentFlowDoc = {
   id: "flow",
+  version: 2,
   name: "Flow",
-  sessions: [],
+  sessions: [{ id: "s1", name: "main", agentServerId: "echo-headless" }],
+  variables: [
+    { name: "specflow_task", title: "Task", required: true },
+    { name: "specflow_audience", title: "Audience", required: false },
+  ],
   nodes: [
     {
-      kind: "input",
-      id: "task-input",
-      alias: "IN",
-      title: "Task",
-      variableName: "specflow_task",
+      kind: "start",
+      id: "start",
+      alias: "START",
+      title: "Start",
       sessionId: null,
     },
     {
-      kind: "input",
-      id: "audience-input",
-      alias: "IN",
-      title: "Audience",
-      variableName: "specflow_audience",
-      sessionId: null,
+      kind: "step",
+      id: "work",
+      alias: "01",
+      title: "Work",
+      prompt: "Do <specflow_task> for <specflow_audience>.",
+      sessionId: "s1",
     },
   ],
-  edges: [],
+  edges: [{ id: "edge:start:->work", from: "start", to: "work" }],
 };
 
 describe("specflow run args", () => {
@@ -76,7 +80,7 @@ describe("specflow run input values", () => {
   });
 
   test("rejects values when the workflow has no input nodes", () => {
-    expect(() => normalizeVariableValues({ ...canvasDocument, nodes: [] }, { task: "x" })).toThrow(
+    expect(() => normalizeVariableValues({ ...canvasDocument, variables: [] }, { task: "x" })).toThrow(
       "Unknown input: task\nAvailable inputs: none",
     );
   });
@@ -95,7 +99,7 @@ describe("specflow run workflow support", () => {
         {
           kind: "step",
           id: "review",
-          alias: "01",
+          alias: "02",
           title: "Review",
           prompt: "Review the change.",
           sessionId: "s1",
@@ -108,7 +112,7 @@ describe("specflow run workflow support", () => {
       "specflow run does not support pauseAfterRun nodes.\n"
       + "Start the UI with `specflow`, then run this workflow from the browser to use pause/continue.\n"
       + "Paused nodes:\n"
-      + "  - 01 Review (review)",
+      + "  - 02 Review (review)",
     );
   });
 });

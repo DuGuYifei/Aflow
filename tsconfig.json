@@ -3,9 +3,12 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/agent-proxy" },
+    { "path": "./packages/native-resume" },
     { "path": "./packages/workflow" },
     { "path": "./packages/bridge" },
     { "path": "./packages/server" },
+    { "path": "./packages/client" },
+    { "path": "./packages/mcp" },
     { "path": "./packages/ui" },
     { "path": "./packages/cli" },
     { "path": "./packages/aflow" }

@@ -1,4 +1,4 @@
-import type { AgentServerEntry } from "@specflow/agent-proxy";
+import type { AgentServerEntry, RegistryIndex } from "@specflow/agent-proxy";
 import type { AgentFlowDoc, CanvasDoc, CanvasLayoutDoc, RunGraphOperation } from "@specflow/server";
 import {
   RESTORE_SSE_EVENTS,
@@ -148,6 +148,37 @@ export interface ResumableSessionSummary {
   canResume: boolean;
 }
 
+export interface NativeResumeCommandSummary {
+  agentSessionId: string;
+  workflowId: string;
+  latestRunId: string;
+  latestInvocationId: string;
+  latestStatus: string;
+  agentId: string;
+  agentServerId: string;
+  specflowSessionId?: string;
+  acpSessionId: string;
+  nodeId?: string;
+  nodeTitle?: string;
+  nativeResume: {
+    available: boolean;
+    status: string;
+    command?: string;
+    args?: string[];
+    displayCommand?: string;
+    commandExists?: boolean;
+    agentDisplayName?: string;
+    caveat?: string;
+    reason?: string;
+  };
+}
+
+export interface NativeResumeCommandsResponse {
+  runId: string;
+  workflowId: string;
+  commands: NativeResumeCommandSummary[];
+}
+
 export interface AgentSessionInvocationRef {
   runId: string;
   invocationId: string;
@@ -277,6 +308,34 @@ export class SpecflowClient {
     return this.request<AgentServerEntry[]>("/api/agent-servers");
   }
 
+  async listAgentRegistry(): Promise<RegistryIndex> {
+    return this.request<RegistryIndex>("/api/agent-servers/registry");
+  }
+
+  async installRegistryAgent(registryId: string, body: { agentServerId?: string } = {}): Promise<AgentServerEntry[]> {
+    return this.request<AgentServerEntry[]>(`/api/agent-servers/registry/${encodeURIComponent(registryId)}/install`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateRegistryAgent(agentServerId: string): Promise<AgentServerEntry[]> {
+    return this.request<AgentServerEntry[]>(`/api/agent-servers/${encodeURIComponent(agentServerId)}/update`, { method: "POST" });
+  }
+
+  async removeAgentServer(agentServerId: string): Promise<AgentServerEntry[]> {
+    return this.request<AgentServerEntry[]>(`/api/agent-servers/${encodeURIComponent(agentServerId)}`, { method: "DELETE" });
+  }
+
+  async getAgentCapabilities(agentServerId: string): Promise<unknown> {
+    return this.request(`/api/agent-servers/${encodeURIComponent(agentServerId)}/capabilities`);
+  }
+
+  async refreshAgentCapabilities(agentServerId: string): Promise<unknown> {
+    return this.request(`/api/agent-servers/${encodeURIComponent(agentServerId)}/capabilities/refresh`, { method: "POST" });
+  }
+
   async listCanvases(): Promise<CanvasSummary[]> {
     return this.request<CanvasSummary[]>("/api/canvases");
   }
@@ -335,6 +394,10 @@ export class SpecflowClient {
 
   async interruptRun(id: string): Promise<unknown> {
     return this.request<unknown>(`/api/runs/${encodeURIComponent(id)}/interrupt`, { method: "POST" });
+  }
+
+  async stopRun(id: string): Promise<unknown> {
+    return this.request<unknown>(`/api/runs/${encodeURIComponent(id)}/stop`, { method: "POST" });
   }
 
   async getRunReachability(id: string): Promise<RunReachability> {
@@ -420,6 +483,14 @@ export class SpecflowClient {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode }),
     });
+  }
+
+  async getRunNativeResumeCommands(runId: string): Promise<NativeResumeCommandsResponse> {
+    return this.request<NativeResumeCommandsResponse>(`/api/runs/${encodeURIComponent(runId)}/native-resume-commands`);
+  }
+
+  async getAgentSessionNativeResumeCommand(agentSessionId: string): Promise<NativeResumeCommandSummary> {
+    return this.request<NativeResumeCommandSummary>(`/api/agent-sessions/${encodeURIComponent(agentSessionId)}/native-resume-command`);
   }
 
   async promptRestoredSession(restoreId: string, prompt: string): Promise<{ output: string }> {

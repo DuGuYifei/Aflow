@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import type { WorkflowNode, Edge, Run, Session, RunState, GateNode, StepNode, InputNode, TimelineEvent, Variable } from '../types';
 import { Icon } from './icon';
 import { RightPanel } from './right-panel';
@@ -318,7 +318,7 @@ function NodePaths(props: NodePanelProps & { node: StepNode; readonly: boolean; 
 function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?: RunState }; readonly: boolean }) {
   const { t } = useI18n();
   const { node, run, nodes, edges, readonly, variables, workflowVersion } = props;
-  const criteriaRef = useRef<HTMLTextAreaElement>(null);
+  const criteriaRef = useRef<RichPromptInputHandle>(null);
   const predecessorEdge = edges.find((edge) => {
     const sourceKind = nodes.find((candidate) => candidate.id === edge.from)?.kind;
     return edge.to === node.id && sourceKind !== 'input' && sourceKind !== 'start';
@@ -330,6 +330,10 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
   const supportsForkHint = predecessorSession?.agentServerId.toLowerCase().includes('claude');
   const { capabilities, refreshing, refresh } = useAgentCapabilities(predecessorSession?.agentServerId);
   const skills = useSkills();
+  const criteriaTokenDefinitions = useMemo(
+    () => [variableTokenDefinition(variables.map((variable) => ({ token: variable.name, hint: variable.description || variable.title })))],
+    [variables],
+  );
   return (
     <RightPanel label={<><Icon name="route" size={11} /> {t('node.gateLabel', { alias: node.alias })}</>} title={<PanelNodeTitle node={node} />} onClose={props.onClose}>
       <EditImpactNote label={props.editImpactLabel} />
@@ -352,18 +356,19 @@ function GatePanelContent(props: NodePanelProps & { node: GateNode & { runState?
               key={variable.name}
               className="btn sm ghost"
               title={variable.description || variable.title}
-              onClick={() => insertIntoTextarea(criteriaRef.current, `<${variable.name}>`, (next) => props.onEditNode(node.id, { decisionCriteria: next }))}
+              onClick={() => criteriaRef.current?.insertSerialized(`<${variable.name}>`)}
             >
               {displayPromptVariableName(variable.name)}
             </button>
           ))}
         </div>
       )}
-      <SlashCommandTextarea
+      <RichPromptInput
         ref={criteriaRef}
         rows={6}
         value={node.decisionCriteria}
         disabled={readonly}
+        tokenDefinitions={criteriaTokenDefinitions}
         skills={skills}
         availableCommands={capabilities?.availableCommands}
         onChange={(next) => props.onEditNode(node.id, { decisionCriteria: next })}
@@ -447,19 +452,6 @@ function StartPanelContent(props: NodePanelProps & { node: Extract<WorkflowNode,
       <input className="input" value={node.alias} disabled={readonly} onChange={(event) => props.onEditNode(node.id, { alias: event.target.value })} />
     </RightPanel>
   );
-}
-
-function insertIntoTextarea(element: HTMLTextAreaElement | null, text: string, onChange: (next: string) => void) {
-  if (!element) return;
-  const start = element.selectionStart ?? element.value.length;
-  const end = element.selectionEnd ?? start;
-  const next = `${element.value.slice(0, start)}${text}${element.value.slice(end)}`;
-  onChange(next);
-  const caret = start + text.length;
-  requestAnimationFrame(() => {
-    element.focus();
-    element.setSelectionRange(caret, caret);
-  });
 }
 
 function InputPanelContent(props: NodePanelProps & { node: InputNode & { runState?: RunState }; readonly: boolean }) {
@@ -851,168 +843,6 @@ function ConfigOptionControl(props: {
   );
 }
 
-// ── Slash command autocomplete popup (textarea wrapper) ─────────────────────
-
-interface SlashCandidate {
-  name: string;
-  kind: 'skill' | 'command';
-  label: string;
-  detail: string;
-}
-
-interface ActiveSlashQuery {
-  /** Offset of the `/` character. */
-  slashIdx: number;
-  /** Offset where the command name starts (slashIdx + 1). */
-  queryStart: number;
-  /** Partial text typed after the slash, up to the caret. */
-  query: string;
-}
-
-/**
- * Finds the slash command the caret is currently inside, if any. A command is
- * only "active" when the `/` is line-leading (only whitespace precedes it on
- * the line) and there is no whitespace between the `/` and the caret — i.e. the
- * user is still typing the command name. Returns null otherwise.
- */
-function findActiveSlashQuery(text: string, caret: number): ActiveSlashQuery | null {
-  let queryStart = caret;
-  while (queryStart > 0 && /[A-Za-z0-9_:.-]/.test(text[queryStart - 1])) queryStart -= 1;
-  const slashIdx = queryStart - 1;
-  if (slashIdx < 0 || text[slashIdx] !== '/') return null;
-  const lineStart = text.lastIndexOf('\n', slashIdx - 1) + 1;
-  if (text.slice(lineStart, slashIdx).trim() !== '') return null;
-  return { slashIdx, queryStart, query: text.slice(queryStart, caret) };
-}
-
-const SlashCommandTextarea = forwardRef<HTMLTextAreaElement, {
-  value: string;
-  rows: number;
-  disabled?: boolean;
-  skills: SkillSummary[];
-  availableCommands: AgentServerCapabilities['availableCommands'] | undefined;
-  onChange: (next: string) => void;
-}>(function SlashCommandTextarea(props, forwardedRef) {
-  const innerRef = useRef<HTMLTextAreaElement>(null);
-  useImperativeHandle(forwardedRef, () => innerRef.current as HTMLTextAreaElement, []);
-  const [active, setActive] = useState<ActiveSlashQuery | null>(null);
-  const [highlight, setHighlight] = useState(0);
-
-  const candidates: SlashCandidate[] = active ? buildCandidates(props.skills, props.availableCommands, active.query) : [];
-
-  const sync = () => {
-    const element = innerRef.current;
-    if (!element || props.disabled) { setActive(null); return; }
-    const next = findActiveSlashQuery(element.value, element.selectionStart ?? 0);
-    setActive(next);
-    setHighlight(0);
-  };
-
-  const accept = (candidate: SlashCandidate) => {
-    const element = innerRef.current;
-    if (!element || !active) return;
-    const before = element.value.slice(0, active.slashIdx);
-    const after = element.value.slice(element.selectionStart ?? active.queryStart);
-    const insert = `/${candidate.name} `;
-    const next = before + insert + after;
-    props.onChange(next);
-    const caret = before.length + insert.length;
-    setActive(null);
-    requestAnimationFrame(() => {
-      element.focus();
-      element.setSelectionRange(caret, caret);
-    });
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!active || candidates.length === 0) return;
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setHighlight((height) => (height + 1) % candidates.length);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlight((height) => (height - 1 + candidates.length) % candidates.length);
-    } else if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault();
-      accept(candidates[Math.min(highlight, candidates.length - 1)]);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      setActive(null);
-    }
-  };
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <textarea
-        ref={innerRef}
-        className="textarea"
-        rows={props.rows}
-        value={props.value}
-        disabled={props.disabled}
-        onChange={(event) => { props.onChange(event.target.value); requestAnimationFrame(sync); }}
-        onKeyUp={sync}
-        onClick={sync}
-        onKeyDown={onKeyDown}
-        onBlur={() => requestAnimationFrame(() => setActive(null))}
-      />
-      {active && candidates.length > 0 && (
-        <div className="slash-popup" style={{
-          position: 'absolute',
-          left: 8,
-          right: 8,
-          zIndex: 20,
-          background: 'var(--bg-1, #fff)',
-          border: '1px solid var(--ink-5, #ccc)',
-          borderRadius: 6,
-          boxShadow: '0 6px 20px rgba(0,0,0,0.18)',
-          maxHeight: 220,
-          overflowY: 'auto',
-        }}>
-          {candidates.map((candidate, index) => (
-            <button
-              key={`${candidate.kind}:${candidate.name}`}
-              type="button"
-              // onMouseDown (not onClick) so it fires before the textarea blur closes the popup.
-              onMouseDown={(event) => { event.preventDefault(); accept(candidate); }}
-              onMouseEnter={() => setHighlight(index)}
-              style={{
-                display: 'block',
-                width: '100%',
-                textAlign: 'left',
-                padding: '6px 10px',
-                border: 'none',
-                cursor: 'pointer',
-                background: index === highlight ? 'var(--accent-soft, #eef)' : 'transparent',
-              }}
-            >
-              <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
-                <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>/{candidate.name}</span>
-                <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>{candidate.label}</span>
-              </div>
-              {candidate.detail && <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{candidate.detail}</div>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-});
-
-function buildCandidates(
-  skills: SkillSummary[],
-  commands: AgentServerCapabilities['availableCommands'] | undefined,
-  query: string,
-): SlashCandidate[] {
-  const lowercaseQuery = query.toLowerCase();
-  const skillItems: SlashCandidate[] = skills
-    .filter((skill) => skill.name.toLowerCase().startsWith(lowercaseQuery))
-    .map((skill) => ({ name: skill.name, kind: 'skill', label: `skill · ${skill.source}`, detail: skill.description }));
-  const commandItems: SlashCandidate[] = (commands ?? [])
-    .filter((command) => command.name.toLowerCase().startsWith(lowercaseQuery) && !skillItems.some((skill) => skill.name === command.name))
-    .map((command) => ({ name: command.name, kind: 'command', label: 'agent command', detail: command.description }));
-  return [...skillItems, ...commandItems].slice(0, 12);
-}
-
 // ── Slash command warning underneath a prompt ───────────────────────────────
 
 function SlashCommandWarnings(props: {
@@ -1027,7 +857,10 @@ function SlashCommandWarnings(props: {
   const slashTokens = parseSlashTokens(prompt);
   if (slashTokens.length === 0) return null;
   const knownSkill = new Set(skills.map((skill) => skill.name));
-  const knownCommand = new Set((availableCommands ?? []).map((command) => command.name));
+  const knownCommand = new Set((availableCommands ?? []).flatMap((command) => command.name.startsWith('$')
+    ? [command.name, command.name.slice(1)]
+    : [command.name]
+  ));
   const issues = slashTokens.filter((token) => !isResolvable(token, knownSkill, knownCommand));
   if (issues.length === 0) return null;
   return (

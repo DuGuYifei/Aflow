@@ -4,7 +4,7 @@ import { parseAgentFlowSource, stringifyAgentFlowSource } from "./agentflow/agen
 const MCP_JSON = '[{"name":"fs","command":"uvx","args":["mcp-server-filesystem","/tmp"],"env":[]}]';
 
 function flow(body: string): string {
-  return `version: 1\nname: ACP fields\n${body}`;
+  return `version: 2\nname: ACP fields\n${body}`;
 }
 
 describe("agentflow ACP per-node fields", () => {

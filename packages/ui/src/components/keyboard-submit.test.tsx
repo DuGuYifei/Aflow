@@ -1,10 +1,10 @@
 import { Window } from "happy-dom";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { I18nProvider } from "../i18n";
 import type { AgentSessionRecord } from "../api";
 import { AgentConversationWindow } from "./agent-conversation-window";
-import { RichPromptInput } from "./rich-prompt-input";
+import { buildRichPromptSlashCandidates, RichPromptInput } from "./rich-prompt-input";
 import { RunConfigPanel } from "./run-config-panel";
 import { PausedNodeComposer } from "./sessions-bar";
 import { RuntimeControlBar } from "./runtime-control-bar";
@@ -67,6 +67,71 @@ describe("keyboard submit behavior", () => {
     keyDown(editor, "Enter");
     expect(submitCount).toBe(1);
   });
+
+  test("RichPromptInput slash candidates include skills and normalize Codex dollar commands", () => {
+    const candidates = buildRichPromptSlashCandidates(
+      [{
+        name: "test-skill",
+        description: "Test skill",
+        source: "projectLocal",
+        filePath: "/repo/.agents/skills/test-skill/SKILL.md",
+        bodyPreview: "",
+      }],
+      [{ name: "$imagegen", description: "Generate images" }],
+      "image",
+    );
+
+    expect(candidates).toEqual([{ name: "imagegen", kind: "command", label: "command", detail: "Generate images" }]);
+
+    const allCandidates = buildRichPromptSlashCandidates(
+      [{
+        name: "test-skill",
+        description: "Test skill",
+        source: "projectLocal",
+        filePath: "/repo/.agents/skills/test-skill/SKILL.md",
+        bodyPreview: "",
+      }],
+      [
+        { name: "mcp", description: "List MCP tools" },
+        { name: "status", description: "Show status" },
+        { name: "$imagegen", description: "Generate images" },
+      ],
+      "",
+    );
+    expect(allCandidates.map((candidate) => candidate.name)).toEqual(["test-skill", "imagegen", "mcp", "status"]);
+  });
+
+  test("RichPromptInput opens slash popup after typing slash", async () => {
+    render(
+      <SlashPopupHarness />,
+    );
+    const editor = await waitForElement(".rich-prompt-input");
+    await tick();
+
+    setContentEditableValue(editor, "/");
+    await waitForElement(".rich-prompt-slash-popup");
+
+    expect(document.querySelector(".rich-prompt-slash-popup")?.textContent?.includes("/test-skill")).toBe(true);
+  });
+
+  test("RichPromptInput keeps slash highlight after arrow keyup", async () => {
+    render(
+      <SlashPopupHarness />,
+    );
+    const editor = await waitForElement(".rich-prompt-input");
+    await tick();
+
+    setContentEditableValue(editor, "/");
+    await waitForElement(".rich-prompt-slash-popup");
+    keyDown(editor, "ArrowDown");
+    elementKeyUp(editor, "ArrowDown");
+    await tick();
+
+    const buttons = Array.from(document.querySelectorAll(".rich-prompt-slash-popup button"));
+    expect(buttons.length > 1).toBe(true);
+    expect(buttons[1]?.classList.contains("active")).toBe(true);
+  });
+
 
   test("resume conversation prompt submits on Enter and not Shift+Enter", async () => {
     const prompts: string[] = [];
@@ -188,6 +253,25 @@ describe("keyboard submit behavior", () => {
   }
 });
 
+function SlashPopupHarness(): ReactNode {
+  const [value, setValue] = useState("");
+  return (
+    <RichPromptInput
+      value={value}
+      rows={2}
+      onChange={setValue}
+      skills={[{
+        name: "test-skill",
+        description: "Test skill",
+        source: "projectLocal",
+        filePath: "/repo/.agents/skills/test-skill/SKILL.md",
+        bodyPreview: "",
+      }]}
+      availableCommands={[{ name: "$imagegen", description: "Generate images" }]}
+    />
+  );
+}
+
 function setTextAreaValue(element: HTMLTextAreaElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set;
   setter?.call(element, value);
@@ -204,6 +288,30 @@ function keyDown(element: Element, key: string, init: KeyboardEventInit = {}): b
     cancelable: true,
     ...init,
   }));
+}
+
+function elementKeyUp(element: Element, key: string, init: KeyboardEventInit = {}): boolean {
+  return element.dispatchEvent(new window.KeyboardEvent("keyup", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  }));
+}
+
+function setContentEditableValue(element: HTMLElement, value: string): void {
+  element.focus();
+  element.replaceChildren(document.createTextNode(value));
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  const InputEventCtor = window.InputEvent ?? window.Event;
+  element.dispatchEvent(new InputEventCtor("input", { bubbles: true }));
+  element.dispatchEvent(new window.KeyboardEvent("keydown", { key: value.slice(-1), bubbles: true }));
+  element.dispatchEvent(new window.KeyboardEvent("keyup", { key: value.slice(-1), bubbles: true }));
 }
 
 async function waitForElement(selector: string): Promise<HTMLElement> {

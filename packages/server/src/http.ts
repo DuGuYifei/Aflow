@@ -1,6 +1,8 @@
 import { AgentServerStore } from "@specflow/agent-proxy";
 import { createSpecflowBridge } from "@specflow/bridge";
 import { APP_NAME, DEFAULT_HOST, SERVER_PORT, uuidv7 } from "@specflow/shared";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { serveStaticUi } from "./static-ui";
 import { SkillStore, resolveSlashCommands } from "./skills";
 import { createApiHandler } from "./api";
@@ -8,6 +10,7 @@ import { createDesignApiHandler } from "./design/api";
 import { resolveSpecflowLogger, type SpecflowLoggerOption } from "./logger";
 import { stopDesignRuntimeManagers } from "./design/runtime-manager";
 import { prepareSpecflowWorkspace } from "./workspace";
+import { serverRegistryPath } from "./workspace-paths";
 
 export interface SpecflowServerOptions {
   cwd?: string;
@@ -18,6 +21,7 @@ export interface SpecflowServerOptions {
 
 export interface RunningSpecflowServer {
   url: string;
+  serverId: string;
   stop(): void;
 }
 
@@ -64,15 +68,42 @@ export async function startSpecflowServer(
   });
 
   const url = `http://${host}:${server.port}/`;
+  await writeServerRegistry(workingDirectory, {
+    workspaceRoot: workingDirectory,
+    url,
+    pid: process.pid,
+    serverId,
+    apiVersion: 2,
+    startedAt: new Date().toISOString(),
+    startedBy: "specflow-server",
+  }).catch((error) => logger.error("Failed to write Specflow server registry", error));
   logger.log(`${APP_NAME} UI: ${url}`);
 
   return {
     url,
+    serverId,
     stop() {
       void stopDesignRuntimeManagers(workingDirectory);
+      void unlink(serverRegistryPath(workingDirectory)).catch(() => undefined);
       server.stop();
     },
   };
+}
+
+interface ServerRegistryRecord {
+  workspaceRoot: string;
+  url: string;
+  pid: number;
+  serverId: string;
+  apiVersion: number;
+  startedAt: string;
+  startedBy: string;
+}
+
+async function writeServerRegistry(root: string, record: ServerRegistryRecord): Promise<void> {
+  const path = serverRegistryPath(root);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 }
 
 interface HttpServerOptions {
@@ -111,7 +142,7 @@ function startHttpServer({
               startedAt: bridge.runtime.startedAt.toISOString(),
               workspaceRoot,
               serverId,
-              apiVersion: 1,
+              apiVersion: 2,
             });
           }
 

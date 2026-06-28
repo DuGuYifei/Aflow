@@ -12,6 +12,7 @@
   "dependencies": {
     "@specflow/agent-proxy": "workspace:*",
     "@specflow/bridge": "workspace:*",
+    "@specflow/native-resume": "workspace:*",
     "@specflow/shared": "workspace:*",
     "@specflow/workflow": "workspace:*",
     "yaml": "^2.9.0"

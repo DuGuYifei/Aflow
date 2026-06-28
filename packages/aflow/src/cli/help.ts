@@ -19,7 +19,6 @@ Usage:
   aflow [options] [@files...] [messages...]
   aflow upgrade
   aflow /specflow-validate <workflow-id|path> [--server URL]
-  aflow /specflow-migrate-v2 <workflow-id|path> [--server URL]
   aflow /specflow-run <workflow-id> [--context TEXT] [-Dspecflow_name=value] [--server URL]
   aflow /specflow-continue <run-id> [--server URL]
   aflow /specflow-resume-session <run-id> [--server URL]

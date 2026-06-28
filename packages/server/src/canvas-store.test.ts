@@ -17,7 +17,7 @@ import type { CanvasDoc } from "./agentflow/canvas-doc";
 
 describe("agentflow/canvas storage", () => {
   it("resolves authored keys into internal workflow references", () => {
-    const canvasDocument = parseAgentFlowSource(`version: 1
+    const canvasDocument = parseAgentFlowSource(`version: 2
 name: Review
 sessions:
   codex:
@@ -43,7 +43,7 @@ edges:
   });
 
   it("round-trips an interactive pause checkpoint on step nodes", () => {
-    const canvasDocument = parseAgentFlowSource(`version: 1
+    const canvasDocument = parseAgentFlowSource(`version: 2
 name: Pause
 sessions:
   codex:
@@ -63,7 +63,7 @@ edges: []
   });
 
   it("rejects invalid authored keys and defers runnable session checks", () => {
-    expect(() => parseAgentFlowSource(`version: 1
+    expect(() => parseAgentFlowSource(`version: 2
 name: Invalid
 sessions:
   bad session:
@@ -72,31 +72,37 @@ nodes: {}
 edges: []
 `, "invalid-flow")).toThrow('session key "bad session"');
 
-    const missingSession = `version: 1
+    const missingSession = `version: 2
 name: Invalid
 sessions:
   codex:
     agentServerId: codex-acp
 nodes:
+  start:
+    kind: start
   build:
     kind: step
     title: Build
     session: missing
-edges: []
+edges:
+  - from: start
+    to: build
 `;
     expect(() => parseAgentFlowSource(missingSession, "invalid-flow")).not.toThrow();
     expect(() => assertRunnableAgentFlow(parseAgentFlowSource(missingSession, "invalid-flow"))).toThrow('missing session "missing"');
   });
 
   it("saves draft fields without runnable values and only auto-fills aliases", () => {
-    const canvasDocument = parseAgentFlowSource(`version: 1
+    const canvasDocument = parseAgentFlowSource(`version: 2
 name: Draft
 sessions:
   codex: {}
-nodes:
-  input:
-    kind: input
+variables:
+  specflow_input:
     required: false
+nodes:
+  start:
+    kind: start
   step:
     kind: step
   gate:
@@ -108,7 +114,7 @@ edges: []
 
     expect(canvasDocument.sessions[0]).toMatchObject({ id: "codex", agentServerId: "" });
     expect(canvasDocument.nodes).toEqual([
-      { kind: "input", id: "input", alias: "IN", title: "", variableName: "", required: false, sessionId: null },
+      { kind: "start", id: "start", alias: "START", title: "", sessionId: null },
       { kind: "step", id: "step", alias: "01", title: "", prompt: "", sessionId: "" },
       { kind: "gate", id: "gate", alias: "G1", title: "", decisionCriteria: "", branches: [] },
       { kind: "end", id: "done", alias: "END", title: "", sessionId: null },
@@ -116,7 +122,7 @@ edges: []
     const serialized = stringifyAgentFlowSource(canvasDocument);
     expect(serialized).toContain('agentServerId: ""');
     expect(serialized).toContain('session: ""');
-    expect(serialized).toContain('variableName: ""');
+    expect(serialized).toContain("specflow_input:");
     expect(serialized).toContain("required: false");
     expect(serialized).toContain("branches: {}");
     expect(() => assertRunnableAgentFlow(canvasDocument)).toThrow("must define agentServerId");
@@ -143,12 +149,15 @@ edges: []
   });
 
   it("defers transfer configuration and gate execution checks until runnable validation", () => {
-    const base = `version: 1
+    const base = `version: 2
 name: Invalid gate
 sessions:
   codex:
     agentServerId: codex-acp
 nodes:
+  start:
+    kind: start
+    title: Start
   first:
     kind: step
     title: First
@@ -169,7 +178,10 @@ nodes:
     branches:
       pass:
         label: pass
+        maxTraversals: 2
 edges:
+  - from: start
+    to: first
 `;
     expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
@@ -209,47 +221,49 @@ edges:
     expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
     loopback: true
-`, "gate-loopback-input"))).toThrow("cannot be a loopback edge");
-    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: decide
+`, "gate-loopback-input"))).toThrow("cannot define loopback");
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(base.replace("maxTraversals: 2", "maxTraversals: 0") + `  - from: decide
     to: first
     branch: pass
-    maxTraversals: 0
 `, "invalid-branch-limit"))).toThrow("positive integer");
     expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
     maxTraversals: 2
-`, "nongate-branch-limit"))).toThrow("only when leaving a gate");
+`, "nongate-branch-limit"))).toThrow("cannot define maxTraversals");
     expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: second
   - from: second
     to: first
-`, "unmarked-cycle"))).toThrow("unmarked cycle");
+`, "unmarked-cycle"))).toThrow("must be controlled by a gate");
     expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`${base}  - from: first
     to: decide
   - from: decide
     to: second
     branch: pass
-    maxTraversals: 2
   - from: second
     to: first
-    loopback: true
 `, "controlled-review-cycle"))).not.toThrow();
   });
 
   it("rejects interactive pause checkpoints backed by headless agent servers", () => {
-    const agentflow = parseAgentFlowSource(`version: 1
+    const agentflow = parseAgentFlowSource(`version: 2
 name: Headless pause
 sessions:
   main:
     agentServerId: echo-headless
 nodes:
+  start:
+    kind: start
+    title: Start
   review:
     kind: step
     title: Review
     session: main
     prompt: Review the change.
     pauseAfterRun: true
-edges: []
+edges:
+  - from: start
+    to: review
 `, "headless-pause");
 
     expect(() => assertRunnableAgentFlow(agentflow)).not.toThrow();
@@ -259,12 +273,15 @@ edges: []
   });
 
   it("rejects all pause checkpoints for direct CLI runs", () => {
-    const agentflow = parseAgentFlowSource(`version: 1
+    const agentflow = parseAgentFlowSource(`version: 2
 name: CLI pause
 sessions:
   main:
     agentServerId: codex-acp
 nodes:
+  start:
+    kind: start
+    title: Start
   review:
     kind: step
     alias: "01"
@@ -272,7 +289,9 @@ nodes:
     session: main
     prompt: Review the change.
     pauseAfterRun: true
-edges: []
+edges:
+  - from: start
+    to: review
 `, "cli-pause");
 
     expect(() => assertCliRunnableAgentFlow(agentflow)).toThrow(
@@ -284,7 +303,7 @@ edges: []
   });
 
   it("defers ambiguous output tags and empty gates until runnable validation", () => {
-    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`version: 1
+    expect(() => assertRunnableAgentFlow(parseAgentFlowSource(`version: 2
 name: Duplicate tag
 sessions:
   source:
@@ -292,6 +311,9 @@ sessions:
   target:
     agentServerId: claude-acp
 nodes:
+  start:
+    kind: start
+    title: Start
   first:
     kind: step
     title: First
@@ -308,6 +330,8 @@ nodes:
     prompt: Result
     session: target
 edges:
+  - from: start
+    to: first
   - from: first
     to: result
     transmit: true
@@ -318,19 +342,31 @@ edges:
     outputTag: value
 `, "duplicate-output-tag"))).toThrow("duplicate transmitted outputTag");
 
-    const valid = parseAgentFlowSource(`version: 1
+    const valid = parseAgentFlowSource(`version: 2
 name: Empty gate
 sessions:
   source:
     agentServerId: codex-acp
 nodes:
+  start:
+    kind: start
+    title: Start
+  source:
+    kind: step
+    title: Source
+    prompt: Source
+    session: source
   gate:
     kind: gate
     title: Gate
     decisionCriteria: Choose
     branches:
       pass: {}
-edges: []
+edges:
+  - from: start
+    to: source
+  - from: source
+    to: gate
 `, "empty-gate");
     const gate = valid.nodes.find((node) => node.kind === "gate");
     if (!gate || gate.kind !== "gate") throw new Error("Expected gate");
@@ -338,7 +374,7 @@ edges: []
     expect(() => stringifyAgentFlowSource(valid)).not.toThrow();
     expect(() => assertRunnableAgentFlow(valid)).toThrow("must define at least one branch");
 
-    expect(() => parseAgentFlowSource(`version: 1
+    expect(() => parseAgentFlowSource(`version: 2
 name: Alternative tag
 sessions:
   source:
@@ -346,6 +382,9 @@ sessions:
   target:
     agentServerId: claude-acp
 nodes:
+  start:
+    kind: start
+    title: Start
   source:
     kind: step
     title: Source
@@ -364,6 +403,8 @@ nodes:
     prompt: Result
     session: target
 edges:
+  - from: start
+    to: source
   - from: source
     to: gate
   - from: gate
@@ -414,27 +455,31 @@ edges:
     await initWorkspace(root);
     const localDir = join(root, ".aflow/.specflow", "agentflow", "agentflows-local");
     await mkdir(localDir, { recursive: true });
-    await writeFile(join(localDir, "local-draft.yaml"), `
-version: 1
+await writeFile(join(localDir, "local-draft.yaml"), `
+version: 2
 name: Local draft
 sessions:
   main:
     agentServerId: codex-acp
 nodes:
+  start:
+    kind: start
+    title: Start
   do-work:
     kind: step
     title: Do work
     session: main
     prompt: Do the work.
-edges: []
+edges:
+  - from: start
+    to: do-work
 `, "utf8");
 
     const canvases = await listCanvases(root);
     expect(canvases.find((canvas) => canvas.id === "local-draft")).toEqual({
       id: "local-draft",
       name: "Local draft",
-      version: 1,
-      deprecated: true,
+      version: 2,
       local: true,
       diagnostics: [],
     });
@@ -495,7 +540,7 @@ edges: []
   });
 
   it("reserves horizontal space for visible edge labels", () => {
-    const flow = parseAgentFlowSource(`version: 1
+    const flow = parseAgentFlowSource(`version: 2
 name: Labels
 sessions:
   source:
@@ -503,6 +548,9 @@ sessions:
   target:
     agentServerId: codex-acp
 nodes:
+  start:
+    kind: start
+    title: Start
   source:
     kind: step
     title: Source
@@ -514,6 +562,8 @@ nodes:
     prompt: Target
     session: target
 edges:
+  - from: start
+    to: source
   - from: source
     to: target
     transmit: true

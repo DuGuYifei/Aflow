@@ -164,8 +164,24 @@ function sampleCanvas(options: { agentServerId?: string } = {}): CanvasDoc {
         prompt: "slow prompt",
         sessionId: "s1",
       },
+      {
+        kind: "start",
+        id: "start",
+        alias: "START",
+        x: 0,
+        y: 80,
+        w: 140,
+        title: "Start",
+        sessionId: null,
+      },
     ],
-    edges: [],
+    edges: [
+      {
+        id: "edge-start",
+        from: "start",
+        to: "node-1",
+      },
+    ],
   };
 }
 

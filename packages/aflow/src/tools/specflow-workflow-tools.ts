@@ -22,7 +22,7 @@ import {
 } from "../acp/session-summary";
 import { handoffToNativeTerminalFromTui } from "../native/terminal-handoff";
 import { connectOrStartSpecflowServer } from "../server/connect-or-start";
-import type { AgentSessionRecord, PausedNodeSession, RunInteraction, RunLogEvent, RunReachability, RunRecordDetail, RuntimeEditClass, SpecflowClient } from "../server/specflow-client";
+import type { AgentSessionRecord, NativeResumeCommandSummary, PausedNodeSession, RunInteraction, RunLogEvent, RunReachability, RunRecordDetail, RuntimeEditClass, SpecflowClient } from "../server/specflow-client";
 import { getServerCanvasOrExplainLocal, loadWorkflowDoc } from "../workflows/workflow-resolver";
 import {
   offerRunSessionResume,
@@ -58,6 +58,29 @@ const RunWorkflowParams = Type.Object({
 
 const RunIdParams = Type.Object({
   runId: Type.String({ description: "Specflow run id." }),
+  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+});
+
+const RunLogsParams = Type.Object({
+  runId: Type.String({ description: "Existing, external, or historical Specflow run id." }),
+  tail: Type.Optional(Type.Number({ description: "Optional number of recent log events to return." })),
+  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+});
+
+const AgentServerIdParams = Type.Object({
+  agentServerId: Type.String({ description: "Existing or new Specflow agent server id." }),
+  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+});
+
+const InstallRegistryAgentParams = Type.Object({
+  registryId: Type.String({ description: "Specflow registry agent id to install/configure." }),
+  agentServerId: Type.Optional(Type.String({ description: "Optional local agent server id. Defaults to registryId." })),
+  serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+});
+
+const PlayRunParams = Type.Object({
+  runId: Type.String({ description: "Paused or interrupted Specflow run id. Stopped runs cannot be played; continue them with specflow_continue_workflow." }),
+  pauseAfterNextActivation: Type.Optional(Type.Boolean({ description: "Arm a pause after the next activation. Use true for dynamic checkpoint stepping." })),
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
 
@@ -314,6 +337,163 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "specflow_list_agent_servers",
+    label: "List Agent Servers",
+    description: "List configured Specflow agent servers for writing or validating workflow session choices.",
+    promptSnippet: "List agent servers when choosing agentServerId/model/permission-capable runtime for a workflow.",
+    promptGuidelines: [
+      "Use before writing YAML that needs concrete session agentServerId values.",
+      "This only reads current configuration; it does not authenticate or install agents.",
+      "If auth is missing, direct the user to Specflow UI auth rather than trying terminal auth here.",
+    ],
+    parameters: Type.Object({
+      serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const servers = await connection.client.listAgentServers();
+      return textResult(formatJsonBlock(servers), {
+        agentServers: servers,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_list_agent_registry",
+    label: "List Agent Registry",
+    description: "List registry agent servers available for explicit installation/configuration.",
+    promptSnippet: "List registry agents only when the user wants to install/update a registry agent server or inspect available runtimes.",
+    promptGuidelines: [
+      "Use this to find registry ids before specflow_install_registry_agent.",
+      "Do not save or install registry agents unless the user explicitly asks.",
+      "Registry information can help select agents with known capabilities for workflow YAML.",
+    ],
+    parameters: Type.Object({
+      serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const registry = await connection.client.listAgentRegistry();
+      return textResult(formatJsonBlock(registry), {
+        registry,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_install_registry_agent",
+    label: "Install Registry Agent",
+    description: "Install/configure a Specflow registry agent server from the registry/CDN only when the user explicitly asks.",
+    promptSnippet: "Install a registry agent only after the user asked to add a registry-backed ACP agent.",
+    promptGuidelines: [
+      "Call specflow_list_agent_registry first when the registry id is unknown.",
+      "This tool writes the registry-backed local config from registry metadata and runs the server install/check path.",
+      "For custom/headless or non-registry agents, do not write JSON; ask the user to configure the agent in Specflow UI.",
+      "Authentication is not handled by this tool; ask the user to open Specflow UI auth after install if needed.",
+    ],
+    parameters: InstallRegistryAgentParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const servers = await connection.client.installRegistryAgent(params.registryId, {
+        agentServerId: params.agentServerId,
+      });
+      return textResult(`Registry agent installed: ${params.agentServerId ?? params.registryId}`, {
+        registryId: params.registryId,
+        agentServerId: params.agentServerId ?? params.registryId,
+        agentServers: servers,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_update_registry_agent",
+    label: "Update Registry Agent",
+    description: "Update an existing registry-backed Specflow agent server to the latest registry version.",
+    promptSnippet: "Update a registry-backed agent only after the user explicitly requested an update.",
+    promptGuidelines: [
+      "Use only for existing registry-backed agent servers.",
+      "Custom/headless agents cannot be updated automatically; ask the user to manage them in Specflow UI.",
+      "Authentication is not handled by this tool; ask the user to open Specflow UI auth if needed after update.",
+    ],
+    parameters: AgentServerIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const servers = await connection.client.updateRegistryAgent(params.agentServerId);
+      return textResult(`Registry agent updated: ${params.agentServerId}`, {
+        agentServerId: params.agentServerId,
+        agentServers: servers,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_remove_agent_server",
+    label: "Remove Agent Server",
+    description: "Remove a local Specflow agent server override only when the user explicitly asks.",
+    promptSnippet: "Remove an agent server config only after the user explicitly requested that removal.",
+    promptGuidelines: [
+      "This removes Specflow local config; it does not uninstall external CLIs.",
+      "Check active workflows before removal if the user has not named the exact id.",
+    ],
+    parameters: AgentServerIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const servers = await connection.client.removeAgentServer(params.agentServerId);
+      return textResult(`Agent server removed: ${params.agentServerId}`, {
+        agentServerId: params.agentServerId,
+        agentServers: servers,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_get_agent_capabilities",
+    label: "Get Agent Capabilities",
+    description: "Read cached ACP capabilities for an agent server to help choose modes, permissions, and config options in workflow YAML.",
+    promptSnippet: "Read cached agent capabilities when writing or checking a workflow session configuration.",
+    promptGuidelines: [
+      "Use after selecting an agentServerId to inspect supported modes/config options.",
+      "A 404 means no cached probe exists; call specflow_refresh_agent_capabilities if the user wants to probe.",
+    ],
+    parameters: AgentServerIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const capabilities = await connection.client.getAgentCapabilities(params.agentServerId);
+      return textResult(formatJsonBlock(capabilities), {
+        agentServerId: params.agentServerId,
+        capabilities,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_refresh_agent_capabilities",
+    label: "Refresh Agent Capabilities",
+    description: "Probe an ACP agent server and refresh cached capabilities when the user explicitly wants current capability data.",
+    promptSnippet: "Refresh agent capabilities only when cached capabilities are missing/stale and the user wants a probe.",
+    promptGuidelines: [
+      "This may start a short ACP probe process.",
+      "If authentication is required, ask the user to complete auth in Specflow UI and retry.",
+    ],
+    parameters: AgentServerIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const capabilities = await connection.client.refreshAgentCapabilities(params.agentServerId);
+      return textResult(formatJsonBlock(capabilities), {
+        agentServerId: params.agentServerId,
+        capabilities,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
     name: "specflow_resume_session",
     label: "Resume Agent Session",
     description: "Open the Aflow session resume picker for a completed Specflow run.",
@@ -336,6 +516,147 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         runId: params.runId,
         agentSessions: sessionResume.sessions,
         sessionResume: sessionResume.details,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_get_native_resume_commands",
+    label: "Get Native Resume Commands",
+    description: "Return verified native CLI resume command recommendations for recorded agent sessions in an existing run.",
+    promptSnippet: "Get native resume commands only for a known runId; do not guess commands from agent names.",
+    promptGuidelines: [
+      "Use for operator/debug lookup, external runs, or when the user asks how to resume in a native agent CLI.",
+      "Unknown/custom agents may return unavailable; then use specflow_resume_session for ACP Resume/Inspect or ask the user.",
+      "Do not use unavailable results to invent a command.",
+    ],
+    parameters: RunIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const commands = await connection.client.getRunNativeResumeCommands(params.runId);
+      return textResult(formatNativeResumeCommands(commands.commands), {
+        ...commands,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_get_run",
+    label: "Get Run",
+    description: "Inspect an existing, external, or historical Specflow run by id. Runs started by specflow_run_workflow are still monitored through the live SSE/TUI path.",
+    promptSnippet: "Inspect an existing Specflow run only when the runId came from history, another operator, another UI, or lost context.",
+    promptGuidelines: [
+      "Use for operator/debug lookup of an existing runId, external run, historical run, or context recovery.",
+      "Do not use as the main monitoring path for a run this tool call just started; specflow_run_workflow already monitors via SSE/TUI.",
+      "If the run id is missing or stale, report the serverUrl and recent run hints from the error.",
+    ],
+    parameters: RunIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const run = await getRunOrThrowHelpfulError(connection.client, params.runId, connection.url);
+      const nodeDisplay = await buildRunNodeDisplay(connection.client, run).catch(() => new Map<string, NodeDisplayInfo>());
+      return textResult(formatRunSummary(run, nodeDisplay), {
+        runId: run.id,
+        workflowId: run.workflowId,
+        status: run.status,
+        nodeStates: run.nodeStates,
+        pausedNodeId: run.pausedNodeId,
+        errorMsg: run.errorMsg,
+        run,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_get_run_logs",
+    label: "Get Run Logs",
+    description: "Read recent logs for an existing, external, or historical Specflow run. Useful for operator/debug context recovery; live self-started runs use SSE/TUI updates.",
+    promptSnippet: "Read recent run logs when debugging an existing runId or restoring context from a run started elsewhere.",
+    promptGuidelines: [
+      "Use for operator/debug lookup of an existing runId, external run, historical run, or context recovery.",
+      "Do not poll this as the default status loop for a run specflow_run_workflow just started; use the live result and follow-up run tools.",
+      "Keep tail small unless the user asks for a deeper log inspection.",
+    ],
+    parameters: RunLogsParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const logs = normalizeRunLogs(await connection.client.getRunLogs(params.runId, { tail: params.tail }));
+      return textResult(formatRunLogs(logs), {
+        runId: params.runId,
+        count: logs.length,
+        logs,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_pause_run",
+    label: "Pause Run",
+    description: "Request pause for an existing active Specflow run, including runs started from UI, Codex, or another Aflow session.",
+    promptSnippet: "Pause an existing active run only when the user asks to control a known runId.",
+    promptGuidelines: [
+      "Use for operator control of an existing active runId, external run, or context-recovered run.",
+      "Do not use in the normal Dynamic checkpoint loop; specflow_run_to_next_checkpoint arms checkpoint pauses automatically.",
+      "A paused run can usually be played again with specflow_play_run.",
+    ],
+    parameters: RunIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const result = await connection.client.pauseRun(params.runId);
+      return textResult(`Run pause requested: ${params.runId}`, {
+        runId: params.runId,
+        result,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_play_run",
+    label: "Play Run",
+    description: "Play the same paused or interrupted Specflow run from its checkpoint. Stopped runs cannot be played; use specflow_continue_workflow for a new continuation run.",
+    promptSnippet: "Play an existing paused/interrupted run only when the user asks to resume that same runId.",
+    promptGuidelines: [
+      "Use for operator control of an existing paused or interrupted runId, external run, or context-recovered run.",
+      "Do not use after stop; stopped runs are terminal and require specflow_continue_workflow to create a new continuation run.",
+      "For Dynamic checkpoint stepping, prefer specflow_run_to_next_checkpoint instead of manual play.",
+    ],
+    parameters: PlayRunParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const result = await connection.client.playRun(params.runId, {
+        pauseAfterNextActivation: params.pauseAfterNextActivation,
+      });
+      return textResult(`Run play requested: ${params.runId}`, {
+        runId: params.runId,
+        pauseAfterNextActivation: params.pauseAfterNextActivation,
+        result,
+        serverUrl: connection.url,
+      });
+    },
+  });
+
+  pi.registerTool({
+    name: "specflow_stop_run",
+    label: "Stop Run",
+    description: "Stop an existing active Specflow run. Stop is terminal for that runId; use specflow_continue_workflow if more work is needed.",
+    promptSnippet: "Stop an existing active run only when the user wants that runId terminated.",
+    promptGuidelines: [
+      "Use for operator control of an existing active runId, external run, or context-recovered run.",
+      "Stop is terminal for the same run id; do not call specflow_play_run after stop.",
+      "If the user wants to continue from stopped/error state, call specflow_continue_workflow to create a new continuation run.",
+    ],
+    parameters: RunIdParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
+      const result = await connection.client.stopRun(params.runId);
+      return textResult(`Run stop requested: ${params.runId}`, {
+        runId: params.runId,
+        result,
+        serverUrl: connection.url,
       });
     },
   });
@@ -436,7 +757,9 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
       const connection = await connectOrStartSpecflowServer({ cwd: ctx.cwd, serverUrl: params.serverUrl });
       const runBeforePlay = await getRunOrThrowHelpfulError(connection.client, params.runId, connection.url);
       const nodeDisplay = await buildRunNodeDisplay(connection.client, runBeforePlay);
+      let ignoreCheckpointToken: string | undefined;
       if (runBeforePlay.status === "paused" || runBeforePlay.status === "interrupted") {
+        ignoreCheckpointToken = dynamicCheckpointToken(runBeforePlay);
         await connection.client.playRun(params.runId, {
           pauseAfterNextActivation: true,
         });
@@ -447,6 +770,7 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
         hasUI: ctx.hasUI,
         ui: ctx.ui,
         nodeDisplay,
+        ignoreCheckpointToken,
       });
       if (isWaitingForInteractionResult(checkpoint)) {
         return textResult(checkpoint.text, {
@@ -626,6 +950,7 @@ async function monitorDynamicRun(
     hasUI: boolean;
     ui: WorkflowUi;
     nodeDisplay: Map<string, NodeDisplayInfo>;
+    ignoreCheckpointToken?: string;
   },
 ): Promise<{ run: RunRecordDetail; text: string; details: DynamicCheckpointDetails } | WaitingForInteractionResult> {
   const interactions = startRunInteractionMonitor(client, runId, context.signal);
@@ -655,11 +980,24 @@ async function monitorDynamicRun(
           ...context,
           mode: "dynamic",
         });
-        if (!continued) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
+        if (!continued) {
+          const latest = await client.getRun(runId);
+          if (isInFlightStatus(latest.status)) {
+            await sleep(750, context.signal);
+            continue;
+          }
+          return buildDynamicCheckpointResult(client, runId, context.nodeDisplay, latest);
+        }
         run = await client.getRun(runId);
       }
 
-      if (!isInFlightStatus(run.status)) return buildDynamicCheckpointResult(client, runId, context.nodeDisplay);
+      if (!isInFlightStatus(run.status)) {
+        if (context.ignoreCheckpointToken && dynamicCheckpointToken(run) === context.ignoreCheckpointToken) {
+          await sleep(750, context.signal);
+          continue;
+        }
+        return buildDynamicCheckpointResult(client, runId, context.nodeDisplay, run);
+      }
       await sleep(750, context.signal);
     }
   } finally {
@@ -766,6 +1104,20 @@ function completedNodeOutput(
   };
 }
 
+function dynamicCheckpointToken(run: RunRecordDetail): string {
+  const pending = run.checkpoint?.pendingCompletion as ({ executionKey?: unknown } | undefined);
+  const suspension = run.checkpoint?.suspension as ({ executionKey?: unknown } | undefined);
+  return [
+    run.status,
+    run.snapshotRevision ?? "",
+    run.checkpoint?.createdAt ?? "",
+    typeof pending?.executionKey === "string" ? pending.executionKey : "",
+    typeof suspension?.executionKey === "string" ? suspension.executionKey : "",
+    run.checkpoint?.activeNodeId ?? "",
+    run.pausedNodeId ?? "",
+  ].join("|");
+}
+
 function runtimeNodeSummaries(
   reachability: RunReachability,
   nodes: Map<string, NodeDisplayInfo>,
@@ -863,6 +1215,36 @@ function formatJsonBlock(value: unknown): string {
   ].join("\n");
 }
 
+function formatNativeResumeCommands(commands: NativeResumeCommandSummary[]): string {
+  if (commands.length === 0) return "No recorded agent sessions found for this run.";
+  return commands.map((entry) => {
+    const heading = [
+      entry.nodeTitle ?? entry.nodeId ?? "Agent session",
+      `session:${entry.agentSessionId}`,
+      `agent:${entry.agentServerId}`,
+    ].join(" ");
+    const native = entry.nativeResume;
+    if (!native.available) {
+      return [
+        heading,
+        `No verified native command (${native.status}).`,
+        native.reason ? `Reason: ${native.reason}` : undefined,
+        native.caveat ? `Caveat: ${native.caveat}` : undefined,
+        `ACP session: ${entry.acpSessionId}`,
+        entry.specflowSessionId ? `Specflow session: ${entry.specflowSessionId}` : undefined,
+      ].filter((line): line is string => Boolean(line)).join("\n");
+    }
+    return [
+      heading,
+      `Recommended native command: ${native.displayCommand}`,
+      native.commandExists === false ? `Native CLI command not found on PATH: ${native.command}` : undefined,
+      native.caveat ? `Caveat: ${native.caveat}` : undefined,
+      `ACP session: ${entry.acpSessionId}`,
+      entry.specflowSessionId ? `Specflow session: ${entry.specflowSessionId}` : undefined,
+    ].filter((line): line is string => Boolean(line)).join("\n");
+  }).join("\n\n");
+}
+
 function isTerminalStatus(status: string): boolean {
   return status === "success" || status === "error" || status === "stopped" || status === "cancelled";
 }
@@ -930,6 +1312,10 @@ async function monitorRun(
 
       const paused = await client.listPausedNodes(runId);
       if (paused.length > 0) {
+        if (run.status === "running" || run.status === "pending") {
+          await sleep(750, context.signal);
+          continue;
+        }
         const continued = await handlePausedNodes(client, run, paused, context);
         if (!continued) return run;
       }
@@ -1169,6 +1555,23 @@ function formatMissingVariables(variables: RunInputVariable[]): string {
     "Missing required workflow variables:",
     ...variables.map((variable) => `- ${variable.name}${variable.description ? ` (${variable.description})` : ""}`),
   ].join("\n");
+}
+
+function formatRunLogs(logs: RunLogEvent[]): string {
+  if (logs.length === 0) return "No run logs found.";
+  return logs.map((event) => {
+    const prefix = [
+      event.at,
+      event.type,
+      event.nodeId ? `node:${event.nodeId}` : undefined,
+      event.agentServerId ? `agent:${event.agentServerId}` : undefined,
+      event.status ? `status:${event.status}` : undefined,
+    ].filter(Boolean).join(" ");
+    const payload = event.chunk
+      ?? event.prompt
+      ?? (event.update === undefined ? "" : JSON.stringify(event.update));
+    return payload ? `${prefix}\n${payload}` : prefix;
+  }).join("\n\n");
 }
 
 function textResult(text: string, details: Record<string, unknown>) {
