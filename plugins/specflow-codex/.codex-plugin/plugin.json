@@ -1,0 +1,38 @@
+{
+  "name": "specflow-codex",
+  "version": "0.1.0",
+  "description": "Use Specflow workflows from Codex through the local specflow mcp server.",
+  "author": {
+    "name": "Aflow",
+    "url": "https://github.com/DuGuYifei/Aflow"
+  },
+  "homepage": "https://github.com/DuGuYifei/Aflow",
+  "repository": "https://github.com/DuGuYifei/Aflow",
+  "license": "MIT",
+  "keywords": [
+    "specflow",
+    "aflow",
+    "agentflow",
+    "mcp",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Specflow Codex",
+    "shortDescription": "Create, validate, run, and dynamically edit Specflow workflows.",
+    "longDescription": "Specflow Codex connects Codex to the local specflow binary through MCP. It can read and write workflow YAML, validate and prepare runs, start normal or dynamic runs, patch runtime graphs, handle pauseAfterRun ACP conversations, and inspect sessions.",
+    "developerName": "Aflow",
+    "category": "Productivity",
+    "capabilities": [
+      "MCP",
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "List Specflow workflows in this repo.",
+      "Run a Specflow workflow in dynamic mode.",
+      "Fork and adapt a Specflow workflow."
+    ]
+  }
+}
