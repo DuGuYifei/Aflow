@@ -10,6 +10,11 @@
 相关架构入口见 `docs/architecture/system-architecture.md`。ACP 细节见
 `docs/architecture/acp-capabilities.md`。
 
+面向最终用户的简化版见：
+
+- `docs/public/tutorial/zh/aflow-ui-codex-capabilities.md`
+- `docs/public/tutorial/en/aflow-ui-codex-capabilities.md`
+
 实现标签尽量短：
 
 - `tool`：AI 可见 tool call。
