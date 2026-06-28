@@ -1,6 +1,6 @@
 ---
 name: specflow
-description: Use when the user asks Codex to create, inspect, validate, run, dynamically review, patch, pause, continue, or resume Specflow/Aflow agent workflows in the current repository.
+description: Use when the user asks Claude Code to create, inspect, validate, run, dynamically review, patch, pause, continue, or resume Specflow/Aflow agent workflows in the current repository.
 ---
 
 # Specflow
@@ -19,11 +19,11 @@ patching or `pauseAfterRun` ACP conversations.
 - Treat returned `serverUrl` and `runId` as durable handles for follow-up tool
   calls.
 - Once a Specflow MCP tool first returns a `serverUrl` in the current chat,
-  proactively surface the Specflow UI once for that `serverUrl`: in Codex
-  Desktop, try to open the right-side browser to that UI; otherwise try to open
-  Chrome to the UI. Do not open duplicate tabs for the same `serverUrl` in the
-  same chat. If no browser action is available, do not block. Always tell the
-  user both the UI URL and the `/design` URL.
+  proactively surface the Specflow UI once for that `serverUrl`: try to open the
+  URL in the available browser surface if Claude Code exposes one. If no browser
+  action is available, do not block. Do not open duplicate tabs for the same
+  `serverUrl` in the same chat. Always tell the user both the UI URL and the
+  `/design` URL.
 
 ## Workflow Authoring
 
@@ -68,8 +68,8 @@ patching or `pauseAfterRun` ACP conversations.
 - Ask the user for missing variables in chat, then call prepare/start again
   with `variableValues`.
 - If prepare/start reports missing agent authentication, tell the user to open
-  Specflow UI or Aflow and authenticate there, then retry. Codex does not drive
-  terminal/TUI auth through this plugin.
+  Specflow UI or Aflow and authenticate there, then retry. Claude Code should not
+  drive terminal/TUI auth through this plugin.
 - Before starting a run, ask the user to choose Normal run or Dynamic review
   unless they already specified the mode.
 - Start normal or dynamic runs with `specflow_start_run`.
@@ -87,8 +87,8 @@ patching or `pauseAfterRun` ACP conversations.
 
 ## Dynamic Review
 
-Dynamic review is Codex-driven checkpoint review, not user-driven stepping. It
-pauses after activations so Codex can inspect the completed node text,
+Dynamic review is Claude-driven checkpoint review, not user-driven stepping. It
+pauses after activations so Claude can inspect the completed node text,
 optionally patch only the current run snapshot, and continue without asking the
 user at every checkpoint.
 
@@ -129,4 +129,4 @@ dynamic pause behavior.
   resume a recorded session in a native agent CLI. Trust only returned verified
   commands; if unavailable, use ACP restore/inspect or ask the user.
 - Do not look for MCP auth tools. Agent authentication is handled in Specflow UI
-  or Aflow, then the Codex run can be retried.
+  or Aflow, then the Claude Code run can be retried.

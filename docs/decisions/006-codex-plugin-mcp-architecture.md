@@ -61,6 +61,7 @@ In dynamic mode, paused-node interaction comes first:
   behavior.
 - Codex gets Aflow Agent parity through MCP without duplicating server logic.
 - Plugin distribution only needs marketplace and plugin files on the
-  `codex-plugin` branch; binaries remain normal release artifacts.
+  `specflow-plugin` branch; binaries remain normal release artifacts. Codex and
+  Claude Code can share that branch while keeping separate plugin directories.
 - App support must be smoke-tested because CLI/IDE and App plugin startup can
   differ by Codex release.

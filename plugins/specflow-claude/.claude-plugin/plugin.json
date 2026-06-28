@@ -1,0 +1,19 @@
+{
+  "name": "specflow-claude",
+  "version": "0.1.0+claude.20260628120000",
+  "description": "Use Specflow workflows from Claude Code through the local specflow mcp server.",
+  "author": {
+    "name": "Aflow",
+    "url": "https://github.com/DuGuYifei/Aflow"
+  },
+  "homepage": "https://github.com/DuGuYifei/Aflow",
+  "repository": "https://github.com/DuGuYifei/Aflow",
+  "license": "MIT",
+  "keywords": [
+    "specflow",
+    "aflow",
+    "agentflow",
+    "mcp",
+    "workflow"
+  ]
+}
