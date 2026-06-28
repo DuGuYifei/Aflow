@@ -696,6 +696,7 @@ function sleep(ms: number): Promise<void> {
 
 class StdioJsonRpcTransport {
   #buffer = Buffer.alloc(0);
+  #framing: "content-length" | "line" | undefined;
   #onMessage: ((message: JsonRpcRequest) => void) | undefined;
 
   onMessage(handler: (message: JsonRpcRequest) => void): void {
@@ -713,28 +714,58 @@ class StdioJsonRpcTransport {
 
   respond(message: unknown): void {
     const body = JSON.stringify(message);
-    process.stdout.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
+    if (this.#framing === "content-length") {
+      process.stdout.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
+    } else {
+      process.stdout.write(`${body}\n`);
+    }
   }
 
   #drain(): void {
     for (;;) {
-      const headerEnd = findHeaderEnd(this.#buffer);
-      if (headerEnd < 0) return;
-      const header = this.#buffer.subarray(0, headerEnd).toString("utf8");
-      const lengthMatch = header.match(/content-length:\s*(\d+)/i);
-      if (!lengthMatch) {
-        this.#buffer = Buffer.alloc(0);
-        return;
+      if (this.#framing === "content-length" || looksLikeContentLengthFrame(this.#buffer)) {
+        const message = this.#readContentLengthMessage();
+        if (!message) return;
+        this.#onMessage?.(message);
+        continue;
       }
-      const bodyStart = headerEnd + headerSeparatorLength(this.#buffer, headerEnd);
-      const length = Number.parseInt(lengthMatch[1], 10);
-      if (this.#buffer.length < bodyStart + length) return;
-      const rawBody = this.#buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
-      this.#buffer = this.#buffer.subarray(bodyStart + length);
-      const parsed = JSON.parse(rawBody) as JsonRpcRequest;
-      this.#onMessage?.(parsed);
+
+      const message = this.#readLineMessage();
+      if (!message) return;
+      this.#onMessage?.(message);
     }
   }
+
+  #readContentLengthMessage(): JsonRpcRequest | undefined {
+    const headerEnd = findHeaderEnd(this.#buffer);
+    if (headerEnd < 0) return undefined;
+    const header = this.#buffer.subarray(0, headerEnd).toString("utf8");
+    const lengthMatch = header.match(/content-length:\s*(\d+)/i);
+    if (!lengthMatch) throw new Error(`Invalid MCP content-length header: ${header}`);
+    const bodyStart = headerEnd + headerSeparatorLength(this.#buffer, headerEnd);
+    const length = Number.parseInt(lengthMatch[1], 10);
+    if (this.#buffer.length < bodyStart + length) return undefined;
+    const rawBody = this.#buffer.subarray(bodyStart, bodyStart + length).toString("utf8");
+    this.#buffer = this.#buffer.subarray(bodyStart + length);
+    this.#framing = "content-length";
+    return JSON.parse(rawBody) as JsonRpcRequest;
+  }
+
+  #readLineMessage(): JsonRpcRequest | undefined {
+    const newline = this.#buffer.indexOf("\n");
+    if (newline < 0) return undefined;
+    const rawLine = this.#buffer.subarray(0, newline).toString("utf8").trim();
+    this.#buffer = this.#buffer.subarray(newline + 1);
+    if (!rawLine) return this.#readLineMessage();
+    this.#framing = "line";
+    return JSON.parse(rawLine) as JsonRpcRequest;
+  }
+}
+
+function looksLikeContentLengthFrame(buffer: Buffer): boolean {
+  const firstNewline = buffer.indexOf("\n");
+  const inspectLength = firstNewline >= 0 ? firstNewline : buffer.length;
+  return /^content-length\s*:/i.test(buffer.subarray(0, inspectLength).toString("utf8"));
 }
 
 function findHeaderEnd(buffer: Buffer): number {

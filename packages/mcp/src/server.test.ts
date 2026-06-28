@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { listSpecflowMcpToolNames, listSpecflowMcpTools } from "./server";
 
 describe("Specflow MCP server", () => {
@@ -82,4 +83,105 @@ describe("Specflow MCP server", () => {
     expect(updateTool?.description).toContain("registry-backed");
     expect(updateTool?.description).toContain("custom/headless");
   });
+
+  test("speaks newline-delimited MCP stdio used by Codex", async () => {
+    const child = spawn(process.execPath, [
+      "--eval",
+      'import { runSpecflowMcpServer } from "./packages/mcp/src/server.ts"; await runSpecflowMcpServer();',
+    ], {
+      cwd: process.cwd(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const reader = new JsonLineReader(child);
+
+    child.stdin.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "test", version: "0" },
+      },
+    })}\n`);
+
+    const initialized = await reader.next();
+    expect(initialized.id).toBe(1);
+    expect(initialized.result.serverInfo.name).toBe("specflow");
+
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} })}\n`);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
+
+    const listed = await reader.next();
+    expect(listed.id).toBe(2);
+    expect(listed.result.tools.some((tool: { name?: string }) => tool.name === "specflow_list_workflows")).toBe(true);
+
+    child.stdin.end();
+    await reader.closed();
+  });
 });
+
+class JsonLineReader {
+  #buffer = "";
+  #waiters: Array<(value: Record<string, any>) => void> = [];
+  #closed: Promise<void>;
+
+  constructor(child: ChildProcessWithoutNullStreams) {
+    child.stdout.on("data", (chunk: Buffer) => {
+      this.#buffer += chunk.toString("utf8");
+      this.#drain();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      throw new Error(`MCP stderr: ${chunk.toString("utf8")}`);
+    });
+    this.#closed = new Promise((resolve, reject) => {
+      child.on("exit", (code, signal) => {
+        if (code === 0) resolve();
+        else reject(new Error(`MCP exited with code=${code} signal=${signal}`));
+      });
+    });
+  }
+
+  next(): Promise<Record<string, any>> {
+    const immediate = this.#readOne();
+    if (immediate) return Promise.resolve(immediate);
+    return withTimeout(new Promise((resolve) => this.#waiters.push(resolve)), 5_000) as Promise<Record<string, any>>;
+  }
+
+  closed(): Promise<void> {
+    return withTimeout(this.#closed, 5_000);
+  }
+
+  #drain(): void {
+    while (this.#waiters.length > 0) {
+      const parsed = this.#readOne();
+      if (!parsed) return;
+      this.#waiters.shift()?.(parsed);
+    }
+  }
+
+  #readOne(): Record<string, any> | undefined {
+    const newline = this.#buffer.indexOf("\n");
+    if (newline < 0) return undefined;
+    const line = this.#buffer.slice(0, newline).trim();
+    this.#buffer = this.#buffer.slice(newline + 1);
+    if (!line) return this.#readOne();
+    return JSON.parse(line);
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
