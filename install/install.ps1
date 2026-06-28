@@ -22,11 +22,31 @@ if (-not $Version) {
   $Version = $release.tag_name
 }
 
-$arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-switch ($arch) {
-  "X64" { $cpu = "x64" }
-  default { throw "specflow installer: unsupported CPU: $arch" }
+function Get-NormalizedCpu {
+  $architectureCandidates = @(
+    [string][System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture,
+    [string]$env:PROCESSOR_ARCHITEW6432,
+    [string]$env:PROCESSOR_ARCHITECTURE
+  )
+  $detected = @()
+
+  foreach ($candidate in $architectureCandidates) {
+    if (-not $candidate) {
+      continue
+    }
+    $detected += $candidate
+    switch ($candidate.ToLowerInvariant()) {
+      { $_ -in @("x64", "amd64", "x86_64") } { return "x64" }
+    }
+  }
+
+  if ($detected.Length -gt 0) {
+    throw "specflow installer: unsupported CPU: $($detected -join ', ')"
+  }
+  throw "specflow installer: unsupported CPU: could not detect architecture"
 }
+
+$cpu = Get-NormalizedCpu
 
 $asset = "specflow-code-windows-$cpu.zip"
 $url = "https://github.com/$Repo/releases/download/$Version/$asset"

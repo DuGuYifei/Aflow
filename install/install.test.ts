@@ -113,6 +113,16 @@ esac
     expect(psInstaller).toContain("Get-FileHash");
     expect(psInstaller).toContain("already up to date");
   });
+
+  test("PowerShell installer falls back to Windows processor architecture variables", async () => {
+    const psInstaller = await readFile(psInstallScript, "utf8");
+
+    expect(psInstaller).toContain("PROCESSOR_ARCHITEW6432");
+    expect(psInstaller).toContain("PROCESSOR_ARCHITECTURE");
+    expect(psInstaller).toContain('"amd64"');
+    expect(psInstaller).toContain('return "x64"');
+    expect(psInstaller).toContain("could not detect architecture");
+  });
 });
 
 async function tempRoot(): Promise<string> {
