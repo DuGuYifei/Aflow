@@ -1,3 +1,11 @@
+// Keep this AI-facing prompt content in sync with plugin skill references:
+// - plugins/specflow-codex/skills/specflow/references/workflow-authoring.md
+// - plugins/specflow-codex/skills/specflow/references/create-workflow.md
+// - plugins/specflow-codex/skills/specflow/references/fork-adapt-workflow.md
+// - plugins/specflow-claude/skills/specflow/references/workflow-authoring.md
+// - plugins/specflow-claude/skills/specflow/references/create-workflow.md
+// - plugins/specflow-claude/skills/specflow/references/fork-adapt-workflow.md
+// Also update public tutorials when user-facing workflow behavior changes.
 export const WORKFLOW_YAML_AUTHORING_GUIDE = `
 Specflow workflow YAML authoring tutorial:
 
