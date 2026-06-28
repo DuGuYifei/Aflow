@@ -1,0 +1,14 @@
+{
+  "name": "aflow",
+  "owner": {
+    "name": "Aflow",
+    "url": "https://github.com/DuGuYifei/Aflow"
+  },
+  "plugins": [
+    {
+      "name": "specflow-claude",
+      "description": "Create, validate, run, and dynamically edit Specflow workflows from Claude Code.",
+      "source": "./plugins/specflow-claude"
+    }
+  ]
+}

@@ -1,0 +1,420 @@
+name: Release Specflow plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_codex:
+        description: Publish specflow-codex
+        required: true
+        default: false
+        type: boolean
+      publish_claude:
+        description: Publish specflow-claude
+        required: true
+        default: false
+        type: boolean
+      codex_bump:
+        description: Codex development version component to bump after publishing
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      claude_bump:
+        description: Claude development version component to bump after publishing
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-specflow-plugins
+  cancel-in-progress: false
+
+env:
+  PLUGIN_BRANCH: specflow-plugin
+  CODEX_PLUGIN_NAME: specflow-codex
+  CODEX_MARKETPLACE_FILE: .agents/plugins/marketplace.json
+  CODEX_PLUGIN_DIR: plugins/specflow-codex
+  CODEX_MANIFEST_FILE: plugins/specflow-codex/.codex-plugin/plugin.json
+  CLAUDE_PLUGIN_NAME: specflow-claude
+  CLAUDE_MARKETPLACE_FILE: .claude-plugin/marketplace.json
+  CLAUDE_PLUGIN_DIR: plugins/specflow-claude
+  CLAUDE_MANIFEST_FILE: plugins/specflow-claude/.claude-plugin/plugin.json
+
+jobs:
+  publish:
+    name: Publish Specflow plugins
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Validate selected plugins
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.publish_codex }}" != "true" ] && [ "${{ inputs.publish_claude }}" != "true" ]; then
+            echo "::error::Select at least one plugin to publish."
+            exit 1
+          fi
+
+          test -f "$CODEX_MARKETPLACE_FILE"
+          test -d "$CODEX_PLUGIN_DIR"
+          test -f "$CODEX_MANIFEST_FILE"
+          test -f "$CLAUDE_MARKETPLACE_FILE"
+          test -d "$CLAUDE_PLUGIN_DIR"
+          test -f "$CLAUDE_MANIFEST_FILE"
+
+      - name: Fetch published plugin branch
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin "$PLUGIN_BRANCH" >/dev/null 2>&1; then
+            echo "::error::$PLUGIN_BRANCH does not exist. First migrate the previous published baseline, for example: git push origin origin/codex-plugin:refs/heads/$PLUGIN_BRANCH"
+            exit 1
+          fi
+          git fetch origin "$PLUGIN_BRANCH:refs/remotes/origin/$PLUGIN_BRANCH"
+
+      - name: Prepare published base
+        id: base
+        run: |
+          set -euo pipefail
+
+          base_dir="$RUNNER_TEMP/specflow-plugin-base"
+          publish_dir="$RUNNER_TEMP/specflow-plugin-publish"
+          rm -rf "$base_dir" "$publish_dir"
+          mkdir -p "$base_dir" "$publish_dir"
+
+          git archive "origin/$PLUGIN_BRANCH" | tar -x -C "$base_dir"
+          cp -R "$base_dir"/. "$publish_dir"/
+
+          echo "base_dir=$base_dir" >> "$GITHUB_OUTPUT"
+          echo "publish_dir=$publish_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Compare selected plugins
+        id: compare
+        env:
+          PUBLISH_CODEX: ${{ inputs.publish_codex }}
+          PUBLISH_CLAUDE: ${{ inputs.publish_claude }}
+          BASE_DIR: ${{ steps.base.outputs.base_dir }}
+          PUBLISH_DIR: ${{ steps.base.outputs.publish_dir }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const plugins = [
+            {
+              key: "codex",
+              selected: process.env.PUBLISH_CODEX === "true",
+              name: process.env.CODEX_PLUGIN_NAME,
+              manifest: process.env.CODEX_MANIFEST_FILE,
+              paths: [process.env.CODEX_MARKETPLACE_FILE, process.env.CODEX_PLUGIN_DIR],
+            },
+            {
+              key: "claude",
+              selected: process.env.PUBLISH_CLAUDE === "true",
+              name: process.env.CLAUDE_PLUGIN_NAME,
+              manifest: process.env.CLAUDE_MANIFEST_FILE,
+              paths: [process.env.CLAUDE_MARKETPLACE_FILE, process.env.CLAUDE_PLUGIN_DIR],
+            },
+          ];
+
+          const baseDir = process.env.BASE_DIR;
+          const publishDir = process.env.PUBLISH_DIR;
+          const outputPath = process.env.GITHUB_OUTPUT;
+          const changed = [];
+          const notes = [];
+
+          function cleanVersion(version) {
+            const clean = String(version ?? "").split("+")[0];
+            if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(clean)) {
+              throw new Error(`Invalid plugin version: ${version}`);
+            }
+            return clean;
+          }
+
+          function readManifest(filePath) {
+            return JSON.parse(fs.readFileSync(filePath, "utf8"));
+          }
+
+          function normalizeManifest(root, manifestPath) {
+            const full = path.join(root, manifestPath);
+            if (!fs.existsSync(full)) return null;
+            const manifest = readManifest(full);
+            const clean = cleanVersion(manifest.version);
+            manifest.version = "0.0.0";
+            fs.writeFileSync(full, `${JSON.stringify(manifest, null, 2)}\n`);
+            return clean;
+          }
+
+          function copyPath(fromRoot, toRoot, relativePath) {
+            const source = path.join(fromRoot, relativePath);
+            const target = path.join(toRoot, relativePath);
+            if (!fs.existsSync(source)) {
+              throw new Error(`Missing source path: ${relativePath}`);
+            }
+            fs.rmSync(target, { recursive: true, force: true });
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.cpSync(source, target, { recursive: true });
+          }
+
+          function copyExistingPath(fromRoot, toRoot, relativePath) {
+            const source = path.join(fromRoot, relativePath);
+            if (!fs.existsSync(source)) return false;
+            copyPath(fromRoot, toRoot, relativePath);
+            return true;
+          }
+
+          function listFiles(root) {
+            if (!fs.existsSync(root)) return [];
+            const result = [];
+            function walk(current) {
+              const entries = fs.readdirSync(current, { withFileTypes: true })
+                .sort((a, b) => a.name.localeCompare(b.name));
+              for (const entry of entries) {
+                const full = path.join(current, entry.name);
+                if (entry.isDirectory()) {
+                  walk(full);
+                } else if (entry.isFile()) {
+                  result.push(path.relative(root, full));
+                }
+              }
+            }
+            walk(root);
+            return result;
+          }
+
+          function digestTree(root) {
+            const hash = crypto.createHash("sha256");
+            for (const file of listFiles(root)) {
+              hash.update(file);
+              hash.update("\0");
+              hash.update(fs.readFileSync(path.join(root, file)));
+              hash.update("\0");
+            }
+            return hash.digest("hex");
+          }
+
+          function writeCleanManifest(root, manifestPath) {
+            const full = path.join(root, manifestPath);
+            const manifest = readManifest(full);
+            const clean = cleanVersion(manifest.version);
+            manifest.version = clean;
+            fs.writeFileSync(full, `${JSON.stringify(manifest, null, 2)}\n`);
+            return clean;
+          }
+
+          for (const plugin of plugins) {
+            if (!plugin.selected) continue;
+
+            const currentCompare = path.join(process.env.RUNNER_TEMP, `specflow-current-${plugin.key}`);
+            const baseCompare = path.join(process.env.RUNNER_TEMP, `specflow-base-${plugin.key}`);
+            fs.rmSync(currentCompare, { recursive: true, force: true });
+            fs.rmSync(baseCompare, { recursive: true, force: true });
+            fs.mkdirSync(currentCompare, { recursive: true });
+            fs.mkdirSync(baseCompare, { recursive: true });
+
+            for (const relativePath of plugin.paths) {
+              copyPath(process.cwd(), currentCompare, relativePath);
+              copyExistingPath(baseDir, baseCompare, relativePath);
+            }
+
+            const sourceManifest = readManifest(path.join(process.cwd(), plugin.manifest));
+            const publishVersion = cleanVersion(sourceManifest.version);
+            const publishedManifestPath = path.join(baseDir, plugin.manifest);
+            const previousVersion = fs.existsSync(publishedManifestPath)
+              ? cleanVersion(readManifest(publishedManifestPath).version)
+              : null;
+
+            normalizeManifest(currentCompare, plugin.manifest);
+            normalizeManifest(baseCompare, plugin.manifest);
+
+            const baseExists = plugin.paths.every((relativePath) => fs.existsSync(path.join(baseDir, relativePath)));
+            const hasChanged = !baseExists || digestTree(currentCompare) !== digestTree(baseCompare);
+
+            if (!hasChanged) {
+              notes.push(`${plugin.name}: no non-version changes`);
+              continue;
+            }
+
+            if (previousVersion && publishVersion === previousVersion) {
+              throw new Error(`${plugin.name} content changed, but publish version is still ${publishVersion}. Bump ${plugin.manifest} before publishing.`);
+            }
+
+            for (const relativePath of plugin.paths) {
+              copyPath(process.cwd(), publishDir, relativePath);
+            }
+            writeCleanManifest(publishDir, plugin.manifest);
+
+            changed.push({
+              key: plugin.key,
+              name: plugin.name,
+              manifest: plugin.manifest,
+              publishVersion,
+              previousVersion,
+            });
+            notes.push(`${plugin.name}: ${previousVersion ? `${previousVersion} -> ` : ""}${publishVersion}`);
+          }
+
+          const changedJson = JSON.stringify(changed);
+          fs.appendFileSync(outputPath, `changed=${changed.length > 0 ? "true" : "false"}\n`);
+          fs.appendFileSync(outputPath, `changed_plugins=${changedJson}\n`);
+          fs.appendFileSync(outputPath, `summary<<EOF\n${notes.join("\n")}\nEOF\n`);
+
+          console.log(notes.join("\n"));
+          NODE
+
+      - name: Publish plugin branch
+        if: ${{ steps.compare.outputs.changed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          publish_worktree="$RUNNER_TEMP/specflow-plugin-branch"
+          rm -rf "$publish_worktree"
+          git worktree add "$publish_worktree" "origin/$PLUGIN_BRANCH"
+          cd "$publish_worktree"
+          git switch -C "$PLUGIN_BRANCH" "origin/$PLUGIN_BRANCH"
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R "${{ steps.base.outputs.publish_dir }}/." "$publish_worktree/"
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No published branch changes after comparison."
+            exit 0
+          fi
+
+          git commit -m "chore: publish Specflow plugins"
+          git push origin "$PLUGIN_BRANCH"
+
+      - name: Open development version bump PR
+        id: bump
+        if: ${{ steps.compare.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_PLUGINS: ${{ steps.compare.outputs.changed_plugins }}
+          CODEX_BUMP_PART: ${{ inputs.codex_bump }}
+          CLAUDE_BUMP_PART: ${{ inputs.claude_bump }}
+        run: |
+          set -euo pipefail
+
+          timestamp="$(date -u +%Y%m%d%H%M%S)"
+          export TIMESTAMP="$timestamp"
+          updated_file="$RUNNER_TEMP/specflow-plugin-updated.txt"
+          body_file="$RUNNER_TEMP/specflow-plugin-bump-pr.md"
+          export UPDATED_FILE="$updated_file"
+
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const changed = JSON.parse(process.env.CHANGED_PLUGINS || "[]");
+          const bumpParts = {
+            codex: process.env.CODEX_BUMP_PART || "patch",
+            claude: process.env.CLAUDE_BUMP_PART || "patch",
+          };
+          const suffixes = {
+            codex: "codex",
+            claude: "claude",
+          };
+
+          function bumpVersion(version, part) {
+            const clean = String(version ?? "").split("+")[0];
+            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(clean);
+            if (!match) {
+              throw new Error(`Cannot auto-bump non-stable plugin version: ${version}`);
+            }
+
+            let major = Number(match[1]);
+            let minor = Number(match[2]);
+            let patch = Number(match[3]);
+
+            if (part === "major") {
+              major += 1;
+              minor = 0;
+              patch = 0;
+            } else if (part === "minor") {
+              minor += 1;
+              patch = 0;
+            } else if (part === "patch") {
+              patch += 1;
+            } else {
+              throw new Error(`Invalid bump component: ${part}`);
+            }
+
+            return `${major}.${minor}.${patch}`;
+          }
+
+          const updated = [];
+          for (const plugin of changed) {
+            const manifest = JSON.parse(fs.readFileSync(plugin.manifest, "utf8"));
+            const nextCleanVersion = bumpVersion(plugin.publishVersion, bumpParts[plugin.key]);
+            const nextDevVersion = `${nextCleanVersion}+${suffixes[plugin.key]}.${process.env.TIMESTAMP}`;
+            manifest.version = nextDevVersion;
+            fs.writeFileSync(plugin.manifest, `${JSON.stringify(manifest, null, 2)}\n`);
+            updated.push(`${plugin.name}: ${plugin.publishVersion} -> ${nextDevVersion}`);
+          }
+
+          fs.writeFileSync(process.env.UPDATED_FILE, `${updated.join("\n")}\n`);
+          NODE
+
+          if git diff --quiet -- "$CODEX_MANIFEST_FILE" "$CLAUDE_MANIFEST_FILE"; then
+            echo "No development version changes needed."
+            exit 0
+          fi
+
+          branch_version="${timestamp}"
+          bump_branch="chore/bump-specflow-plugins-$branch_version"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$bump_branch"
+          git add "$CODEX_MANIFEST_FILE" "$CLAUDE_MANIFEST_FILE"
+          git commit -m "chore: bump Specflow plugin dev versions"
+          git push --force-with-lease origin "$bump_branch"
+
+          existing_pr="$(gh pr list --base master --head "$bump_branch" --json url --jq '.[0].url')"
+          if [ -n "$existing_pr" ]; then
+            echo "Development version bump PR already exists: $existing_pr"
+            exit 0
+          fi
+
+          cat > "$body_file" <<EOF
+          Specflow plugins were published to \`$PLUGIN_BRANCH\`.
+
+          Published changes:
+
+          \`\`\`
+          ${{ steps.compare.outputs.summary }}
+          \`\`\`
+
+          Next development versions:
+
+          \`\`\`
+          $(cat "$updated_file")
+          \`\`\`
+          EOF
+
+          gh pr create \
+            --base master \
+            --head "$bump_branch" \
+            --title "chore: bump Specflow plugin dev versions" \
+            --body-file "$body_file"

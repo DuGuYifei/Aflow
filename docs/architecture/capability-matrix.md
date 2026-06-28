@@ -5,7 +5,9 @@
 - Aflow agent：`packages/aflow` 里的原生 Pi/TUI agent 入口。
 - UI：由 `specflow serve` 提供的浏览器应用。
 - Codex plugin：`plugins/specflow-codex` 里的 Codex plugin，通过
-  `specflow mcp` 工作。
+  `specflow mcp` 工作。Claude Code plugin 使用同一个 MCP/server 模型，入口在
+  `plugins/specflow-claude`；本表的 MCP 能力描述同样适用于 Claude Code，除非
+  明确写了 Codex 专属 UI/安装行为。
 
 相关架构入口见 `docs/architecture/system-architecture.md`。ACP 细节见
 `docs/architecture/acp-capabilities.md`。
@@ -77,7 +79,7 @@
 | project/global skill discovery | 支持：server `SkillStore` 在 prompt transform 时加载 | 支持：`/api/skills` 和 capability APIs 供 autocomplete 使用 | 间接支持：Codex plugin 自己有 Codex skill；runtime ACP skills 属于 server/agent 行为 |
 | Design app/project runtime | 通常不是 Aflow agent 主路径 | 支持：`packages/server/src/design` 和 `packages/ui/src/design` | 当前没有直接 MCP tools |
 | static UI embedding in binary | 和 Aflow agent 行为无关 | 支持：`packages/server/src/static-ui-assets.generated.ts` 提供 built UI | 无关：plugin 不打包 UI |
-| plugin 安装/发布 | 不适用 | 不适用 | 支持：`.codex-plugin/plugin.json`、`.mcp.json`、`skills/`；从 `codex-plugin` branch 分发，不内置 binary |
+| plugin 安装/发布 | 不适用 | 不适用 | 支持：Codex 用 `.codex-plugin/plugin.json`，Claude Code 用 `.claude-plugin/plugin.json`，两者都有 `.mcp.json` 和 `skills/`；从 `specflow-plugin` branch 分发，不内置 binary |
 
 ## 有意不完全一致的地方
 

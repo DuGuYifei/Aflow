@@ -48,10 +48,11 @@ stores 上。Aflow、UI、Codex 只是不同入口。
 | `packages/ui` | 浏览器应用。负责可视化 canvas editor、run controls、logs/timeline、interactions、auth terminal modal、agent server manager、skill/command autocomplete 和 design UI。 |
 | `packages/server` | workspace server。负责 HTTP APIs、static UI serving、workspace 初始化、workflow source IO、canvas IO、validation、run orchestration、run control、logs、sessions、agent server config、skills、auth、assets 和 design APIs。 |
 | `packages/client` | `@specflow/client` 通用 HTTP/SSE client package，当前供 MCP/Codex 和未来其他非浏览器 plugin/agent 入口使用。它应该保持薄层，不复制业务规则。 |
-| `packages/mcp` | Codex 的 stdio MCP 层。定位或启动 workspace server，暴露 MCP tools，并把 tool calls 翻译成 `@specflow/client` 调用。 |
+| `packages/mcp` | Specflow 的 stdio MCP 层。定位或启动 workspace server，暴露 MCP tools，并把 tool calls 翻译成 `@specflow/client` 调用；Codex plugin 和 Claude Code plugin 共用这一层。 |
 | `packages/workflow` | 共享 workflow schema/model validation 组件。这里的 workflow 是通用执行术语，不等于必须改用户可见文件夹名。 |
 | `packages/shared` | 共享 constants、UUID、SSE event names/types 和公共 types。 |
 | `plugins/specflow-codex` | 可安装的 Codex plugin metadata、MCP config 和 Codex skill instructions。不打包 Specflow binary。 |
+| `plugins/specflow-claude` | 可安装的 Claude Code plugin metadata、MCP config 和 Claude Code skill instructions。不打包 Specflow binary。 |
 | `docs/public/tutorial` | 面向最终用户的教程文档。 |
 | `docs/decisions` | ADR 风格的设计决策。适合解释为什么这样设计，但不是完整运行地图。 |
 

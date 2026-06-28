@@ -2,7 +2,7 @@
 title: Codex Plugin
 description: Install and use the Specflow Codex plugin.
 order: 40
-updatedAt: 2026-06-26
+updatedAt: 2026-06-28
 ---
 
 # Codex Plugin
@@ -53,7 +53,7 @@ Install and enable `specflow-codex`.
 For the published marketplace branch:
 
 ```sh
-codex plugin marketplace add DuGuYifei/Aflow --ref codex-plugin
+codex plugin marketplace add DuGuYifei/Aflow --ref specflow-plugin
 codex
 /plugins
 ```
@@ -65,7 +65,7 @@ Install and enable `specflow-codex`.
 Use **Add plugin marketplace**:
 
 - Source: `github.com/DuGuYifei/Aflow`
-- Git ref: `codex-plugin`
+- Git ref: `specflow-plugin`
 - Sparse paths: leave empty
 
 Install `specflow-codex`, start a new local repository thread, and ask Codex to

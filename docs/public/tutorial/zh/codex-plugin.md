@@ -2,7 +2,7 @@
 title: Codex 插件
 description: 安装并使用 Specflow Codex 插件。
 order: 40
-updatedAt: 2026-06-26
+updatedAt: 2026-06-28
 ---
 
 # Codex 插件
@@ -53,7 +53,7 @@ codex
 发布后，从插件分支安装：
 
 ```sh
-codex plugin marketplace add DuGuYifei/Aflow --ref codex-plugin
+codex plugin marketplace add DuGuYifei/Aflow --ref specflow-plugin
 codex
 /plugins
 ```
@@ -65,7 +65,7 @@ codex
 在 **Add plugin marketplace** 中填写：
 
 - Source: `github.com/DuGuYifei/Aflow`
-- Git ref: `codex-plugin`
+- Git ref: `specflow-plugin`
 - Sparse paths: 留空
 
 安装 `specflow-codex` 后，在目标仓库中新开一个 local thread，然后要求 Codex
