@@ -18,10 +18,10 @@ patching or `pauseAfterRun` ACP conversations.
   start the persistent workspace Specflow server.
 - Treat returned `serverUrl` and `runId` as durable handles for follow-up tool
   calls.
-- When the user needs Specflow UI, auth, or Designer, use the returned
-  `serverUrl`: in Codex Desktop, try to open the right-side browser to that UI;
-  otherwise try to open Chrome to the UI. If no browser action is available, do
-  not block. Always tell the user both the UI URL and the `/design` URL.
+- Once a tool returns `serverUrl`, proactively surface the Specflow UI: in
+  Codex Desktop, try to open the right-side browser to that UI; otherwise try
+  to open Chrome to the UI. If no browser action is available, do not block.
+  Always tell the user both the UI URL and the `/design` URL.
 
 ## Workflow Authoring
 
