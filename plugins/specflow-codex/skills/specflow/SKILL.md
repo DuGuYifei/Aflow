@@ -18,13 +18,22 @@ patching or `pauseAfterRun` ACP conversations.
   start the persistent workspace Specflow server.
 - Treat returned `serverUrl` and `runId` as durable handles for follow-up tool
   calls.
-- Once a tool returns `serverUrl`, proactively surface the Specflow UI: in
-  Codex Desktop, try to open the right-side browser to that UI; otherwise try
-  to open Chrome to the UI. If no browser action is available, do not block.
-  Always tell the user both the UI URL and the `/design` URL.
+- Once a Specflow MCP tool first returns a `serverUrl` in the current chat,
+  proactively surface the Specflow UI once for that `serverUrl`: in Codex
+  Desktop, try to open the right-side browser to that UI; otherwise try to open
+  Chrome to the UI. Do not open duplicate tabs for the same `serverUrl` in the
+  same chat. If no browser action is available, do not block. Always tell the
+  user both the UI URL and the `/design` URL.
 
 ## Workflow Authoring
 
+- Before creating a new workflow, read `references/create-workflow.md` and
+  `references/workflow-authoring.md`.
+- Before adapting an existing workflow, read
+  `references/fork-adapt-workflow.md` and
+  `references/workflow-authoring.md`.
+- For small edits to an existing workflow, read
+  `references/workflow-authoring.md` only when schema details are needed.
 - List workflows with `specflow_list_workflows`.
 - Read YAML with `specflow_read_workflow`.
 - Before adapting an existing workflow, fork it with
@@ -53,9 +62,8 @@ patching or `pauseAfterRun` ACP conversations.
 - Do not treat workflow authoring as permission to change agent server config.
 - For custom/headless or non-registry agents, ask the user to configure the
   agent in Specflow UI; do not write raw agent server JSON.
-- Agent authentication is still handled in Specflow UI; after saving a server,
-  ask the user to authenticate in the UI if prepare/start reports auth is
-  required.
+- Agent authentication is handled in Specflow UI or Aflow. If prepare/start
+  reports auth is required, ask the user to authenticate there and retry.
 - Use `specflow_get_agent_capabilities` or
   `specflow_refresh_agent_capabilities` to inspect supported ACP modes,
   permissions, and config options before hard-coding them in workflow YAML.
@@ -67,7 +75,7 @@ patching or `pauseAfterRun` ACP conversations.
 - Ask the user for missing variables in chat, then call prepare/start again
   with `variableValues`.
 - If prepare/start reports missing agent authentication, tell the user to open
-  the Specflow UI and authenticate there, then retry. Codex does not drive
+  Specflow UI or Aflow and authenticate there, then retry. Codex does not drive
   terminal/TUI auth through this plugin.
 - Before starting a run, ask the user to choose Normal run or Dynamic review
   unless they already specified the mode.

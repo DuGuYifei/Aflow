@@ -27,6 +27,13 @@ patching or `pauseAfterRun` ACP conversations.
 
 ## Workflow Authoring
 
+- Before creating a new workflow, read `references/create-workflow.md` and
+  `references/workflow-authoring.md`.
+- Before adapting an existing workflow, read
+  `references/fork-adapt-workflow.md` and
+  `references/workflow-authoring.md`.
+- For small edits to an existing workflow, read
+  `references/workflow-authoring.md` only when schema details are needed.
 - List workflows with `specflow_list_workflows`.
 - Read YAML with `specflow_read_workflow`.
 - Before adapting an existing workflow, fork it with
