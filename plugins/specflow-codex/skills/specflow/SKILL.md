@@ -18,6 +18,10 @@ patching or `pauseAfterRun` ACP conversations.
   start the persistent workspace Specflow server.
 - Treat returned `serverUrl` and `runId` as durable handles for follow-up tool
   calls.
+- When the user needs Specflow UI, auth, or Designer, use the returned
+  `serverUrl`: in Codex Desktop, try to open the right-side browser to that UI;
+  otherwise try to open Chrome to the UI. If no browser action is available, do
+  not block. Always tell the user both the UI URL and the `/design` URL.
 
 ## Workflow Authoring
 
@@ -69,6 +73,11 @@ patching or `pauseAfterRun` ACP conversations.
 - For long-running workflows, use bounded waits. If a tool returns before the
   run finishes, keep the `runId` and poll with `specflow_get_run` or continue
   with the relevant run tool.
+- Use `specflow_pause_run`, `specflow_play_run`, `specflow_interrupt_run`, and
+  `specflow_stop_run` only for existing active runs. `pause` and `interrupt`
+  can be resumed with `play` when the server reports the run can continue.
+  `stop` is terminal for that run; use continuation, rerun, or a new run
+  instead of trying to play it afterward.
 - Use `specflow_rerun`, `specflow_delete_run`, and
   `specflow_save_run_best_practice` only when the user explicitly asks to rerun,
   delete, or preserve a successful runtime snapshot as a workflow.

@@ -34,11 +34,11 @@ export async function runAflowAgent(args: string[], options: RunAflowAgentOption
       }
     }
   }
+  const specflow = await connectOrStartSpecflowServer({ cwd: process.cwd() });
   const extensionFactories = [
-    createAflowPiExtension(),
+    createAflowPiExtension({ specflowUrl: specflow.url }),
     ...(options.extensionFactories ?? []),
   ];
-  const specflow = await connectOrStartSpecflowServer({ cwd: process.cwd() });
   try {
     await piMain(withAflowSystemPrompt(args), { extensionFactories });
   } finally {

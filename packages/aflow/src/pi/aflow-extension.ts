@@ -17,15 +17,15 @@ const AFLOW_LOGO_LINES = [
   "▄▀█ █▀▀ █   █▀█ █ █ █",
   "█▀█ █▀  █▄▄ █▄█ ▀▄▀▄▀",
 ];
-const AFLOW_IDENTITY_LINES = [
-  `${AFLOW_GREEN}Aflow Agent${RESET} is built on Pi.`,
-  `${DIM}- You can ask Aflow to create, adapt, validate, run, and continue Specflow workflows.${RESET}`,
-  `${DIM}- Pi can explain its own features and look up its docs. Ask it how to use or extend Pi / Aflow.${RESET}`,
-];
 
-export function createAflowPiExtension(): ExtensionFactory {
+export interface AflowPiExtensionOptions {
+  specflowUrl?: string;
+}
+
+export function createAflowPiExtension(options: AflowPiExtensionOptions = {}): ExtensionFactory {
   return (pi: ExtensionAPI) => {
     registerAflowTools(pi);
+    const identityLines = buildAflowIdentityLines(options.specflowUrl);
 
     pi.registerCommand("specflow-create", {
       description: "Create a Specflow v2 workflow from a business goal",
@@ -79,7 +79,7 @@ export function createAflowPiExtension(): ExtensionFactory {
               return [
                 `${PANDA} ${AFLOW_GREEN}Aflow${RESET}`,
                 theme.fg("muted", "Agentic Workflow Agent"),
-                ...AFLOW_IDENTITY_LINES,
+                ...identityLines,
               ];
             }
 
@@ -88,7 +88,7 @@ export function createAflowPiExtension(): ExtensionFactory {
               `${AFLOW_GREEN}${AFLOW_LOGO_LINES[0]}${RESET}`,
               `${AFLOW_GREEN}${AFLOW_LOGO_LINES[1]}${RESET}`,
               theme.fg("muted", "Agentic Workflow Agent"),
-              ...AFLOW_IDENTITY_LINES,
+              ...identityLines,
             ];
           },
           invalidate() {},
@@ -96,6 +96,21 @@ export function createAflowPiExtension(): ExtensionFactory {
       }
     });
   };
+}
+
+function buildAflowIdentityLines(specflowUrl: string | undefined): string[] {
+  const lines = [
+    `${AFLOW_GREEN}Aflow Agent${RESET} is built on Pi.`,
+    `${DIM}- You can ask Aflow to create, adapt, validate, run, and continue Specflow workflows.${RESET}`,
+    `${DIM}- Pi can explain its own features and look up its docs. Ask it how to use or extend Pi / Aflow.${RESET}`,
+  ];
+
+  if (specflowUrl) {
+    lines.push(`${DIM}- Specflow UI: ${specflowUrl}${RESET}`);
+    lines.push(`${DIM}- Designer: ${new URL("design", specflowUrl).toString()}${RESET}`);
+  }
+
+  return lines;
 }
 
 function sendAflowCommandPrompt(pi: ExtensionAPI, ctx: ExtensionCommandContext, prompt: string): void {
