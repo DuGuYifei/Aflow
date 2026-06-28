@@ -45,6 +45,30 @@ describe("specflow workflow tools", () => {
     expect([playTool?.description, ...(playTool?.promptGuidelines ?? [])].join("\n")).toContain("Stopped runs cannot be played");
   });
 
+  test("documents dynamic review as an Aflow-driven checkpoint loop", () => {
+    const tools: Array<{ name: string; description?: string; promptSnippet?: string; promptGuidelines?: string[] }> = [];
+    registerSpecflowWorkflowTools({
+      registerTool(tool) {
+        tools.push(tool as { name: string; description?: string; promptSnippet?: string; promptGuidelines?: string[] });
+      },
+    } as ExtensionAPI);
+
+    const runTool = tools.find((tool) => tool.name === "specflow_run_workflow");
+    const nextTool = tools.find((tool) => tool.name === "specflow_run_to_next_checkpoint");
+    const visibleText = [
+      runTool?.description,
+      runTool?.promptSnippet,
+      ...(runTool?.promptGuidelines ?? []),
+      nextTool?.description,
+      nextTool?.promptSnippet,
+      ...(nextTool?.promptGuidelines ?? []),
+    ].join("\n");
+
+    expect(visibleText).toContain("Normal run or AI-driven Dynamic review");
+    expect(visibleText).toContain("Aflow-driven checkpoint review");
+    expect(visibleText).toContain("Do not ask the user at every checkpoint");
+  });
+
   test("registers agent server and native resume tools with conservative guidance", () => {
     const tools: Array<{ name: string; description?: string; promptSnippet?: string; promptGuidelines?: string[] }> = [];
     registerSpecflowWorkflowTools({

@@ -7,6 +7,7 @@ describe("slash prompts", () => {
 
     expect(prompt).toContain("call `specflow_run_workflow`");
     expect(prompt).toContain("later checkpoints are reached with `specflow_run_to_next_checkpoint`");
+    expect(prompt).toContain("Dynamic review is Aflow-driven checkpoint review, not user-driven stepping");
     expect(prompt).not.toContain("specflow_run_and_pause");
     expect(prompt).not.toContain("specflow_play_run");
     expect(prompt).not.toContain("specflow_patch_run_snapshot");

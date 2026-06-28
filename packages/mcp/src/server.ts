@@ -115,7 +115,7 @@ const tools: ToolDefinition[] = [
       variableValues: stringRecord(args["variableValues"]),
     })) });
   }),
-  tool("specflow_start_run", "Start a normal or dynamic run. Dynamic mode pauses after first activation.", {
+  tool("specflow_start_run", "Start a normal or AI-driven dynamic review run. Ask the user to choose Normal or Dynamic before calling unless the mode is already explicit.", {
     workflowId: { type: "string" },
     initialInput: { type: "string" },
     variableValues: { type: "object" },
@@ -363,6 +363,8 @@ async function handleRequest(message: JsonRpcRequest, options: SpecflowMcpServer
       instructions: [
         "Use Specflow MCP tools for workflow file operations, validation, prepare-run, runs, dynamic checkpoints, runtime graph patches, pauseAfterRun ACP conversations, interactions, and sessions.",
         "Codex does not perform agent authentication. If prepare/start reports auth is required, ask the user to open Specflow UI and authenticate there, then retry.",
+        "Before starting a run, ask the user to choose Normal run or Dynamic review unless they already specified the mode.",
+        "Dynamic review is Codex-driven checkpoint review: inspect completed node text, patch only the current run snapshot when needed, then continue without asking the user at every checkpoint.",
         "Use registry install/update tools only when the user explicitly asks to add/update registry agents; custom/headless agents must be configured in Specflow UI.",
         "Use native resume command tools only for recorded sessions, and do not invent commands when the tool reports unavailable.",
         "For dynamic pauseAfterRun, prompt/continue the paused node first, continue with play:false, then call specflow_run_to_next_checkpoint.",

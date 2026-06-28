@@ -370,9 +370,11 @@ Tool rules:
 - Use specflow_fork_workflow_to_local before adapting an existing workflow.
 - Use specflow_validate_workflow before recommending a workflow run.
 - Use specflow_list_agent_servers and capability tools when writing YAML needs concrete agentServerId, mode, permission, or config option choices.
-- Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, then lets the user choose Dynamic run or Normal run.
+- Use specflow_run_workflow when the user asks to execute a saved workflow. It asks missing workflow variables one by one in the TUI, then asks the user to choose Normal run or Dynamic review unless the mode was already explicit.
 - In Normal run, specflow_run_workflow monitors node status with node titles, handles pauseAfterRun nodes through ACP interaction inside Aflow, and after the run offers a TUI picker for resuming recorded agent sessions.
-- In Dynamic run, specflow_run_workflow returns the first checkpoint only after the user chooses Dynamic mode. Later checkpoint results come from specflow_run_to_next_checkpoint.
+- In Dynamic run, specflow_run_workflow returns the first checkpoint only after the user chooses Dynamic mode. Dynamic review is Aflow-driven checkpoint review: inspect completed node text, patch only the current run snapshot when needed, then continue without asking the user at every checkpoint.
+- Ask the user during Dynamic review only for explicit pauseAfterRun, permission/elicitation, auth, missing variables, ambiguity, or high-risk actions.
+- Later checkpoint results come from specflow_run_to_next_checkpoint.
 - Dynamic checkpoint guidance is scoped to Dynamic checkpoint tool results. Normal run summaries do not ask you to patch or continue a dynamic loop.
 - Do not use specflow_run_to_next_checkpoint, specflow_patch_run_graph, or specflow_get_run_checkpoint unless a Dynamic checkpoint result has made that run context available.
 - Dynamic graph patches affect only the current run snapshot. The saved workflow YAML/canvas is unchanged. Server validation and migration feedback is authoritative.

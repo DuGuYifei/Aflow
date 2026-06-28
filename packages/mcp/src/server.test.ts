@@ -84,6 +84,13 @@ describe("Specflow MCP server", () => {
     expect(updateTool?.description).toContain("custom/headless");
   });
 
+  test("documents dynamic review as an explicit user-selected AI loop", () => {
+    const startTool = listSpecflowMcpTools().find((tool) => tool.name === "specflow_start_run");
+
+    expect(startTool?.description).toContain("AI-driven dynamic review");
+    expect(startTool?.description).toContain("Ask the user to choose Normal or Dynamic");
+  });
+
   test("speaks newline-delimited MCP stdio used by Codex", async () => {
     const child = spawn(process.execPath, [
       "--eval",

@@ -52,7 +52,7 @@ const RunWorkflowParams = Type.Object({
   initialInput: Type.Optional(Type.String({ description: "Optional freeform run context. Use variableValues for declared specflow_* workflow variables." })),
   variableValues: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Known specflow_* variable values." })),
   waitForCompletion: Type.Optional(Type.Boolean({ description: "Wait and show node status until the run completes or pauses. Defaults to true." })),
-  dynamicReview: Type.Optional(Type.Boolean({ description: "Pause after each activation so Aflow can review completedNodeText and optionally patch this run snapshot. Does not edit the saved workflow." })),
+  dynamicReview: Type.Optional(Type.Boolean({ description: "Run AI-driven Dynamic review: pause after each activation so Aflow can inspect completedNodeText, optionally patch this run snapshot, and continue. Does not edit the saved workflow." })),
   serverUrl: Type.Optional(Type.String({ description: "Optional Specflow server URL." })),
 });
 
@@ -192,13 +192,15 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_run_workflow",
     label: "Run Workflow",
-    description: "Run a saved Specflow workflow. Missing required workflow variables are asked one by one in the TUI.",
-    promptSnippet: "Run a saved Specflow workflow and collect missing workflow variables interactively.",
+    description: "Run a saved Specflow workflow. Missing variables are asked one by one, then the TUI asks Normal run or AI-driven Dynamic review.",
+    promptSnippet: "Run a saved Specflow workflow, collect missing workflow variables interactively, then choose Normal or Dynamic run mode.",
     promptGuidelines: [
       "Use after extracting the workflow id from /specflow-run context.",
       "Pass any already-known specflow_* variables in variableValues.",
       "Use initialInput only for optional freeform run context; do not use it as a substitute for declared workflow variables.",
       "Let this tool ask missing workflow variables one by one instead of asking them all at once.",
+      "The TUI asks the user to choose Normal run or Dynamic review before starting unless the mode was explicitly supplied.",
+      "Dynamic review is Aflow-driven checkpoint review: inspect completed node text, patch only the current run snapshot when needed, then continue without asking the user at every checkpoint.",
     ],
     parameters: RunWorkflowParams,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -744,10 +746,11 @@ export function registerSpecflowWorkflowTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "specflow_run_to_next_checkpoint",
     label: "Run To Next Checkpoint",
-    description: "Advance an existing Dynamic run to the next checkpoint or terminal status. If the run is already running, waits instead of playing again.",
-    promptSnippet: "Advance an existing Dynamic run to its next checkpoint only after a Dynamic checkpoint result instructs you to continue.",
+    description: "Advance an existing AI-driven Dynamic review run to the next checkpoint or terminal status. If the run is already running, waits instead of playing again.",
+    promptSnippet: "Advance an existing Dynamic review run to its next checkpoint only after inspecting the checkpoint and deciding no user input is needed.",
     promptGuidelines: [
       "Use only after a Dynamic checkpoint result explicitly indicates the run is in Dynamic mode.",
+      "Do not ask the user at every checkpoint; continue yourself unless pauseAfterRun, permission/elicitation, auth, missing variables, ambiguity, or a high-risk action requires user input.",
       "If the run is paused or interrupted, this tool plays once and arms pauseAfterNextActivation.",
       "If the run is already running, this tool does not play again; it only waits for the next checkpoint.",
       "This continues the same run id; it does not create a continuation run.",
@@ -882,7 +885,7 @@ async function chooseDynamicReviewMode(
     "Choose Specflow run mode",
     "",
     "Normal run uses the saved workflow behavior.",
-    "Dynamic run pauses after each node so Aflow can review completed node text and optionally adjust only this run snapshot.",
+    "Dynamic run is Aflow-driven checkpoint review: after each node, Aflow inspects completed node text, optionally adjusts only this run snapshot, then continues unless user input is genuinely required.",
     "The saved agentflow will not be changed.",
   ].join("\n"), suggested === true ? [normalLabel, dynamicLabel] : [normalLabel, dynamicLabel]);
   if (!selected) return undefined;
@@ -1178,7 +1181,8 @@ function formatDynamicCheckpointText(details: DynamicCheckpointDetails): string 
     formatRuntimeGraph(details.graph),
     "",
     "Dynamic review guidance:",
-    "- Treat this as a lightweight alignment check. In most checkpoints, continue unchanged with specflow_run_to_next_checkpoint.",
+    "- Treat this as a lightweight AI alignment check, not a user approval step. In most checkpoints, continue unchanged with specflow_run_to_next_checkpoint.",
+    "- Ask the user only for explicit pauseAfterRun, permission/elicitation, auth, missing variables, ambiguity, or high-risk actions.",
     "- Patch only when completedNodeText gives clear evidence that the remaining run will drift from the user's goal, miss required information, choose the wrong branch, use stale assumptions, or hit avoidable downstream failure.",
     "- Patch only this run snapshot with specflow_patch_run_graph structured operations; the saved agentflow is unchanged.",
     "- Allowed edit classes are current, future, and history_future. history_only and inactive edits are rejected unless the server can migrate a future topology operation.",

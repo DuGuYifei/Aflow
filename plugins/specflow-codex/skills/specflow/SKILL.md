@@ -69,6 +69,8 @@ patching or `pauseAfterRun` ACP conversations.
 - If prepare/start reports missing agent authentication, tell the user to open
   the Specflow UI and authenticate there, then retry. Codex does not drive
   terminal/TUI auth through this plugin.
+- Before starting a run, ask the user to choose Normal run or Dynamic review
+  unless they already specified the mode.
 - Start normal or dynamic runs with `specflow_start_run`.
 - For long-running workflows, use bounded waits. If a tool returns before the
   run finishes, keep the `runId` and poll with `specflow_get_run` or continue
@@ -84,8 +86,10 @@ patching or `pauseAfterRun` ACP conversations.
 
 ## Dynamic Review
 
-Dynamic review pauses after activations so Codex can inspect the completed node
-text and optionally patch only the current run snapshot.
+Dynamic review is Codex-driven checkpoint review, not user-driven stepping. It
+pauses after activations so Codex can inspect the completed node text,
+optionally patch only the current run snapshot, and continue without asking the
+user at every checkpoint.
 
 - Start with `dynamicReview: true`.
 - Inspect with `specflow_get_run_checkpoint`.
@@ -93,6 +97,9 @@ text and optionally patch only the current run snapshot.
   change.
 - Patch with structured `specflow_patch_run_graph` operations, not full YAML.
 - Continue with `specflow_run_to_next_checkpoint`.
+- Ask the user during dynamic review only for explicit `pauseAfterRun`,
+  permission/elicitation, auth, missing variables, ambiguity, or high-risk
+  actions.
 
 ## pauseAfterRun ACP Conversations
 
