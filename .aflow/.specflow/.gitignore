@@ -9,5 +9,6 @@ design/projects/
 design/settings.json
 prd/drafts/
 cache/
+spec/
 agent-servers.local.json
 server.json
