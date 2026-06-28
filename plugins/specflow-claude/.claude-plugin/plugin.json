@@ -1,6 +1,6 @@
 {
   "name": "specflow-claude",
-  "version": "0.1.0+claude.20260628120000",
+  "version": "0.1.1+claude.20260628114850",
   "description": "Use Specflow workflows from Claude Code through the local specflow mcp server.",
   "author": {
     "name": "Aflow",
