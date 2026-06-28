@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-28T07:53:34.090Z",
+  "generatedAt": "2026-06-28T11:48:03.313Z",
   "sections": [
     {
       "id": "tutorial",
@@ -74,8 +74,17 @@
           "title": "Codex Plugin",
           "description": "Install and use the Specflow Codex plugin.",
           "order": 40,
-          "updatedAt": "2026-06-26",
+          "updatedAt": "2026-06-28",
           "path": "docs/tutorial/en/codex-plugin.md"
+        },
+        {
+          "id": "claude-code-plugin",
+          "locale": "en",
+          "title": "Claude Code Plugin",
+          "description": "Install and use the Specflow Claude Code plugin.",
+          "order": 41,
+          "updatedAt": "2026-06-28",
+          "path": "docs/tutorial/en/claude-code-plugin.md"
         },
         {
           "id": "aflow-ui-codex-capabilities",
@@ -155,8 +164,17 @@
           "title": "Codex 插件",
           "description": "安装并使用 Specflow Codex 插件。",
           "order": 40,
-          "updatedAt": "2026-06-26",
+          "updatedAt": "2026-06-28",
           "path": "docs/tutorial/zh/codex-plugin.md"
+        },
+        {
+          "id": "claude-code-plugin",
+          "locale": "zh",
+          "title": "Claude Code 插件",
+          "description": "安装并使用 Specflow Claude Code 插件。",
+          "order": 41,
+          "updatedAt": "2026-06-28",
+          "path": "docs/tutorial/zh/claude-code-plugin.md"
         },
         {
           "id": "aflow-ui-codex-capabilities",
