@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-16T04:22:17.222Z",
+  "generatedAt": "2026-06-28T07:53:34.090Z",
   "sections": [
     {
       "id": "tutorial",
@@ -42,6 +42,15 @@
           "path": "docs/tutorial/en/aflow-agent.md"
         },
         {
+          "id": "write-workflow-yaml",
+          "locale": "en",
+          "title": "Workflow YAML Authoring Tutorial",
+          "description": "Learn the current Specflow workflow YAML format.",
+          "order": 4,
+          "updatedAt": "2026-06-27 00:00:00 CEST",
+          "path": "docs/tutorial/en/write-workflow-yaml.md"
+        },
+        {
           "id": "designer",
           "locale": "en",
           "title": "Designer Tutorial",
@@ -60,13 +69,22 @@
           "path": "docs/tutorial/en/glossary.md"
         },
         {
-          "id": "write-workflow-yaml",
+          "id": "codex-plugin",
           "locale": "en",
-          "title": "Deprecated: Workflow YAML v1 Authoring Tutorial",
-          "description": "Legacy v1 reference for Specflow agentflow YAML. New workflows should use version 2.",
-          "order": 99,
-          "updatedAt": "2026-06-13 06:27:21 CEST",
-          "path": "docs/tutorial/en/write-workflow-yaml.md"
+          "title": "Codex Plugin",
+          "description": "Install and use the Specflow Codex plugin.",
+          "order": 40,
+          "updatedAt": "2026-06-26",
+          "path": "docs/tutorial/en/codex-plugin.md"
+        },
+        {
+          "id": "aflow-ui-codex-capabilities",
+          "locale": "en",
+          "title": "Aflow / UI / Codex Capabilities",
+          "description": "Compare what Aflow Agent, Specflow UI, and the Codex plugin are best suited for.",
+          "order": 45,
+          "updatedAt": "2026-06-28",
+          "path": "docs/tutorial/en/aflow-ui-codex-capabilities.md"
         },
         {
           "id": "write-workflow-yaml-v2",
@@ -105,6 +123,15 @@
           "path": "docs/tutorial/zh/aflow-agent.md"
         },
         {
+          "id": "write-workflow-yaml",
+          "locale": "zh",
+          "title": "Workflow YAML 编写教程",
+          "description": "学习当前 Specflow workflow YAML 格式。",
+          "order": 4,
+          "updatedAt": "2026-06-27 00:00:00 CEST",
+          "path": "docs/tutorial/zh/write-workflow-yaml.md"
+        },
+        {
           "id": "designer",
           "locale": "zh",
           "title": "Designer 使用教程",
@@ -123,13 +150,22 @@
           "path": "docs/tutorial/zh/glossary.md"
         },
         {
-          "id": "write-workflow-yaml",
+          "id": "codex-plugin",
           "locale": "zh",
-          "title": "已废弃：Workflow YAML v1 编写教程",
-          "description": "Specflow agentflow YAML 的 v1 兼容参考。新 workflow 应使用 version 2。",
-          "order": 99,
-          "updatedAt": "2026-06-13 06:27:21 CEST",
-          "path": "docs/tutorial/zh/write-workflow-yaml.md"
+          "title": "Codex 插件",
+          "description": "安装并使用 Specflow Codex 插件。",
+          "order": 40,
+          "updatedAt": "2026-06-26",
+          "path": "docs/tutorial/zh/codex-plugin.md"
+        },
+        {
+          "id": "aflow-ui-codex-capabilities",
+          "locale": "zh",
+          "title": "Aflow / UI / Codex 能力对比",
+          "description": "对比 Aflow Agent、Specflow UI 和 Codex 插件分别适合做什么。",
+          "order": 45,
+          "updatedAt": "2026-06-28",
+          "path": "docs/tutorial/zh/aflow-ui-codex-capabilities.md"
         }
       ]
     }

@@ -28,7 +28,7 @@ specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 
 `validate` parses the YAML and checks whether the workflow is runnable. It does not start any agent.
 
-It checks structural rules for sessions, variables, nodes, edges, gates, loops, and `agentServerId` fields. v2 workflows use explicit start nodes, top-level variables, derived loop-closing edges, and branch-level `maxTraversals`. v1 workflows remain readable for compatibility. Validation also reads the workspace agent server configuration. If a `pauseAfterRun: true` node uses a headless agent, validation fails because headless agents do not provide interactive sessions.
+It checks structural rules for sessions, variables, nodes, edges, gates, loops, and `agentServerId` fields. Workflow YAML must use `version: 2`, explicit start nodes, top-level variables, derived loop-closing edges, and branch-level `maxTraversals`. Validation also reads the workspace agent server configuration. If a `pauseAfterRun: true` node uses a headless agent, validation fails because headless agents do not provide interactive sessions.
 
 If the workflow has required variables, `validate` still does not need `-D` values. Variable values belong to a specific run, not to the workflow structure.
 
@@ -77,8 +77,6 @@ For multiple variables, pass multiple `-D` values:
 ```sh
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
 ```
-
-v1 input nodes are also exposed as workflow variables during a run, so the same `-D` syntax works for legacy workflows.
 
 If the workflow has no required variables, no input arguments are required:
 

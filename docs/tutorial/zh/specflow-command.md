@@ -28,7 +28,7 @@ specflow validate .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml
 
 `validate` 只解析 YAML 并检查 workflow 是否满足可运行规则，不会启动 agent。
 
-它会检查 session、variables、node、edge、gate、loop 和 `agentServerId` 字段等结构规则。v2 workflow 使用显式 start 节点、顶层 variables、自动派生的 loop-closing edge，以及 branch 级别的 `maxTraversals`。v1 workflow 仍会为了兼容而读取。校验也会读取 workspace 的 agent server 配置；如果 `pauseAfterRun: true` 节点使用的是 headless agent，校验会失败，因为 headless agent 没有可交互 session。
+它会检查 session、variables、node、edge、gate、loop 和 `agentServerId` 字段等结构规则。Workflow YAML 必须使用 `version: 2`、显式 start 节点、顶层 variables、自动派生的 loop-closing edge，以及 branch 级别的 `maxTraversals`。校验也会读取 workspace 的 agent server 配置；如果 `pauseAfterRun: true` 节点使用的是 headless agent，校验会失败，因为 headless agent 没有可交互 session。
 
 如果 workflow 有 required variables，`validate` 也不需要传 `-D`。变量的具体值属于某次 run，而不是 workflow 结构本身。
 
@@ -77,8 +77,6 @@ specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dspecf
 ```sh
 specflow run .aflow/.specflow/agentflow/agentflows/code-review-flow.yaml -Dtask="Fix login" -Daudience="frontend team"
 ```
-
-v1 input node 在运行时也会作为 workflow 变量暴露出来，所以 legacy workflow 同样使用这套 `-D` 语法。
 
 如果 workflow 没有 required variables，就不需要输入参数：
 

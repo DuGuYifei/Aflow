@@ -145,7 +145,7 @@ prompt: |
 
 如果 `required: true` 且没有 `defaultValue`，Aflow 和 Specflow run 配置会在运行前询问变量值。
 
-v2 不要创建 `kind: input` 节点。input node 只用于 v1 兼容。
+不要创建 `kind: input` 节点。input node 是已不支持的旧结构。
 
 ## Start 节点
 
