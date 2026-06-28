@@ -23,7 +23,7 @@
 - [ ] token 计数。和  `usage_update` token 记录与展示。
 - [ ] `sessionUpdate: "plan"` - [ACP agent plan](https://agentclientprotocol.com/protocol/v1/agent-plan)。
 - [ ] `ask_user_question` based on client capability。（可能只有 Claude Code 支持）
-- [ ] SKILL 模式。
+- [x] ~~SKILL 模式。~~ Plugin模式
 - [ ] 更新 pi。
 - [ ] 版本更新提示，specflow和aflow界面都要有，目前aflow的提示不显示。
 
@@ -32,7 +32,7 @@
 - [ ] app。
 - [ ] UI 更新为和 homepage 一致的新风格。（还需要思考，主要是黑夜模式似乎对眼睛不够友好）
 - [ ] i18n 应当直接写入对应文件内，而不是统一分配，难以维护。
-- [ ] homepage switch to master branch to download。
+- [x] homepage switch to master branch to download。
 
 ## Recently Completed
 
