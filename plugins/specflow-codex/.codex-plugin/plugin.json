@@ -1,6 +1,6 @@
 {
   "name": "specflow-codex",
-  "version": "0.1.1+codex.20260628081440",
+  "version": "0.1.2+codex.20260628085355",
   "description": "Use Specflow workflows from Codex through the local specflow mcp server.",
   "author": {
     "name": "Aflow",
